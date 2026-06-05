@@ -2,8 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { View, TouchableOpacity, StyleSheet, Text } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAppContext } from '../contexts/AppContext';
-import { doc, getDoc } from 'firebase/firestore';
-import { db } from '../config/firebase';
+import { AuthService } from '../services/AuthService';
 import { logger } from '../utils/logger';
 
 interface ProfileIconProps {
@@ -36,28 +35,17 @@ export default function ProfileIcon({ navigation, size = 40, showName = false }:
         return;
       }
 
-      if (!db) {
-        setUserName(user.email?.split('@')[0] || 'Пользователь');
+      const profile = await AuthService.getCurrentUser();
+      if (profile?.fullName) {
+        setUserName(profile.fullName);
+        return;
+      }
+      if (profile?.email) {
+        setUserName(profile.email.split('@')[0]);
         return;
       }
 
-      const userDocRef = doc(db, 'users', user.uid);
-      const userDocSnap = await getDoc(userDocRef);
-
-      if (userDocSnap.exists()) {
-        const userData = userDocSnap.data();
-        if (userData.fullName) {
-          setUserName(userData.fullName);
-          return;
-        }
-        if (userData.email) {
-          // Используем первую часть email как имя, если fullName нет
-          setUserName(userData.email.split('@')[0]);
-          return;
-        }
-      }
-      
-      // Если данных нет, используем email из user объекта
+      // Fallback: данные из сессии приложения
       if (user.email) {
         setUserName(user.email.split('@')[0]);
       } else {

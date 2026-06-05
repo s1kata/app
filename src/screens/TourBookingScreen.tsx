@@ -27,9 +27,7 @@ import { TourOutput } from '../types/tourvisor';
 import type { TourSnapshot } from '../types';
 import { logger } from '../utils/logger';
 import { validatePassportData, validatePhone } from '../utils/validation';
-import { doc, getDoc } from 'firebase/firestore';
-import { db } from '../config/firebase';
-import { UserProfile } from '../types/firestore';
+import { AuthService } from '../services/AuthService';
 import { websiteTourService } from '../services/WebsiteTourService';
 import { notificationService } from '../services/NotificationService';
 
@@ -144,13 +142,10 @@ export default function TourBookingScreen({ navigation, route }: TourBookingScre
     if (!user?.uid || isGuest) return;
 
     try {
-      if (!db) return;
       setLoadingProfile(true);
-      const userDocRef = doc(db, 'users', user.uid);
-      const userDocSnap = await getDoc(userDocRef);
+      const userData = await AuthService.getCurrentUser();
 
-      if (userDocSnap.exists()) {
-        const userData = userDocSnap.data() as UserProfile;
+      if (userData) {
         const passport = userData.passport;
         const passportError = validatePassportData({
           series: passport?.series,
@@ -170,7 +165,6 @@ export default function TourBookingScreen({ navigation, route }: TourBookingScre
       } else {
         setUserHasPassport(false);
         setProfilePassportError('Заполните паспортные данные в профиле');
-        // Если профиля нет, используем данные из Firebase Auth
         setFormData(prev => ({
           ...prev,
           name: user.displayName || prev.name,

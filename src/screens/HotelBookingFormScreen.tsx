@@ -27,9 +27,7 @@ import { presentPaymentPollOutcome } from '../utils/paymentPollOutcomes';
 import { resolvePaymentAfterBrowser } from '../utils/paymentAfterBrowser';
 import { showPaymentStatusBar } from '../utils/paymentStatusBanner';
 import { requireAuthForBooking } from '../auth/requireAuth';
-import { doc, getDoc } from 'firebase/firestore';
-import { db } from '../config/firebase';
-import { UserProfile } from '../types/firestore';
+import { AuthService } from '../services/AuthService';
 import { logger } from '../utils/logger';
 import { notificationService } from '../services/NotificationService';
 import { validatePhone } from '../utils/validation';
@@ -137,11 +135,9 @@ export default function HotelBookingFormScreen({ navigation, route }: HotelBooki
   const loadUserProfile = async () => {
     if (!user?.uid || isGuest) return;
     try {
-      if (!db) return;
       setLoadingProfile(true);
-      const userDocSnap = await getDoc(doc(db, 'users', user.uid));
-      if (userDocSnap.exists()) {
-        const d = userDocSnap.data() as UserProfile;
+      const d = await AuthService.getCurrentUser();
+      if (d) {
         const passport = d.passport;
         setUserHasPassport(!!(passport?.series?.trim() && passport?.number?.trim()));
         setFormData(prev => ({

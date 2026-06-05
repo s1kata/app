@@ -1,6 +1,5 @@
-// firebase.ts — Firebase Auth удалён; auth через travelhub63.ru (auth-mobile.php).
-// Firestore опционален: если в extra заданы FIREBASE_* — кэш/данные могут работать.
-// Без ключей db/auth/storage = null (приложение использует SQL API и локальный кэш).
+// firebase.ts — Auth через travelhub63.ru (auth-mobile.php + SQL).
+// Firestore опционален (legacy): без FIREBASE_* в .env — db=null, брони в AsyncStorage, профиль через API.
 
 import { initializeApp, type FirebaseApp } from 'firebase/app';
 import { getFirestore, type Firestore } from 'firebase/firestore';

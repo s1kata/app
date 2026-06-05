@@ -26,6 +26,10 @@ npm-debug.*
 yarn-debug.*
 yarn-error.*
 
+# PHP config with DB passwords (only on server)
+auth-mobile.config.php
+api/auth-mobile.config.php
+
 # Environment variables
 .env
 .env.local

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import * as SplashScreen from 'expo-splash-screen';
+import { db } from '../config/firebase';
 import { firestoreSyncService } from '../services/FirestoreSyncService';
 import { networkService } from '../services/NetworkService';
 import { crmOutboundQueue } from '../services/crm/CrmOutboundQueue';
@@ -21,7 +22,7 @@ export function useAppInit() {
   useEffect(() => {
     if (started.current) return;
     started.current = true;
-    logger.info('[AppInit] starting services', { network: true, crm: true, firestore: true });
+    logger.info('[AppInit] starting services', { network: true, crm: true, firestore: !!db });
 
     const timer = setTimeout(() => {
       notificationService
@@ -35,7 +36,9 @@ export function useAppInit() {
       SplashScreen.hideAsync().catch(() => {});
     }, SPLASH_FALLBACK_MS);
 
-    firestoreSyncService.start();
+    if (db) {
+      firestoreSyncService.start();
+    }
     networkService.start();
     void crmOutboundQueue.start();
 
@@ -43,7 +46,9 @@ export function useAppInit() {
       clearTimeout(timer);
       clearTimeout(splashFallback);
       notificationService.cleanup();
-      firestoreSyncService.stop();
+      if (db) {
+        firestoreSyncService.stop();
+      }
       networkService.stop();
     };
   }, []);

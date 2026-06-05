@@ -19,8 +19,6 @@ import { bookingService } from '../services/BookingService';
 import { UserProfile } from '../types/firestore';
 import { useAppContext } from '../contexts/AppContext';
 import { i18n } from '../config/i18n';
-import { doc, getDoc, updateDoc, setDoc } from 'firebase/firestore';
-import { db } from '../config/firebase';
 import { logger } from '../utils/logger';
 import { radius, shadows } from '../config/designSystem';
 
@@ -68,67 +66,30 @@ export default function ProfileScreen({ navigation }: any) {
           return;
         }
 
-        // Пытаемся загрузить профиль из Firebase Firestore
-        try {
-          if (!db) throw new Error('Firebase недоступен');
-          const userDocRef = doc(db, 'users', user.uid);
-          const userDocSnap = await getDoc(userDocRef);
-
-          if (userDocSnap.exists()) {
-            const userData = userDocSnap.data() as UserProfile;
-            setProfile(userData);
-            try {
-              const userPoints = await pointsService.getUserPoints(user.uid);
-              setPoints(userPoints);
-            } catch (pointsError) {
-              setPoints(0);
+        const authProfile = await AuthService.getCurrentUser();
+        const basicProfile: UserProfile = authProfile
+          ? {
+              id: authProfile.id,
+              email: authProfile.email,
+              fullName: authProfile.fullName || user.displayName || user.email?.split('@')[0] || i18n.t('profile.user'),
+              phone: authProfile.phone || '',
+              passwordHash: '',
+              passport: authProfile.passport,
+              createdAt: authProfile.createdAt || new Date().toISOString(),
+              updatedAt: authProfile.updatedAt,
+              isActive: authProfile.isActive,
+              lastLoginAt: new Date().toISOString(),
             }
-            try {
-              const balance = await bonusService.getBalance(user.email || undefined, (user as any).phoneNumber || (user as any).phone);
-              setBonusBalance(balance);
-            } catch {
-              setBonusBalance(0);
-            }
-            try {
-              const bookings = await bookingService.getUserBookings(user.uid);
-              const confirmed = bookings.filter(b => b.status === 'confirmed' || b.status === 'completed');
-              setTripCount(confirmed.length);
-            } catch {
-              setTripCount(userData?.orders?.length ?? 0);
-            }
-            try {
-              const bookings = await bookingService.getUserBookings(user.uid);
-              setPurchaseCount(bookings.filter((b) => b.paymentStatus === 'paid').length);
-            } catch {
-              setPurchaseCount(0);
-            }
-            return;
-          } else {
-            // Если профиль не найден в базе данных, показываем уведомление
-            Alert.alert(
-              i18n.t('profile.notRegistered'),
-              i18n.t('profile.notRegisteredDesc'),
-              [{ text: i18n.t('profile.understood') }],
-              { cancelable: true }
-            );
-          }
-        } catch (firestoreError: any) {
-          // Если нет прав доступа к Firestore, используем данные из Firebase Auth
-          logger.debug('Firestore access error, using Auth data:', firestoreError?.code || firestoreError?.message);
-        }
-
-        // Если профиль не найден или нет доступа, создаем базовый из Firebase Auth
-        logger.debug('Creating basic profile from Firebase Auth');
-        const basicProfile: UserProfile = {
-          id: user.uid,
-          email: user.email || '',
-          fullName: user.displayName || user.email?.split('@')[0] || i18n.t('profile.user'),
-          phone: '',
-          passwordHash: '',
-          createdAt: new Date().toISOString(),
-          isActive: true,
-          lastLoginAt: new Date().toISOString(),
-        };
+          : {
+              id: user.uid,
+              email: user.email || '',
+              fullName: user.displayName || user.email?.split('@')[0] || i18n.t('profile.user'),
+              phone: user.phoneNumber || '',
+              passwordHash: '',
+              createdAt: new Date().toISOString(),
+              isActive: true,
+              lastLoginAt: new Date().toISOString(),
+            };
         setProfile(basicProfile);
         setPoints(0);
         setBonusBalance(0);

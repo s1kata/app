@@ -41,12 +41,13 @@ npm start
 Скопируйте `.env.example` в `.env`. Файл `.env` в git не коммитить.
 
 Базовый набор для рабочего приложения:
-- `FIREBASE_*`
 - `EAS_PROJECT_ID`
-- `WEBSITE_BASE_URL`, `PAYMENT_PAGE_URL`
-- `TOURVISOR_TOKEN` (dev/preview при прямом API) или прокси на сайте
+- `WEBSITE_BASE_URL`, `PAYMENT_PAGE_URL` (сайт travelhub63.ru: auth, поиск, CRM, оплата)
+- `TOURVISOR_TOKEN` — только dev; в store — прокси `/api/tourvisor-mobile` на сайте
+- `FIREBASE_*` — опционально (legacy Firestore-кэш); вход через `auth-mobile.php`
 
-Для production и стора все секреты задаются через EAS Environment Variables/Secrets. Подробности — **[docs/PRODUCTION.md](docs/PRODUCTION.md)**.
+Деплой PHP/SQL на хостинг: **[docs/DEPLOY_SITE.md](docs/DEPLOY_SITE.md)**.  
+EAS Secrets: **[docs/PRODUCTION.md](docs/PRODUCTION.md)**.
 
 ## Сборки EAS
 
