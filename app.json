@@ -1,0 +1,54 @@
+{
+  "expo": {
+    "name": "TravelHub",
+    "slug": "travelhub",
+    "owner": "s1kata12",
+    "version": "1.0.0",
+    "scheme": "travelhub",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "icon": "./assets/icons/1024x1024.png",
+    "splash": {
+      "image": "./assets/icons/1024x1024.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0066CC"
+    },
+    "assetBundlePatterns": ["**/*"],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.travelhub.app",
+      "icon": "./assets/icons/1024x1024.png",
+      "buildNumber": "3",
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "Мы используем ваше местоположение для погоды, часового пояса и персонализации поиска туров и отелей рядом с вами. Данные не продаём третьим лицам.\n\nWe use your location for weather, timezone, and personalizing nearby tour and hotel search. We do not sell your location data.",
+        "NSUserNotificationsUsageDescription": "Уведомления о бронированиях, горящих турах и персональных предложениях.\n\nNotifications about bookings, hot tours, and personal offers.",
+        "ITSAppUsesNonExemptEncryption": false,
+        "UIBackgroundModes": ["remote-notification"]
+      }
+    },
+    "android": {
+      "package": "com.travelhub.app",
+      "versionCode": 3,
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/icons/1024x1024.png",
+        "backgroundColor": "#0066CC"
+      },
+      "icon": "./assets/icons/1024x1024.png",
+      "permissions": ["ACCESS_FINE_LOCATION", "ACCESS_COARSE_LOCATION"]
+    },
+    "plugins": [
+      "expo-web-browser",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icons/1024x1024.png",
+          "color": "#0066CC",
+          "sounds": []
+        }
+      ]
+      
+    ]
+  }
+  
+  
+}

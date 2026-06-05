@@ -1,0 +1,215 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && request.auth.token.admin == true;
+    }
+
+    // --- USERS ---
+    match /users/{userId} {
+      allow read: if request.auth != null
+        && (request.auth.uid == userId || resource.data.public == true);
+
+      allow create: if request.auth != null
+        && request.auth.uid == userId
+        && request.auth.token.firebase.sign_in_provider != 'anonymous'
+        && request.resource.data.email == request.auth.token.email;
+
+      allow update, delete: if request.auth != null
+        && request.auth.uid == userId
+        && request.auth.token.firebase.sign_in_provider != 'anonymous';
+    }
+
+    // --- REVIEWS ---
+    match /reviews/{reviewId} {
+      allow read: if true;
+
+      allow create: if request.auth != null
+        && request.auth.token.firebase.sign_in_provider != 'anonymous'
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.keys().hasAll(['userId', 'userName', 'rating', 'text', 'createdAt'])
+        && request.resource.data.rating is int
+        && request.resource.data.rating >= 1
+        && request.resource.data.rating <= 5
+        && request.resource.data.text is string
+        && request.resource.data.text.size() > 0
+        && request.resource.data.text.size() <= 2000
+        && (!request.resource.data.keys().hasAny(['photos']) || request.resource.data.photos is list)
+        && request.resource.data.keys().hasAny(['tourId', 'hotelId']);
+
+      allow update: if request.auth != null
+        && request.auth.token.firebase.sign_in_provider != 'anonymous'
+        && resource.data.userId == request.auth.uid
+        && (!request.resource.diff(resource).affectedKeys().hasAny(['userId', 'createdAt', 'tourId']))
+        && request.resource.data.rating is int
+        && request.resource.data.rating >= 1
+        && request.resource.data.rating <= 5
+        && request.resource.data.text is string
+        && request.resource.data.text.size() > 0
+        && request.resource.data.text.size() <= 2000;
+
+      allow delete: if request.auth != null
+        && request.auth.token.firebase.sign_in_provider != 'anonymous'
+        && resource.data.userId == request.auth.uid;
+    }
+
+    match /reviewHelpful/{helpfulId} {
+      allow get: if request.auth != null
+        && resource.data.userId == request.auth.uid;
+
+      allow list: if request.auth != null;
+
+      allow create: if request.auth != null
+        && request.auth.token.firebase.sign_in_provider != 'anonymous'
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.keys().hasAll(['reviewId', 'userId', 'createdAt'])
+        && request.resource.data.reviewId is string
+        && request.resource.data.userId is string;
+
+      allow delete: if request.auth != null
+        && request.auth.token.firebase.sign_in_provider != 'anonymous'
+        && resource.data.userId == request.auth.uid;
+    }
+
+    // --- FAVORITES ---
+    match /favorites/{favoriteId} {
+      allow read: if request.auth != null
+        && resource.data.userId == request.auth.uid;
+
+      allow create: if request.auth != null
+        && request.auth.token.firebase.sign_in_provider != 'anonymous'
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.keys().hasAll(['userId', 'createdAt', 'kind'])
+        && request.resource.data.kind in ['tour', 'hotel'];
+
+      allow update: if request.auth != null
+        && request.auth.token.firebase.sign_in_provider != 'anonymous'
+        && resource.data.userId == request.auth.uid
+        && (!request.resource.diff(resource).affectedKeys().hasAny(['userId', 'createdAt']));
+
+      allow delete: if request.auth != null
+        && request.auth.token.firebase.sign_in_provider != 'anonymous'
+        && resource.data.userId == request.auth.uid;
+    }
+
+    // --- BOOKINGS: жёстко. Цена/оплата/транзакции — только Admin SDK / webhook ---
+    match /bookings/{bookingId} {
+      allow read: if request.auth != null
+        && request.auth.token.firebase.sign_in_provider != 'anonymous'
+        && resource.data.userId == request.auth.uid;
+
+      // Создание: только черновик заявки; без следов оплаты и без чужого userId
+      allow create: if request.auth != null
+        && request.auth.token.firebase.sign_in_provider != 'anonymous'
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.keys().hasAll(['userId', 'createdAt'])
+        && request.resource.data.paymentStatus == 'pending'
+        && request.resource.data.status == 'pending'
+        && request.resource.data.totalPrice is number
+        && request.resource.data.totalPrice > 0
+        && request.resource.data.totalPrice <= 100000000
+        && request.resource.data.currency is string
+        && !request.resource.data.keys().hasAny([
+          'payment', 'paidAt', 'transactionId', 'providerPaymentId'
+        ]);
+
+      // Контакты / комментарий: меняются только эти поля, остальное бит-в-бит как было
+      function bookingContactOnlyDiff() {
+        return request.resource.diff(resource).affectedKeys()
+          .hasOnly(['contactInfo', 'specialRequests', 'updatedAt']);
+      }
+
+      function bookingDocsOnlyDiff() {
+        return request.resource.diff(resource).affectedKeys()
+          .hasOnly(['departureDocuments', 'updatedAt']);
+      }
+
+      // Отмена пользователем: только пока paymentStatus == pending (до Init / оплаты)
+      function bookingCancelByUser() {
+        return resource.data.paymentStatus == 'pending'
+          && resource.data.status != 'cancelled'
+          && request.resource.data.userId == resource.data.userId
+          && request.resource.data.status == 'cancelled'
+          && request.resource.data.paymentStatus == 'cancelled'
+          && request.resource.diff(resource).affectedKeys()
+            .hasOnly(['status', 'paymentStatus', 'updatedAt']);
+      }
+
+      allow update: if request.auth != null
+        && request.auth.token.firebase.sign_in_provider != 'anonymous'
+        && resource.data.userId == request.auth.uid
+        && (
+          bookingContactOnlyDiff()
+          || bookingDocsOnlyDiff()
+          || bookingCancelByUser()
+        );
+
+      // Удаление своей брони: без проверки sign_in_provider (иначе часть клиентов
+      // получала PERMISSION_DENIED на deleteDoc при том же uid).
+      allow delete: if request.auth != null
+        && resource.data.userId == request.auth.uid;
+    }
+
+    match /paymentIntents/{id} {
+      allow read, write: if false;
+    }
+    match /paymentWebhookDedup/{id} {
+      allow read, write: if false;
+    }
+    // Идемпотентность create-payment (опционально на сервере)
+    match /paymentCreateDedup/{id} {
+      allow read, write: if false;
+    }
+
+    match /tour_search_cache/{cacheKey} {
+      allow read: if true;
+      allow create, update: if isAdmin()
+        && request.resource.data.keys().hasAll(['results', 'timestamp'])
+        && request.resource.data.results is list
+        && request.resource.data.results.size() <= 200
+        && request.resource.data.timestamp is number;
+      allow delete: if false;
+    }
+
+    match /searchCache/{cacheKey} {
+      allow read: if request.auth != null || (resource.data.public == true);
+      allow create, update: if isAdmin();
+      allow delete: if false;
+    }
+
+    match /rateLimit/{docId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    match /popularSearches/{docId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /dictionaryCache/{docId} {
+      allow read: if request.auth != null || (resource.data.public == true);
+      allow create, update: if isAdmin();
+      allow delete: if false;
+    }
+
+    match /hotelSearchCache/{cacheKey} {
+      allow read: if request.auth != null || (resource.data.public == true);
+      allow create, update: if isAdmin();
+      allow delete: if false;
+    }
+
+    match /promotions/{promoId} {
+      allow read: if resource.data.active == true;
+      allow write: if false;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

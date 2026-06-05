@@ -1,0 +1,47 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    
+    // ============================================
+    // AVATARS - Аватарки пользователей (только jpg, png, webp, макс 5MB)
+    // ============================================
+    match /avatars/{userId}.{ext} {
+      allow read: if true;
+      allow create, update: if request.auth != null 
+        && request.auth.uid == userId
+        && request.auth.token.firebase.sign_in_provider != 'anonymous'
+        && request.resource.size < 5 * 1024 * 1024
+        && (request.resource.contentType == 'image/jpeg' 
+            || request.resource.contentType == 'image/png' 
+            || request.resource.contentType == 'image/webp');
+      allow delete: if request.auth != null 
+        && request.auth.uid == userId
+        && request.auth.token.firebase.sign_in_provider != 'anonymous';
+    }
+
+    // ============================================
+    // USER FOLDERS - Папки пользователей (только владелец пишет)
+    // Только jpg, png, webp, макс 5MB
+    // ============================================
+    match /users/{userId}/{allPaths=**} {
+      allow read: if true;
+      allow create, update: if request.auth != null 
+        && request.auth.uid == userId
+        && request.auth.token.firebase.sign_in_provider != 'anonymous'
+        && request.resource.size < 5 * 1024 * 1024
+        && (request.resource.contentType == 'image/jpeg' 
+            || request.resource.contentType == 'image/png' 
+            || request.resource.contentType == 'image/webp');
+      allow delete: if request.auth != null 
+        && request.auth.uid == userId
+        && request.auth.token.firebase.sign_in_provider != 'anonymous';
+    }
+
+    // ============================================
+    // DEFAULT DENY
+    // ============================================
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}
