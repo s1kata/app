@@ -500,9 +500,8 @@ export default function ImprovedHomeScreen({ navigation }: any) {
                 </Text>
               </View>
               <Text style={[dynamicStyles.sectionSubtitle, { color: theme.secondaryText, marginTop: 4 }]}>
-                {RELEASE_HIDE_NEXT_PATCH_UI
-                  ? i18n.t('home.travelTipsSubtitle')
-                  : i18n.t('home.usefulRecommendations')}
+                {/* Персональные рекомендации скрыты до следующего патча: оставляем нейтральный подзаголовок. */}
+                {i18n.t('home.travelTipsSubtitle')}
               </Text>
             </View>
           </View>

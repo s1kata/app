@@ -10,6 +10,7 @@ import { normalizeHotelImages } from '../utils/hotelImages';
 import { tourvisorApi } from '../services/TourvisorApiService';
 import { freshCacheService } from '../services/FreshCacheService';
 import { cacheService, CacheType } from '../services/CacheService';
+import { networkService } from '../services/NetworkService';
 
 const FRESH_CACHE_ASYNC_PREFIX = 'fresh_cache_';
 
@@ -65,6 +66,9 @@ export async function saveHotelSearchToLocalCaches(
 const DEFAULT_PAGE_LIMIT = 100;
 
 async function fetchHotelSearch(params: HotelSearchParams): Promise<HotelCompact[]> {
+  if (networkService.getPolicyState().isBlocked) {
+    throw new Error('Отключите VPN/блокировщик и повторите поиск отелей.');
+  }
   const response = await tourvisorApi.getHotels(params);
   const raw = response?.data ?? [];
   return raw.map((h: any) => normalizeHotelImages({ ...h }) as HotelCompact);
@@ -72,6 +76,9 @@ async function fetchHotelSearch(params: HotelSearchParams): Promise<HotelCompact
 
 /** Загружает все страницы отелей по параметрам и возвращает один общий массив */
 async function fetchHotelSearchAll(params: HotelSearchParams): Promise<HotelCompact[]> {
+  if (networkService.getPolicyState().isBlocked) {
+    throw new Error('Отключите VPN/блокировщик и повторите поиск отелей.');
+  }
   const baseParams = {
     countryId: params.countryId,
     regionId: params.regionId,

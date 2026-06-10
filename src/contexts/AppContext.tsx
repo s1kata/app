@@ -28,6 +28,7 @@ import { tourvisorApi } from '../services/TourvisorApiService';
 import { dictionaryService } from '../services/DictionaryService';
 import { priceTrackingService } from '../services/PriceTrackingService';
 import { sotaCrmService } from '../services/SotaCrmService';
+import { networkService, NetworkPolicyState } from '../services/NetworkService';
 import { logger } from '../utils/logger';
 
 function isTourvisorPassthroughBaseUrl(baseUrl: string): boolean {
@@ -64,6 +65,7 @@ interface AppContextType {
   setTourvisorToken: (token: string) => Promise<void>;
   initializeApi: () => Promise<void>;
   clearRateLimitCooldown: () => Promise<void>;
+  networkPolicy: NetworkPolicyState;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -113,6 +115,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // Tourvisor API state
   const [tourvisorToken, setTourvisorTokenState] = useState<string | null>(null);
   const [apiReady, setApiReady] = useState<boolean>(false);
+  const [networkPolicy, setNetworkPolicy] = useState<NetworkPolicyState>(() =>
+    networkService.getPolicyState()
+  );
 
   // Отслеживаем изменения размера шрифта системы
   useEffect(() => {
@@ -130,10 +135,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, []);
 
   useEffect(() => {
+    const unsubNetwork = networkService.subscribe(() => {
+      setNetworkPolicy(networkService.getPolicyState());
+    });
+
     let cancelled = false;
     const isCancelled = () => cancelled;
 
-    void restoreAuthSession();
     void loadSettings(isCancelled);
 
     // Сначала базовый URL (синхронно), затем токен — чтобы passthrough определялся до первого fetch.
@@ -207,6 +215,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
     void loadToken();
 
+    // Восстановление сессии выполняем асинхронно и не блокируем старт UI.
+    void restoreAuthSession()
+      .then(() => logger.debug('[AppContext] restoreAuthSession finished'))
+      .catch((e) => logger.error('[AppContext] restoreAuthSession failed:', e));
+
     // Опционально: локальный URL для SOTA (тест без реального U-ON)
     const crmBaseUrl = Constants.expoConfig?.extra?.sotaCrmBaseUrl;
     if (crmBaseUrl && typeof crmBaseUrl === 'string' && crmBaseUrl.trim() !== '') {
@@ -229,28 +242,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     let innerDictionaryTimeout: ReturnType<typeof setTimeout> | undefined;
     const outerDictionaryTimeout = setTimeout(() => {
       if (isCancelled()) return;
-      console.error('[FORCE_LOG] dictionary preload scheduled');
       dictionaryService.preloadCommonData().catch(error => {
-        console.error('[FORCE_LOG] dictionary preload error', {
-          error: error?.message || String(error),
-        });
         logger.debug('Preload dictionary data failed:', error?.message);
       });
       
       // Также запускаем фоновое обновление устаревших справочников
       innerDictionaryTimeout = setTimeout(() => {
         if (isCancelled()) return;
-        console.error('[FORCE_LOG] dictionary stale update scheduled');
         dictionaryService.updateStaleDictionaries().catch(error => {
-          console.error('[FORCE_LOG] dictionary stale update error', {
-            error: error?.message || String(error),
-          });
           logger.debug('Background dictionary update failed:', error?.message);
         });
       }, 5000); // Еще через 5 секунд для обновления устаревших данных
     }, 2000); // 2 секунды после старта
 
     return () => {
+      unsubNetwork();
       cancelled = true;
       clearTimeout(outerDictionaryTimeout);
       if (innerDictionaryTimeout) clearTimeout(innerDictionaryTimeout);
@@ -449,7 +455,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const result = await AuthService.login(email, password);
       if (!result.success) {
         const msg = result.error || i18n.t('auth.connectionError');
-        if (msg.includes('сети') || msg.includes('сервер')) {
+        if (
+          msg.includes('базе данных') ||
+          msg.includes('DB_CONNECT') ||
+          msg.includes('auth-mobile.config')
+        ) {
+          throw new Error(msg);
+        }
+        if (msg.includes('сети') || (msg.includes('сервер') && !msg.includes('базе'))) {
           throw new Error(i18n.t('auth.connectionError'));
         }
         if (msg.includes('Неверный email') || msg.includes('пароль')) {
@@ -641,6 +654,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setTourvisorToken,
     initializeApi,
     clearRateLimitCooldown: () => tourvisorApi.clearRateLimitCooldown(),
+    networkPolicy,
     updateCounter, // Добавляем для принудительного обновления
   };
 
@@ -682,6 +696,7 @@ export const useAppContext = (): AppContextType => {
       setTourvisorToken: async () => {},
       initializeApi: async () => {},
       clearRateLimitCooldown: async () => {},
+      networkPolicy: { isBlocked: false, reason: null, canProceed: true },
     };
   }
   return {

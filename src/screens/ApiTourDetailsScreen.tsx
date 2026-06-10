@@ -203,20 +203,27 @@ export default function ApiTourDetailsScreen({ navigation, route }: ApiTourDetai
 
   const handleFavoritePress = useCallback(async () => {
     if (!tour) return;
-    if (isGuest || !user) {
-      Alert.alert(
-        i18n.t('favorites.authRequired'),
-        i18n.t('auth.favoritesRequired'),
-        [
-          { text: i18n.t('common.cancel'), style: 'cancel' },
-          { text: i18n.t('auth.login'), onPress: () => navigation.navigate('Login') },
-        ]
-      );
-      return;
-    }
-    const result = await FavoritesService.getInstance().toggleTourFavorite(tour);
-    if (result.success && isMountedRef.current) {
-      setIsFavorite(result.isFavorite);
+    try {
+      if (isGuest || !user) {
+        Alert.alert(
+          i18n.t('favorites.authRequired'),
+          i18n.t('auth.favoritesRequired'),
+          [
+            { text: i18n.t('common.cancel'), style: 'cancel' },
+            { text: i18n.t('auth.login'), onPress: () => navigation.navigate('Login') },
+          ]
+        );
+        return;
+      }
+      const result = await FavoritesService.getInstance().toggleTourFavorite(tour);
+      if (result.success && isMountedRef.current) {
+        setIsFavorite(result.isFavorite);
+      } else if (result.error) {
+        Alert.alert(i18n.t('common.error'), result.error);
+      }
+    } catch (error) {
+      logger.error('[ApiTourDetails] favorite toggle:', error);
+      Alert.alert(i18n.t('common.error'), i18n.t('auth.connectionError'));
     }
   }, [tour, isGuest, user, navigation]);
 

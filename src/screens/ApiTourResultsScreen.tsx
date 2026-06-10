@@ -20,7 +20,15 @@ import { cacheService, CacheType } from '../services/CacheService';
 import { settingsService } from '../services/SettingsService';
 import type { Currency } from '../services/SettingsService';
 import { i18n } from '../config/i18n';
-import { getTourSearchCacheKey, TOUR_SEARCH_LIMIT } from '../utils/tourSearchCache';
+import {
+  getTourSearchCacheKey,
+  isTourSearchStatusError,
+  isTourSearchStatusFinished,
+  isTransientTourvisorError,
+  TOUR_SEARCH_LIMIT,
+  TOUR_SEARCH_MAX_WAIT_MS,
+  TOUR_SEARCH_POLL_INTERVAL_MS,
+} from '../utils/tourSearchCache';
 import { getFromSharedCache } from '../services/TourvisorFirestoreCache';
 import { saveTourSearchToAllCaches, searchTours } from '../hooks/useTourSearch';
 import { preCacheTourDetailsFromSearchResults, cacheTourFromSearchResult, buildTourOutputFromSearchResult } from '../utils/tourDetailsCache';
@@ -48,15 +56,27 @@ export default function ApiTourResultsScreen({ navigation, route }: ApiTourResul
   const [loaderProgress, setLoaderProgress] = useState(0);
   const progressIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [hasMore, setHasMore] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const mountedRef = useRef(true);
   const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pollStartedAtRef = useRef(0);
+  const pollErrorStreakRef = useRef(0);
 
   const loadFromApi = useCallback(
     async () => {
       if (searchId === -1 || !searchParams) return;
       try {
-        const list = await tourvisorApi.getTourSearchResults(searchId, TOUR_SEARCH_LIMIT);
+        let list: TourHotel[] = [];
+        for (let attempt = 0; attempt < 3; attempt++) {
+          try {
+            list = await tourvisorApi.getTourSearchResults(searchId, TOUR_SEARCH_LIMIT);
+            break;
+          } catch (e) {
+            if (!isTransientTourvisorError(e) || attempt >= 2) throw e;
+            await new Promise((r) => setTimeout(r, 2000 * (attempt + 1)));
+          }
+        }
         if (!mountedRef.current) return;
         setTours(list ?? []);
         setHasMore(false);
@@ -83,6 +103,7 @@ export default function ApiTourResultsScreen({ navigation, route }: ApiTourResul
         if (mountedRef.current) {
           setTours([]);
           setHasMore(false);
+          setLoadError((e as Error)?.message || i18n.t('search.errorSearchFailed'));
         }
       } finally {
         if (mountedRef.current) setIsLoading(false);
@@ -116,33 +137,42 @@ export default function ApiTourResultsScreen({ navigation, route }: ApiTourResul
 
   useEffect(() => {
     FavoritesService.getInstance().getFavoriteTours().then((favs) => {
-      if (mountedRef.current) setFavoriteIds(new Set(favs.map((f) => f.id)));
+      if (mountedRef.current) setFavoriteIds(new Set(favs.map((f) => String(f.id))));
     });
   }, []);
 
   const handleFavoritePress = useCallback(
     async (hotel: TourHotel, tour: Tour) => {
-      if (isGuest || !user) {
+      try {
+        if (isGuest || !user) {
+          const { Alert } = await import('react-native');
+          Alert.alert(
+            i18n.t('favorites.authRequired'),
+            i18n.t('auth.favoritesRequired'),
+            [
+              { text: i18n.t('common.cancel'), style: 'cancel' },
+              { text: i18n.t('auth.login'), onPress: () => navigation.navigate('Login') },
+            ]
+          );
+          return;
+        }
+        const tourOutput = buildTourOutputFromSearchResult(hotel, tour);
+        const result = await FavoritesService.getInstance().toggleTourFavorite(tourOutput);
+        if (result.success && mountedRef.current) {
+          const tourId = String(tour.id);
+          setFavoriteIds((prev) => {
+            const next = new Set(prev);
+            if (result.isFavorite) next.add(tourId);
+            else next.delete(tourId);
+            return next;
+          });
+        } else if (result.error) {
+          const { Alert } = await import('react-native');
+          Alert.alert(i18n.t('common.error'), result.error);
+        }
+      } catch (error) {
         const { Alert } = await import('react-native');
-        Alert.alert(
-          i18n.t('favorites.authRequired'),
-          i18n.t('auth.favoritesRequired'),
-          [
-            { text: i18n.t('common.cancel'), style: 'cancel' },
-            { text: i18n.t('auth.login'), onPress: () => navigation.navigate('Login') },
-          ]
-        );
-        return;
-      }
-      const tourOutput = buildTourOutputFromSearchResult(hotel, tour);
-      const result = await FavoritesService.getInstance().toggleTourFavorite(tourOutput);
-      if (result.success && mountedRef.current) {
-        setFavoriteIds((prev) => {
-          const next = new Set(prev);
-          if (result.isFavorite) next.add(tour.id);
-          else next.delete(tour.id);
-          return next;
-        });
+        Alert.alert(i18n.t('common.error'), i18n.t('auth.connectionError'));
       }
     },
     [isGuest, user, navigation]
@@ -165,6 +195,7 @@ export default function ApiTourResultsScreen({ navigation, route }: ApiTourResul
 
   const runSearchAndPopulate = useCallback(async () => {
     if (!searchParams || !mountedRef.current) return;
+    setLoadError(null);
     setLoaderProgress(0);
     let p = 0;
     progressIntervalRef.current = setInterval(() => {
@@ -185,16 +216,36 @@ export default function ApiTourResultsScreen({ navigation, route }: ApiTourResul
         saveTourSearchToAllCaches(searchParams, list, TOUR_SEARCH_LIMIT).catch(() => {});
         preCacheTourDetailsFromSearchResults(list, searchParams.currency || 'RUB').catch(() => {});
       }
-    } catch {
+    } catch (e: unknown) {
       if (progressIntervalRef.current) {
         clearInterval(progressIntervalRef.current);
         progressIntervalRef.current = null;
       }
-      if (mountedRef.current) setTours([]);
+      if (mountedRef.current) {
+        setTours([]);
+        setLoadError((e as Error)?.message || i18n.t('search.errorSearchFailed'));
+      }
     } finally {
       if (mountedRef.current) setIsLoading(false);
     }
   }, [searchParams]);
+
+  const handleRetrySearch = useCallback(() => {
+    if (!searchParams) return;
+    setLoadError(null);
+    setTours([]);
+    setIsLoading(true);
+    if (runSearch) {
+      runSearchAndPopulate();
+      return;
+    }
+    navigation.replace('ApiTourResults', {
+      searchId: -1,
+      searchParams,
+      useCache: false,
+      runSearch: true,
+    });
+  }, [searchParams, runSearch, runSearchAndPopulate, navigation]);
 
   useEffect(() => {
     if (!searchParams) {
@@ -213,93 +264,86 @@ export default function ApiTourResultsScreen({ navigation, route }: ApiTourResul
     }
 
     let cancelled = false;
+    setLoadError(null);
+    pollStartedAtRef.current = Date.now();
+    pollErrorStreakRef.current = 0;
 
-    const stopPollingAndLoad = () => {
+    const stopPolling = () => {
       if (pollIntervalRef.current) {
         clearInterval(pollIntervalRef.current);
         pollIntervalRef.current = null;
       }
+    };
+
+    const stopPollingAndLoad = () => {
+      stopPolling();
       loadFromApi();
     };
 
+    const failPolling = (message: string) => {
+      stopPolling();
+      if (mountedRef.current) {
+        setLoadError(message);
+        setIsLoading(false);
+      }
+    };
+
     const pollStatus = async () => {
+      if (cancelled || !mountedRef.current) return;
+
+      const elapsed = Date.now() - pollStartedAtRef.current;
+      if (elapsed >= TOUR_SEARCH_MAX_WAIT_MS) {
+        stopPollingAndLoad();
+        return;
+      }
+
       try {
         const st = await tourvisorApi.getTourSearchStatus(searchId, true);
         if (cancelled || !mountedRef.current) return;
+        pollErrorStreakRef.current = 0;
         setStatus(st);
 
-        const statusLower = (st.status || '').toLowerCase();
-        const isCompleted = statusLower === 'completed' || (st.progress ?? 0) >= 100;
-        const isError = statusLower === 'error';
-
-        if (isError) {
-          if (pollIntervalRef.current) {
-            clearInterval(pollIntervalRef.current);
-            pollIntervalRef.current = null;
-          }
-          if (mountedRef.current) setIsLoading(false);
+        if (isTourSearchStatusError(st.status)) {
+          failPolling(i18n.t('search.errorProgress'));
           return;
         }
 
-        if (isCompleted) {
+        if (isTourSearchStatusFinished(st.status, st.progress)) {
           stopPollingAndLoad();
         }
-      } catch (e: any) {
-        const is429 = e?.message?.includes('429') || e?.message?.includes('Rate limit');
+      } catch (e: unknown) {
+        const err = e as Error;
+        const is429 = err?.message?.includes('429') || err?.message?.includes('Rate limit');
         if (is429 && searchParams && mountedRef.current) {
-          if (pollIntervalRef.current) {
-            clearInterval(pollIntervalRef.current);
-            pollIntervalRef.current = null;
-          }
+          stopPolling();
           loadFromCache();
           return;
         }
-        if (mountedRef.current) setIsLoading(false);
+
+        if (isTransientTourvisorError(e)) {
+          pollErrorStreakRef.current += 1;
+          if (pollErrorStreakRef.current < 6) return;
+        }
+
+        failPolling(err?.message || i18n.t('search.errorSearchFailed'));
       }
     };
 
     const t1 = setTimeout(() => {
       pollStatus();
-      pollIntervalRef.current = setInterval(pollStatus, 3000);
-    }, 2000);
+      pollIntervalRef.current = setInterval(pollStatus, TOUR_SEARCH_POLL_INTERVAL_MS);
+    }, 1500);
 
-    // Запасной вариант: через 5 сек запросить результаты, если по статусу так и не загрузили
-    const t2 = setTimeout(() => {
+    const maxWaitTimer = setTimeout(() => {
       if (cancelled || !mountedRef.current) return;
-      tourvisorApi.getTourSearchResults(searchId, TOUR_SEARCH_LIMIT).then(async (list) => {
-        if (cancelled || !mountedRef.current) return;
-        const results = list ?? [];
-        if (results.length > 0) {
-          setTours((prev) => (prev.length > 0 ? prev : results!));
-          setHasMore(false);
-          if (searchParams) {
-            saveTourSearchToAllCaches(searchParams, results!, TOUR_SEARCH_LIMIT).catch(() => {});
-            preCacheTourDetailsFromSearchResults(results!, searchParams.currency || 'RUB').catch(() => {});
-          }
-          if (pollIntervalRef.current) {
-            clearInterval(pollIntervalRef.current);
-            pollIntervalRef.current = null;
-          }
-        }
-        if (mountedRef.current) setIsLoading(false);
-      }).catch((e: any) => {
-        const is429 = e?.message?.includes('429') || e?.message?.includes('Rate limit');
-        if (is429 && searchParams && mountedRef.current) {
-          loadFromCache();
-          return;
-        }
-        if (mountedRef.current) setIsLoading(false);
-      });
-    }, 5000);
+      stopPollingAndLoad();
+    }, TOUR_SEARCH_MAX_WAIT_MS);
 
     return () => {
       cancelled = true;
       clearTimeout(t1);
-      clearTimeout(t2);
-      if (pollIntervalRef.current) {
-        clearInterval(pollIntervalRef.current);
-        pollIntervalRef.current = null;
-      }
+      clearTimeout(maxWaitTimer);
+      stopPolling();
     };
   }, [searchId, useCache, searchParams, runSearch, runSearchAndPopulate, loadFromCache, loadFromApi]);
 
@@ -373,11 +417,12 @@ export default function ApiTourResultsScreen({ navigation, route }: ApiTourResul
                 onPress={() => handleFavoritePress(hotel, tour)}
                 style={styles.favoriteIcon}
                 activeOpacity={0.7}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
               >
                 <Ionicons
-                  name={favoriteIds.has(tour.id) ? 'heart' : 'heart-outline'}
+                  name={favoriteIds.has(String(tour.id)) ? 'heart' : 'heart-outline'}
                   size={20}
-                  color={favoriteIds.has(tour.id) ? theme.error : theme.secondaryText}
+                  color={favoriteIds.has(String(tour.id)) ? theme.error : theme.secondaryText}
                 />
               </TouchableOpacity>
               <View style={{ alignItems: 'flex-end' }}>
@@ -416,34 +461,51 @@ export default function ApiTourResultsScreen({ navigation, route }: ApiTourResul
   );
 
   const renderStatus = () => {
-    if (!status) return null;
-    const text =
-      status.status === 'completed'
-        ? `Найдено: ${tours.length}`
-        : status.status === 'error'
-          ? i18n.t('search.errorProgress')
-          : `${i18n.t('search.progress')} ${status.progress ?? 0}%`;
+    if (!status || loadError) return null;
+    const finished = isTourSearchStatusFinished(status.status, status.progress);
+    const text = finished
+      ? `Найдено: ${tours.length}`
+      : isTourSearchStatusError(status.status)
+        ? i18n.t('search.errorProgress')
+        : `${i18n.t('search.progress')} ${status.progress ?? 0}%`;
     return (
       <View style={[styles.statusBar, { backgroundColor: theme.card }]}>
         <ActivityIndicator
           size="small"
           color={theme.primary}
-          animating={status.status !== 'completed' && status.status !== 'error'}
+          animating={!finished && !isTourSearchStatusError(status.status)}
         />
         <Text style={[styles.statusText, { color: theme.text }]}>{text}</Text>
       </View>
     );
   };
 
-  const renderEmpty = () => (
-    <View style={styles.empty}>
-      <Ionicons name="airplane-outline" size={56} color={theme.secondaryText} />
-      <Text style={[styles.emptyTitle, { color: theme.text }]}>{i18n.t('tours.notFoundShort')}</Text>
-      <Text style={[styles.emptySub, { color: theme.secondaryText }]}>
-        Измените параметры поиска
-      </Text>
-    </View>
-  );
+  const renderEmpty = () => {
+    if (loadError) {
+      return (
+        <View style={styles.empty}>
+          <Ionicons name="cloud-offline-outline" size={56} color={theme.secondaryText} />
+          <Text style={[styles.emptyTitle, { color: theme.text }]}>{i18n.t('search.errorLoad')}</Text>
+          <Text style={[styles.emptySub, { color: theme.secondaryText }]}>{loadError}</Text>
+          <TouchableOpacity
+            style={[styles.retryBtn, { backgroundColor: theme.primary }]}
+            onPress={handleRetrySearch}
+          >
+            <Text style={styles.retryBtnText}>{i18n.t('search.retry')}</Text>
+          </TouchableOpacity>
+        </View>
+      );
+    }
+    return (
+      <View style={styles.empty}>
+        <Ionicons name="airplane-outline" size={56} color={theme.secondaryText} />
+        <Text style={[styles.emptyTitle, { color: theme.text }]}>{i18n.t('tours.notFoundShort')}</Text>
+        <Text style={[styles.emptySub, { color: theme.secondaryText }]}>
+          {i18n.t('search.changeParams')}
+        </Text>
+      </View>
+    );
+  };
 
   return (
     <SafeAreaView edges={['top', 'bottom']} style={[styles.container, { backgroundColor: theme.background }]}>
@@ -455,10 +517,13 @@ export default function ApiTourResultsScreen({ navigation, route }: ApiTourResul
       {renderStatus()}
       {runSearch && isLoading && tours.length === 0 ? (
         <PercentageLoader visible={true} progress={loaderProgress} />
-      ) : isLoading && tours.length === 0 ? (
+      ) : isLoading && tours.length === 0 && !loadError ? (
         <View style={styles.loadingWrap}>
           <ActivityIndicator size="large" color={theme.primary} />
           <Text style={[styles.loadingText, { color: theme.text }]}>{i18n.t('search.loading')}</Text>
+          <Text style={[styles.loadingHint, { color: theme.secondaryText }]}>
+            {i18n.t('search.loadingSlow')}
+          </Text>
         </View>
       ) : (
         <FlatList
@@ -611,6 +676,12 @@ const styles = StyleSheet.create({
     fontSize: 16,
     marginTop: 12,
   },
+  loadingHint: {
+    fontSize: 13,
+    marginTop: 8,
+    textAlign: 'center',
+    paddingHorizontal: 24,
+  },
   empty: {
     flex: 1,
     alignItems: 'center',
@@ -625,6 +696,19 @@ const styles = StyleSheet.create({
   emptySub: {
     fontSize: 14,
     marginTop: 8,
+    textAlign: 'center',
+    paddingHorizontal: 24,
+  },
+  retryBtn: {
+    marginTop: 20,
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 10,
+  },
+  retryBtnText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
   },
   loadMoreBtn: {
     marginTop: 8,

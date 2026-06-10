@@ -49,11 +49,20 @@ if ($action === '') {
     json_error('Укажите action', 400);
 }
 
+// Диагностика без обязательного успешного login
+if ($action === 'health') {
+    handle_health($CONFIG);
+}
+
 try {
     $pdo = db_connect($CONFIG);
 } catch (Throwable $e) {
     error_log('[auth-mobile] DB: ' . $e->getMessage());
-    json_error('Ошибка подключения к базе данных', 500);
+    $msg = 'Ошибка подключения к базе данных';
+    if (!empty($CONFIG['debug'])) {
+        $msg .= ': ' . $e->getMessage();
+    }
+    json_error($msg, 500, 'DB_CONNECT_FAILED');
 }
 
 try {
@@ -97,6 +106,52 @@ try {
 // Handlers
 // ---------------------------------------------------------------------------
 
+function handle_health(array $config): void
+{
+    $report = [
+        'success' => true,
+        'php' => PHP_VERSION,
+        'configPath' => __DIR__ . '/auth-mobile.config.php',
+        'configExists' => is_file(__DIR__ . '/auth-mobile.config.php'),
+        'db' => [],
+        'tables' => [],
+    ];
+
+    try {
+        $db = resolve_db_settings($config);
+        $report['db'] = [
+            'host' => $db['host'] ?? '(не задан)',
+            'port' => (int) ($db['port'] ?? 3306),
+            'name' => $db['name'] ?? '(не задан)',
+            'user' => $db['user'] ?? '(не задан)',
+            'hasPassword' => !empty($db['pass']),
+            'unix_socket' => $db['unix_socket'] ?? null,
+            'db_include' => $config['db_include'] ?? null,
+        ];
+
+        $pdo = db_connect($config);
+        $report['db']['connected'] = true;
+
+        $usersTable = $config['tables']['users'] ?? 'users';
+        $stmt = $pdo->query(sprintf('SHOW TABLES LIKE %s', $pdo->quote($usersTable)));
+        $report['tables']['users'] = (bool) $stmt->fetchColumn();
+
+        foreach (['refresh_tokens', 'password_reset_tokens'] as $t) {
+            $table = $config['tables'][$t] ?? $t;
+            $st = $pdo->query(sprintf('SHOW TABLES LIKE %s', $pdo->quote($table)));
+            $report['tables'][$t] = (bool) $st->fetchColumn();
+        }
+    } catch (Throwable $e) {
+        $report['success'] = false;
+        $report['error'] = $e->getMessage();
+        if (!empty($config['debug'])) {
+            $report['debug'] = $e->getMessage();
+        }
+    }
+
+    json_ok($report);
+}
+
 function handle_login(PDO $pdo, array $config, array $body): void
 {
     $email = normalize_email($body['email'] ?? '');
@@ -107,7 +162,7 @@ function handle_login(PDO $pdo, array $config, array $body): void
     }
 
     $user = find_user_by_email($pdo, $config, $email);
-    if (!$user || !password_verify($password, (string) $user['password'])) {
+    if (!$user || !verify_user_password($password, $user, $config)) {
         json_error('Неверный email или пароль', 401, 'INVALID_CREDENTIALS');
     }
     if (!(int) $user['is_active'] || !empty($user['deleted_at'])) {
@@ -469,21 +524,124 @@ function base64url_decode(string $data): string
 // DB helpers
 // ---------------------------------------------------------------------------
 
+/**
+ * Подтягивает настройки БД: auth-mobile.config.php → db_include (конфиг сайта) → env.
+ */
+function resolve_db_settings(array $config): array
+{
+    $db = is_array($config['db'] ?? null) ? $config['db'] : [];
+
+    if (!empty($config['db_include'])) {
+        $paths = [$config['db_include']];
+        if (!is_file($paths[0])) {
+            $paths[] = __DIR__ . '/' . ltrim((string) $config['db_include'], '/');
+            $paths[] = dirname(__DIR__) . '/' . ltrim((string) $config['db_include'], '/');
+        }
+        foreach ($paths as $path) {
+            if (!is_file($path)) {
+                continue;
+            }
+            $included = include $path;
+            if (is_array($included)) {
+                if (isset($included['db']) && is_array($included['db'])) {
+                    $db = array_merge($db, $included['db']);
+                } else {
+                    $db = array_merge($db, $included);
+                }
+            }
+            break;
+        }
+    }
+
+    $constMap = [
+        'DB_HOST' => 'host',
+        'DB_PORT' => 'port',
+        'DB_NAME' => 'name',
+        'DB_DATABASE' => 'name',
+        'DB_USER' => 'user',
+        'DB_USERNAME' => 'user',
+        'DB_PASS' => 'pass',
+        'DB_PASSWORD' => 'pass',
+    ];
+    foreach ($constMap as $const => $key) {
+        if (defined($const) && empty($db[$key])) {
+            $db[$key] = constant($const);
+        }
+    }
+
+    if (empty($db['host']) && getenv('DB_HOST')) {
+        $db['host'] = getenv('DB_HOST');
+    }
+    if (empty($db['name']) && getenv('DB_NAME')) {
+        $db['name'] = getenv('DB_NAME');
+    }
+    if (empty($db['user']) && getenv('DB_USER')) {
+        $db['user'] = getenv('DB_USER');
+    }
+    if (empty($db['pass']) && getenv('DB_PASSWORD')) {
+        $db['pass'] = getenv('DB_PASSWORD');
+    }
+
+    if (empty($db['host']) && !empty($db['unix_socket'])) {
+        $db['host'] = 'localhost';
+    }
+    if (empty($db['port'])) {
+        $db['port'] = 3306;
+    }
+    if (empty($db['charset'])) {
+        $db['charset'] = 'utf8mb4';
+    }
+
+    return $db;
+}
+
 function db_connect(array $config): PDO
 {
-    $db = $config['db'];
-    $dsn = sprintf(
-        'mysql:host=%s;port=%d;dbname=%s;charset=%s',
-        $db['host'],
-        (int) $db['port'],
-        $db['name'],
-        $db['charset'] ?? 'utf8mb4'
-    );
-    $pdo = new PDO($dsn, $db['user'], $db['pass'], [
+    $db = resolve_db_settings($config);
+    if (empty($db['name']) || empty($db['user'])) {
+        throw new RuntimeException('Не заданы db.name или db.user в auth-mobile.config.php');
+    }
+
+    if (!empty($db['unix_socket'])) {
+        $dsn = sprintf(
+            'mysql:unix_socket=%s;dbname=%s;charset=%s',
+            $db['unix_socket'],
+            $db['name'],
+            $db['charset']
+        );
+    } else {
+        $host = $db['host'] ?? 'localhost';
+        $dsn = sprintf(
+            'mysql:host=%s;port=%d;dbname=%s;charset=%s',
+            $host,
+            (int) $db['port'],
+            $db['name'],
+            $db['charset']
+        );
+    }
+
+    return new PDO($dsn, (string) $db['user'], (string) ($db['pass'] ?? ''), [
         PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
         PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
     ]);
-    return $pdo;
+}
+
+/** password_hash (новые) или md5 (старые сайты) — см. password_algo в конфиге */
+function verify_user_password(string $password, array $user, array $config): bool
+{
+    $cols = $config['columns'];
+    $hash = (string) ($user[$cols['password']] ?? '');
+    if ($hash === '') {
+        return false;
+    }
+    $algo = $config['password_algo'] ?? 'bcrypt';
+    if ($algo === 'md5') {
+        return hash_equals($hash, md5($password));
+    }
+    if ($algo === 'plain') {
+        return hash_equals($hash, $password);
+    }
+    return password_verify($password, $hash);
 }
 
 function find_user_by_email(PDO $pdo, array $config, string $email): ?array

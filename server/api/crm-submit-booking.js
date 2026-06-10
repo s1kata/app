@@ -1,8 +1,10 @@
 /**
  * POST /api/crm/submit-booking
  * Создание заявки в U-ON с сервера (секрет UON_API_KEY не в клиенте).
+ * Auth: Firebase ID token ИЛИ JWT из auth-mobile.php (JWT_SECRET / AUTH_MOBILE_JWT_SECRET).
  */
 const admin = require('../lib/firebaseAdmin').getAdmin();
+const { verifyAuthMobileJwt } = require('../lib/authJwt');
 const { buildRequestCreateBody } = require('../crm/submitBookingCore');
 const { uonRequest } = require('../sota/uonClient');
 
@@ -10,6 +12,26 @@ function getBearerToken(req) {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) return null;
   return authHeader.slice(7).trim();
+}
+
+async function resolveUserIdFromToken(token) {
+  try {
+    const decoded = await admin.auth().verifyIdToken(token, true);
+    if (decoded?.uid) return String(decoded.uid);
+  } catch {
+    /* Firebase token invalid — try auth-mobile JWT */
+  }
+
+  const jwtSecret = (
+    process.env.JWT_SECRET ||
+    process.env.AUTH_MOBILE_JWT_SECRET ||
+    ''
+  ).trim();
+  if (!jwtSecret) return null;
+
+  const claims = verifyAuthMobileJwt(token, jwtSecret);
+  if (claims?.sub) return String(claims.sub);
+  return null;
 }
 
 async function handler(req, res) {
@@ -22,10 +44,8 @@ async function handler(req, res) {
     return res.status(401).json({ error: 'Unauthorized: Bearer token required' });
   }
 
-  let decoded;
-  try {
-    decoded = await admin.auth().verifyIdToken(token, true);
-  } catch (e) {
+  const userId = await resolveUserIdFromToken(token);
+  if (!userId) {
     return res.status(401).json({ error: 'Invalid or expired auth token' });
   }
 
@@ -36,7 +56,7 @@ async function handler(req, res) {
     return res.status(400).json({ error: 'Required: idempotencyKey, payload' });
   }
 
-  if (payload.userId !== decoded.uid) {
+  if (String(payload.userId) !== userId) {
     return res.status(403).json({ error: 'Forbidden: userId mismatch' });
   }
 

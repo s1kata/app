@@ -71,7 +71,7 @@ const getDefaultDates = () => {
 };
 
 export default function HotelBookingFormScreen({ navigation, route }: HotelBookingFormScreenProps) {
-  const { theme, isDark, user } = useAppContext();
+  const { theme, isDark, user, networkPolicy } = useAppContext();
   const hotel = route.params?.hotel;
 
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -258,6 +258,10 @@ export default function HotelBookingFormScreen({ navigation, route }: HotelBooki
     paymentService.formatAmount(price, currency);
 
   const handleBooking = async (payImmediately: boolean) => {
+    if (networkPolicy.isBlocked) {
+      Alert.alert(i18n.t('network.vpnBlockedTitle'), i18n.t('network.vpnBlockedBody'));
+      return;
+    }
     if (bookingSubmitLock.current) return;
     const bookingAuth = await requireAuthForBooking(user);
     if (!hotel || !bookingAuth.ok) {
@@ -406,6 +410,24 @@ export default function HotelBookingFormScreen({ navigation, route }: HotelBooki
                 presentPaymentPollOutcome({
                   transactionId: paymentResult.transactionId!,
                   result: statusResult,
+                  onStatusResolved: async (r) => {
+                    if (!result.bookingId || !r.success) return;
+                    if (r.status === 'success') {
+                      await bookingService.markPaymentStatus(result.bookingId, 'paid', { status: 'confirmed' });
+                      return;
+                    }
+                    if (r.status === 'failed') {
+                      await bookingService.markPaymentStatus(result.bookingId, 'failed');
+                      return;
+                    }
+                    if (r.status === 'cancelled') {
+                      await bookingService.markPaymentStatus(result.bookingId, 'cancelled');
+                      return;
+                    }
+                    if (r.status === 'pending') {
+                      await bookingService.markPaymentStatus(result.bookingId, 'payment_processing');
+                    }
+                  },
                   onBeforeSuccessAlert: async () => {
                     if (user?.uid && result.bookingId) {
                       await bookingService.maybeAwardLoyaltyAfterPaidBooking(user.uid, result.bookingId);

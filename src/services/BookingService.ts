@@ -23,6 +23,7 @@ import { crmOutboundQueue } from './crm/CrmOutboundQueue';
 import type { CrmBookingQueuePayload } from '../types/crmQueue';
 import { networkService } from './NetworkService';
 import { bookingLocalStore } from './BookingLocalStore';
+import { getValidAccessToken } from './AuthApiClient';
 
 /**
  * Бронирования: очередь → CRM (сайт) → локальный кэш (AsyncStorage) или Firestore (legacy).
@@ -208,11 +209,19 @@ class BookingService {
         tourSnapshot: bookingData.tourSnapshot ?? null,
       };
 
+      const bearer = await getValidAccessToken();
+      if (!bearer) {
+        return {
+          success: false,
+          error: 'Требуется авторизация. Войдите в аккаунт и повторите попытку.',
+        };
+      }
+
       const task = await crmOutboundQueue.enqueue(queuePayload);
 
-      await networkService.checkConnection();
+      const online = await networkService.ensureOnlineVerified();
 
-      if (!networkService.isOnline) {
+      if (!online) {
         void crmOutboundQueue.drain();
         return {
           success: true,

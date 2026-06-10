@@ -16,6 +16,16 @@ function isCrmProxyRouteMissing(error?: string): boolean {
   return /^HTTP 404$/i.test(e) || /^HTTP 405$/i.test(e) || /\b404\b/.test(e);
 }
 
+function isCrmAuthError(error?: string): boolean {
+  const e = (error || '').toLowerCase();
+  return (
+    e.includes('invalid or expired auth token') ||
+    e.includes('unauthorized') ||
+    e.includes('требуется авторизация') ||
+    /^http 401$/i.test(e.trim())
+  );
+}
+
 export type PersistAfterCrmHandler = (
   payload: CrmBookingQueuePayload,
   crmRequestId: string,
@@ -191,6 +201,12 @@ class CrmOutboundQueue {
           `[CrmQueue] Прокси CRM (${backendBase}) вернул «${crm.error}» — пробуем прямую отправку в U-ON (если задан ключ в приложении)`,
         );
         crm = await sotaCrmService.sendBookingToCrm(directPayload);
+      }
+
+      if (!crm.success && backendBase && isCrmAuthError(crm.error)) {
+        logger.error(
+          `[CrmQueue] CRM отклонил токен (${crm.error}). На сервере должен быть JWT auth-mobile, не Firebase.`,
+        );
       }
 
       if (crm.success && crm.data?.id) {

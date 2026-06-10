@@ -1,5 +1,5 @@
 import React, { useRef, useState } from 'react';
-import { View, Platform } from 'react-native';
+import { View, Platform, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { NavigationContainer, NavigationContainerRef } from '@react-navigation/native';
@@ -18,6 +18,39 @@ import { logger } from './src/utils/logger';
 import { logNavigationStateChange } from './src/utils/navigationLogger';
 import { useLifecycleLog } from './src/hooks/useLifecycleLog';
 import * as WebBrowser from 'expo-web-browser';
+import { useAppContext } from './src/contexts/AppContext';
+import { i18n } from './src/config/i18n';
+import { networkService } from './src/services/NetworkService';
+
+function VpnBlockerOverlay() {
+  const { theme, networkPolicy } = useAppContext();
+  if (!networkPolicy.isBlocked) return null;
+
+  return (
+    <View pointerEvents="auto" style={styles.blockerRoot}>
+      <View style={[styles.banner, { backgroundColor: '#D97706' }]}>
+        <Text style={styles.bannerText}>{i18n.t('network.vpnBlockedBody')}</Text>
+      </View>
+      <View style={styles.backdrop}>
+        <View style={[styles.modal, { backgroundColor: theme.card, borderColor: theme.border }]}>
+          <Text style={[styles.modalTitle, { color: theme.text }]}>{i18n.t('network.vpnBlockedTitle')}</Text>
+          <Text style={[styles.modalBody, { color: theme.secondaryText }]}>
+            {i18n.t('network.vpnBlockedBody')}
+          </Text>
+          <TouchableOpacity
+            style={[styles.cta, { backgroundColor: theme.primary }]}
+            activeOpacity={0.8}
+            onPress={() => {
+              void networkService.checkConnection();
+            }}
+          >
+            <Text style={styles.ctaText}>{i18n.t('network.retryCheck')}</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </View>
+  );
+}
 
 export default function App() {
   useLifecycleLog('App');
@@ -114,6 +147,7 @@ export default function App() {
                   <AppNavigator />
                 </NavigationContainer>
               </View>
+              <VpnBlockerOverlay />
               {hasCheckedPermission && (
                 <LocationPermissionModal
                   visible={showLocationModal}
@@ -128,3 +162,55 @@ export default function App() {
     </ErrorBoundary>
   );
 }
+
+const styles = StyleSheet.create({
+  blockerRoot: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 9999,
+  },
+  banner: {
+    marginTop: 8,
+    marginHorizontal: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+  },
+  bannerText: {
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  backdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.3)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 20,
+  },
+  modal: {
+    width: '100%',
+    borderRadius: 14,
+    borderWidth: 1,
+    padding: 16,
+  },
+  modalTitle: {
+    fontSize: 17,
+    fontWeight: '700',
+    marginBottom: 8,
+  },
+  modalBody: {
+    fontSize: 14,
+    marginBottom: 14,
+  },
+  cta: {
+    paddingVertical: 10,
+    borderRadius: 10,
+    alignItems: 'center',
+  },
+  ctaText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+});

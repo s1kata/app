@@ -10,6 +10,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { weatherService, WeatherData } from '../services/WeatherService';
 import { locationService, LocationData } from '../services/LocationService';
 import { logger } from '../utils/logger';
+import { useAppContext } from '../contexts/AppContext';
 
 interface WeatherWidgetProps {
   location?: LocationData | null;
@@ -17,6 +18,7 @@ interface WeatherWidgetProps {
 }
 
 export default function WeatherWidget({ location, onRefresh }: WeatherWidgetProps) {
+  const { theme, isDark } = useAppContext();
   const [weather, setWeather] = useState<WeatherData | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -106,29 +108,34 @@ export default function WeatherWidget({ location, onRefresh }: WeatherWidgetProp
     return null;
   }
 
+  const weatherBg = isDark ? theme.primary : theme.surface;
+  const primaryTextColor = isDark ? '#FFFFFF' : theme.text;
+  const secondaryTextColor = isDark ? 'rgba(255, 255, 255, 0.9)' : theme.secondaryText;
+  const iconColor = isDark ? '#FFFFFF' : theme.primary;
+
   return (
     <TouchableOpacity
       style={styles.container}
       onPress={handleRefresh}
       activeOpacity={0.8}
     >
-      <View style={[styles.gradient, { backgroundcolor: '#0066CC' }]}>
+      <View style={[styles.gradient, { backgroundColor: weatherBg }]}>
         <View style={styles.content}>
           <View style={styles.iconContainer}>
             <Ionicons
               name={getWeatherIcon(weather.icon) as any}
               size={32}
-              color="#FFFFFF"
+              color={iconColor}
             />
           </View>
           
           <View style={styles.infoContainer}>
-            <Text style={styles.temperature}>{weather.temperature}°</Text>
-            <Text style={styles.description} numberOfLines={1}>
+            <Text style={[styles.temperature, { color: primaryTextColor }]}>{weather.temperature}°</Text>
+            <Text style={[styles.description, { color: secondaryTextColor }]} numberOfLines={1}>
               {weather.description}
             </Text>
             {weather.city && (
-              <Text style={styles.city} numberOfLines={1}>
+              <Text style={[styles.city, { color: secondaryTextColor }]} numberOfLines={1}>
                 {weather.city}
               </Text>
             )}
@@ -136,7 +143,7 @@ export default function WeatherWidget({ location, onRefresh }: WeatherWidgetProp
 
           {isLoading && (
             <View style={styles.refreshContainer}>
-              <ActivityIndicator size="small" color="#FFFFFF" />
+              <ActivityIndicator size="small" color={iconColor} />
             </View>
           )}
         </View>
@@ -147,13 +154,13 @@ export default function WeatherWidget({ location, onRefresh }: WeatherWidgetProp
 
 const styles = StyleSheet.create({
   container: {
-    width: 120,
+    width: 132,
     borderTopLeftRadius: 0,
     borderTopRightRadius: 20,
     borderBottomLeftRadius: 0,
     borderBottomRightRadius: 20,
     overflow: 'hidden',
-    shadowcolor: '#0066CC',
+    shadowColor: '#0066CC',
     shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.22,
     shadowRadius: 10,
@@ -176,19 +183,16 @@ const styles = StyleSheet.create({
   temperature: {
     fontSize: 24,
     fontWeight: '700',
-    color: '#FFFFFF',
     lineHeight: 28,
   },
   description: {
     fontSize: 12,
-    color: '#FFFFFF',
     opacity: 0.9,
     marginTop: 2,
     textTransform: 'capitalize',
   },
   city: {
     fontSize: 10,
-    color: '#FFFFFF',
     opacity: 0.8,
     marginTop: 2,
   },

@@ -15,13 +15,17 @@ import { tourvisorApi } from './TourvisorApiService';
 import { logger } from '../utils/logger';
 import { cacheService, CacheType } from './CacheService';
 import {
+  getCountriesFromFirestore,
+  getDeparturesFromFirestore,
   setCountriesToFirestore,
+  setDeparturesToFirestore,
   getMealsFromFirestore,
   setMealsToFirestore,
 } from './DictionaryFirestoreCache';
 
 class DictionaryService {
   private memoryCache = new Map<string, any>(); // Быстрый доступ к часто используемым данным
+  private readonly EMPTY_DICTIONARY_ERROR = 'EMPTY_DICTIONARY';
 
   /** Дедуп по имени, отсев пустых и служебных подписей из справочника городов вылета. */
   private normalizeDepartures(list: Departure[]): Departure[] {
@@ -45,6 +49,7 @@ class DictionaryService {
   private preloadPromise: Promise<void> | null = null;
   private isPreloading = false;
   private backgroundUpdatePromise: Promise<void> | null = null;
+  private backgroundRefreshQueue = new Map<string, Promise<void>>();
 
   private getCacheKey(type: string, params?: any): string {
     const paramStr = params ? JSON.stringify(params) : '';
@@ -73,6 +78,106 @@ class DictionaryService {
 
     // Сохраняем в AsyncStorage через CacheService (TTL 30 дней — справочники почти статичны)
     await cacheService.set(CacheType.DICTIONARIES, key, data);
+  }
+
+  private isTransientDictionaryError(error: unknown): boolean {
+    const message = String((error as Error)?.message || '').toLowerCase();
+    return (
+      message.includes('timeout') ||
+      message.includes('timed out') ||
+      message.includes('превысил время') ||
+      message.includes('network request failed') ||
+      message.includes('failed to fetch') ||
+      message.includes('server unavailable')
+    );
+  }
+
+  private async getDictionaryFallback<T>(key: string): Promise<T | null> {
+    const staleCache = await cacheService.get<T>(CacheType.DICTIONARIES, key, true);
+    if (staleCache && Array.isArray(staleCache) && staleCache.length > 0) {
+      this.memoryCache.set(key, staleCache);
+      return staleCache;
+    }
+    return null;
+  }
+
+  /**
+   * Очередь фонового обновления справочника (дедуп по ключу).
+   * Не блокирует UI и не бросает исключения наружу.
+   */
+  private queueBackgroundRefresh<T>(key: string, fetchFn: () => Promise<T>): void {
+    if (this.backgroundRefreshQueue.has(key)) return;
+    const job = (async () => {
+      try {
+        await this.updateInBackground(key, fetchFn, true);
+      } catch (e: any) {
+        logger.debug(`[DictionaryService] background refresh failed for ${key}:`, e?.message || String(e));
+      } finally {
+        this.backgroundRefreshQueue.delete(key);
+      }
+    })();
+    this.backgroundRefreshQueue.set(key, job);
+  }
+
+  /**
+   * Обновление справочника через API с дедупликацией запроса и безопасным fallback.
+   * Используется, когда локального кэша нет и нужно получить данные из сети.
+   */
+  private async fetchDictionaryFromApiWithQueue<T>(key: string, fetchFn: () => Promise<T>): Promise<T> {
+    const existingRequest = this.requestQueue.get(key);
+    if (existingRequest) {
+      logger.debug(`Request for ${key} already in queue, waiting...`);
+      return existingRequest;
+    }
+
+    const lastRequest = this.lastRequestTime.get(key);
+    const now = Date.now();
+    if (lastRequest && (now - lastRequest) < this.MIN_REQUEST_INTERVAL_DICTIONARY) {
+      const waitTime = this.MIN_REQUEST_INTERVAL_DICTIONARY - (now - lastRequest);
+      await new Promise(resolve => setTimeout(resolve, waitTime));
+    }
+
+    const requestPromise = (async () => {
+      try {
+        this.lastRequestTime.set(key, Date.now());
+        const data = await fetchFn();
+        await this.set(key, data);
+        return data;
+      } finally {
+        this.requestQueue.delete(key);
+      }
+    })();
+
+    this.requestQueue.set(key, requestPromise);
+
+    try {
+      return await requestPromise;
+    } catch (error: any) {
+      const errorStatus = error?.status || (error?.message?.match(/\b(403|429|401)\b/)?.[1] ? parseInt(error.message.match(/\b(403|429|401)\b/)[1]) : null);
+      const isRateLimitError = errorStatus === 429 || error?.message?.includes('429') || error?.message?.includes('Rate limit');
+      const isForbiddenError = errorStatus === 403 || error?.message?.includes('403') || error?.message?.includes('forbidden') || error?.message?.includes('Access forbidden');
+      const isUnauthorizedError = errorStatus === 401 || error?.message?.includes('401') || error?.message?.includes('Unauthorized');
+
+      if (isRateLimitError || isForbiddenError || isUnauthorizedError || this.isTransientDictionaryError(error)) {
+        logger.warn(`API error (${errorStatus || 'unknown'}) for ${key}, trying to use stale cache`);
+        const staleCache = await cacheService.get<T>(CacheType.DICTIONARIES, key, true);
+        if (staleCache && Array.isArray(staleCache) && staleCache.length > 0) {
+          this.memoryCache.set(key, staleCache);
+          return staleCache;
+        }
+        logger.warn(`No cache available for ${key}, returning empty array. This is normal on first app launch.`);
+        return [] as T;
+      }
+
+      logger.error(`Failed to load dictionary data: ${key}`, error);
+      const staleCache = await cacheService.get<T>(CacheType.DICTIONARIES, key, true);
+      if (staleCache && Array.isArray(staleCache) && staleCache.length > 0) {
+        this.memoryCache.set(key, staleCache);
+        return staleCache;
+      }
+      logger.warn(`No cache available for ${key}, returning empty array. This is normal on first app launch.`);
+      return [] as T;
+    }
   }
 
   // Глобальная очередь запросов для предотвращения параллельных запросов к одному endpoint
@@ -181,29 +286,41 @@ class DictionaryService {
   // Countries — источник данных: API; при ошибке — кэш/Firestore.
   async getCountries(departureId?: number, onlyCharter?: boolean): Promise<Country[]> {
     const key = this.getCacheKey('countries', { departureId, onlyCharter });
-    console.error('[FORCE_LOG] Dictionary getCountries start', {
-      departureId: departureId ?? null,
-      onlyCharter: onlyCharter ?? false,
-      hasToken: !!tourvisorApi.getJwtToken(),
-    });
-    try {
+    const fetchFromApi = async () => {
       const fromApi = await tourvisorApi.getCountries(departureId, onlyCharter ?? false);
       if (fromApi && fromApi.length > 0) {
-        await this.set(key, fromApi);
         if (departureId != null) {
           setCountriesToFirestore(fromApi, departureId, onlyCharter ?? false).catch(() => {});
         }
-        console.error('[FORCE_LOG] Dictionary getCountries success', { count: fromApi.length });
         return fromApi;
       }
-      console.error('[FORCE_LOG] Dictionary getCountries empty response');
-      throw new Error('Countries API returned empty list');
-    } catch (e) {
-      console.error('[FORCE_LOG] Dictionary getCountries failed', {
-        error: (e as Error)?.message || String(e),
-      });
-      throw e;
+      throw new Error(this.EMPTY_DICTIONARY_ERROR);
+    };
+
+    const stale = await this.getDictionaryFallback<Country[]>(key);
+    if (stale && stale.length > 0) {
+      const needsUpdate = await cacheService.needsUpdate(CacheType.DICTIONARIES, key);
+      if (needsUpdate) {
+        this.queueBackgroundRefresh(key, fetchFromApi);
+      }
+      return stale;
     }
+
+    const fromFirestore = await getCountriesFromFirestore(departureId, onlyCharter ?? false);
+    if (fromFirestore && fromFirestore.length > 0) {
+      await this.set(key, fromFirestore);
+      this.queueBackgroundRefresh(key, fetchFromApi);
+      return fromFirestore;
+    }
+
+    const fromApi = await this.fetchDictionaryFromApiWithQueue<Country[]>(key, fetchFromApi);
+    if (fromApi.length === 0) {
+      logger.warn('[DictionaryService] getCountries fallback empty', {
+        departureId,
+        onlyCharter: onlyCharter ?? false,
+      });
+    }
+    return fromApi;
   }
 
   /** Полный список стран без фильтров (для отелей и «все страны» в турах) */
@@ -214,27 +331,40 @@ class DictionaryService {
   // Departures (города вылета) — источник данных: API; при ошибке — кэш/Firestore.
   async getDepartures(departureCountryId?: number): Promise<Departure[]> {
     const key = this.getCacheKey('departures', { departureCountryId });
-    console.error('[FORCE_LOG] Dictionary getDepartures start', {
-      departureCountryId: departureCountryId ?? null,
-      hasToken: !!tourvisorApi.getJwtToken(),
-    });
-    try {
+    const fetchFromApi = async () => {
       const fromApi = await tourvisorApi.getDepartures(departureCountryId);
       if (fromApi && fromApi.length > 0) {
         const normalized = this.normalizeDepartures(fromApi);
         const toStore = normalized.length > 0 ? normalized : fromApi;
-        await this.set(key, toStore);
-        console.error('[FORCE_LOG] Dictionary getDepartures success', { count: toStore.length });
+        setDeparturesToFirestore(toStore, departureCountryId).catch(() => {});
         return toStore;
       }
-      console.error('[FORCE_LOG] Dictionary getDepartures empty response');
-      throw new Error('Departures API returned empty list');
-    } catch (e) {
-      console.error('[FORCE_LOG] Dictionary getDepartures failed', {
-        error: (e as Error)?.message || String(e),
-      });
-      throw e;
+      throw new Error(this.EMPTY_DICTIONARY_ERROR);
+    };
+
+    const stale = await this.getDictionaryFallback<Departure[]>(key);
+    if (stale && stale.length > 0) {
+      const needsUpdate = await cacheService.needsUpdate(CacheType.DICTIONARIES, key);
+      if (needsUpdate) {
+        this.queueBackgroundRefresh(key, fetchFromApi);
+      }
+      return stale;
     }
+
+    const fromFirestore = await getDeparturesFromFirestore(departureCountryId);
+    if (fromFirestore && fromFirestore.length > 0) {
+      await this.set(key, fromFirestore);
+      this.queueBackgroundRefresh(key, fetchFromApi);
+      return fromFirestore;
+    }
+
+    const fromApi = await this.fetchDictionaryFromApiWithQueue<Departure[]>(key, fetchFromApi);
+    if (fromApi.length === 0) {
+      logger.warn('[DictionaryService] getDepartures fallback empty', {
+        departureCountryId,
+      });
+    }
+    return fromApi;
   }
 
   // Regions (resorts)
@@ -461,23 +591,16 @@ class DictionaryService {
     if (this.isPreloading) return this.preloadPromise || Promise.resolve();
     this.isPreloading = true;
     logger.debug('Preloading departures and countries (cache or API)...');
-    console.error('[FORCE_LOG] Dictionary preload start');
 
     this.preloadPromise = (async () => {
       try {
-        const countries = await this.getCountries();
-        const departures = await this.getDepartures();
-        console.error('[FORCE_LOG] Dictionary preload success', {
-          countriesCount: countries.length,
-          departuresCount: departures.length,
-        });
+        await Promise.all([
+          this.getCountries(),
+          this.getDepartures(),
+        ]);
         logger.debug('Departures and countries preloaded');
       } catch (error) {
-        console.error('[FORCE_LOG] Dictionary preload failed', {
-          error: (error as Error)?.message || String(error),
-        });
-        logger.error('Unexpected error during preload:', error);
-        throw error;
+        logger.warn('Dictionary preload skipped due to transient error:', (error as Error)?.message || String(error));
       } finally {
         this.isPreloading = false;
         // Очищаем промис через некоторое время, чтобы можно было повторить при необходимости

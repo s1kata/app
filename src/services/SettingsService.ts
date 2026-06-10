@@ -20,7 +20,7 @@ interface AppSettings {
 const DEFAULT_SETTINGS: AppSettings = {
   theme: 'light', // Светлая тема по умолчанию
   language: 'ru',
-  currency: 'USD', // Доллары по умолчанию
+  currency: 'RUB', // Рубли по умолчанию
   notifications: {
     push: true,
     email: true,

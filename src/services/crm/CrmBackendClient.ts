@@ -4,9 +4,17 @@
  * запросы идут на `${base}/api/crm/submit-booking` и т.д. (например `https://travelhub63.ru`).
  */
 import Constants from 'expo-constants';
-import { getValidAccessToken } from '../AuthApiClient';
+import { authApiClient, getValidAccessToken } from '../AuthApiClient';
 import type { CrmBookingQueuePayload } from '../../types/crmQueue';
 import { logger } from '../../utils/logger';
+import { networkService } from '../NetworkService';
+
+/** Порядок важен: сначала маршрут с rewrite, затем прямой .php на shared-хостинге */
+const CRM_SUBMIT_PATHS = [
+  '/api/crm/submit-booking',
+  '/api/crm/submit-booking.php',
+  '/api/crm-submit-booking.php',
+] as const;
 
 /**
  * База для CRM-прокси: `${base}/api/crm/*` на сайте (U-ON ключ только на сервере).
@@ -37,6 +45,29 @@ async function getBearer(): Promise<string | null> {
   }
 }
 
+async function postCrmSubmit(
+  base: string,
+  path: string,
+  bearer: string,
+  idempotencyKey: string,
+  payload: CrmBookingQueuePayload,
+): Promise<{
+  ok: boolean;
+  status: number;
+  data: { success?: boolean; error?: string; data?: { id?: string; requestId?: string; bookingNumber?: string } };
+}> {
+  const res = await fetch(`${base}${path}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${bearer}`,
+    },
+    body: JSON.stringify({ idempotencyKey, payload }),
+  });
+  const data = await res.json().catch(() => ({}));
+  return { ok: res.ok, status: res.status, data };
+}
+
 export async function submitBookingToBackend(
   idempotencyKey: string,
   payload: CrmBookingQueuePayload,
@@ -45,31 +76,54 @@ export async function submitBookingToBackend(
   data?: { id?: string; requestId?: string; bookingNumber?: string };
   error?: string;
 }> {
+  if (networkService.getPolicyState().isBlocked) {
+    return { success: false, error: 'Отключите VPN/блокировщик и повторите отправку заявки.' };
+  }
   const base = getCrmBackendBaseUrl();
   if (!base) {
     return { success: false, error: 'Не задан URL бэкенда (paymentPageUrl)' };
   }
-  const bearer = await getBearer();
+  let bearer = await getBearer();
   if (!bearer) {
     return { success: false, error: 'Требуется авторизация' };
   }
+
   try {
-    const res = await fetch(`${base}/api/crm/submit-booking`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${bearer}`,
-      },
-      body: JSON.stringify({ idempotencyKey, payload }),
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      return { success: false, error: data?.error || `HTTP ${res.status}` };
+    let lastError = 'CRM error';
+
+    for (const path of CRM_SUBMIT_PATHS) {
+      let attempt = await postCrmSubmit(base, path, bearer, idempotencyKey, payload);
+
+      if (attempt.status === 401) {
+        const refreshed = await authApiClient.refresh();
+        if (refreshed) {
+          bearer = (await getBearer()) || bearer;
+          attempt = await postCrmSubmit(base, path, bearer, idempotencyKey, payload);
+          if (attempt.status === 401) {
+            await authApiClient.logout();
+            return { success: false, error: 'Сессия истекла. Войдите в аккаунт повторно.' };
+          }
+        } else {
+          await authApiClient.logout();
+          return { success: false, error: 'Сессия истекла. Войдите в аккаунт повторно.' };
+        }
+      }
+
+      if (attempt.status === 404 || attempt.status === 405) {
+        lastError = attempt.data?.error || `HTTP ${attempt.status}`;
+        continue;
+      }
+
+      if (!attempt.ok) {
+        return { success: false, error: attempt.data?.error || `HTTP ${attempt.status}` };
+      }
+      if (!attempt.data.success) {
+        return { success: false, error: attempt.data?.error || 'CRM error' };
+      }
+      return { success: true, data: attempt.data.data };
     }
-    if (!data.success) {
-      return { success: false, error: data?.error || 'CRM error' };
-    }
-    return { success: true, data: data.data };
+
+    return { success: false, error: lastError };
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : 'Network error';
     logger.error('[CrmBackendClient] submitBookingToBackend:', msg);

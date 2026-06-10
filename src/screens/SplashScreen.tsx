@@ -30,8 +30,8 @@ const SPLASH_ACCENT = BRAND.orange;     // оранжевый акцент на 
 const SHAPE_COLOR = 'rgba(255,255,255,0.12)';
 
 export default function SplashScreen({ navigation }: { navigation: any }) {
-  const { isAuthenticated, authReady } = useAppContext();
-  useLifecycleLog('SplashScreen', { label: 'auth', deps: [authReady, isAuthenticated] });
+  const { isAuthenticated } = useAppContext();
+  useLifecycleLog('SplashScreen', { label: 'auth', deps: [isAuthenticated] });
   const mountTime = useRef(Date.now()).current;
   const hasNavigated = useRef(false);
 
@@ -104,7 +104,7 @@ export default function SplashScreen({ navigation }: { navigation: any }) {
       if (!alive || hasNavigated.current) return;
       hasNavigated.current = true;
       const target = isAuthenticated ? 'MainTabs' : 'Login';
-      logIosTestStep(IosTestStep.LAUNCH, { authReady, isAuthenticated, target });
+      logIosTestStep(IosTestStep.LAUNCH, { isAuthenticated, target });
       logger.info('[Splash] navigate', { target, isAuthenticated });
       if (isAuthenticated) {
         navigation.replace('MainTabs');
@@ -114,13 +114,11 @@ export default function SplashScreen({ navigation }: { navigation: any }) {
       hideSplashTimer = setTimeout(() => NativeSplash.hideAsync().catch(() => {}), 200);
     };
 
-    // Не навигируем, пока authReady (Firebase восстановит сессию из AsyncStorage)
-    if (authReady) {
-      const minDelay = 1500;
-      const elapsed = Date.now() - mountTime;
-      const waitMs = Math.max(0, minDelay - elapsed);
-      navTimer = setTimeout(doNavigate, waitMs);
-    }
+    // Навигация после минимальной задержки без ожидания authReady.
+    const minDelay = 1500;
+    const elapsed = Date.now() - mountTime;
+    const waitMs = Math.max(0, minDelay - elapsed);
+    navTimer = setTimeout(doNavigate, waitMs);
 
     return () => {
       alive = false;
@@ -128,7 +126,7 @@ export default function SplashScreen({ navigation }: { navigation: any }) {
       if (navTimer) clearTimeout(navTimer);
       if (hideSplashTimer) clearTimeout(hideSplashTimer);
     };
-  }, [isAuthenticated, authReady, navigation, mountTime]);
+  }, [isAuthenticated, navigation, mountTime]);
 
   return (
     <SafeAreaView edges={['top', 'bottom']} style={[styles.safeArea, { backgroundColor: SPLASH_BG }]}>

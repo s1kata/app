@@ -142,15 +142,17 @@ export class AuthService {
     return this.updateProfile(userId, { passport: passportData });
   }
 
-  static async getCurrentUser(): Promise<UserProfile | null> {
+  static async getCurrentUser(refresh = false): Promise<UserProfile | null> {
     try {
       const stored = await authSession.getStoredUser();
       if (!stored) return null;
-      try {
-        const fresh = await authApiClient.me();
-        if (fresh) return profileToUserProfile(fresh);
-      } catch {
-        logStep('getCurrentUser', 'fallback на локальный профиль');
+      if (refresh) {
+        try {
+          const fresh = await authApiClient.me();
+          if (fresh) return profileToUserProfile(fresh);
+        } catch {
+          logStep('getCurrentUser', 'fallback на локальный профиль');
+        }
       }
       return profileToUserProfile(stored);
     } catch (error) {

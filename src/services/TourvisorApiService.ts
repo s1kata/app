@@ -30,9 +30,44 @@ import { getJwtDiagnostics } from '../utils/jwtDiagnostics';
 import { normalizeHotelImages } from '../utils/hotelImages';
 import { rateLimiter } from './RateLimiter';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { networkService } from './NetworkService';
+import {
+  isTourSearchStatusError,
+  isTourSearchStatusFinished,
+  TOUR_SEARCH_MAX_WAIT_MS,
+  TOUR_SEARCH_POLL_INTERVAL_MS,
+} from '../utils/tourSearchCache';
 
 const RATE_LIMIT_COOLDOWN_KEY = 'tourvisor_429_cooldown_until';
-const REQUEST_TIMEOUT_MS = 30_000;
+/** Справочники (departures, countries) — быстрые ответы */
+const DICTIONARY_REQUEST_TIMEOUT_MS = 20_000;
+/** Поиск туров: опрос статуса и большой JSON — нужен запас для LTE */
+const SEARCH_REQUEST_TIMEOUT_MS = 90_000;
+const DICTIONARY_RETRY_LIMIT = 1;
+const DICTIONARY_RETRY_BASE_DELAY_MS = 1500;
+
+function isTourSearchEndpoint(endpoint: string): boolean {
+  return /\/tours\/search/.test(endpoint);
+}
+
+const DICTIONARY_ENDPOINT_PATTERNS = [
+  '/departures',
+  '/countries',
+  '/arrivals',
+  '/currencies',
+  '/meals',
+  '/operators',
+  '/regions',
+  '/subregions',
+  '/hotel-types',
+  '/hotel-group-services',
+  '/hotels',
+  '/tours/dates',
+];
+
+function isDictionaryEndpoint(endpoint: string): boolean {
+  return DICTIONARY_ENDPOINT_PATTERNS.some((ep) => endpoint.includes(ep));
+}
 
 class TourvisorApiService {
   /** Пусто до AppContext.setBaseUrl — не используем прямой api.tourvisor.ru по умолчанию (токен на сервере). */
@@ -148,23 +183,7 @@ class TourvisorApiService {
    */
   private getRequestType(endpoint: string): 'dictionary' | 'search' {
     // Справочники
-    const dictionaryEndpoints = [
-      '/departures',
-      '/countries',
-      '/arrivals',
-      '/currencies',
-      '/meals',
-      '/operators',
-      '/regions',
-      '/subregions',
-      '/hotel-types',
-      '/hotel-group-services',
-      '/hotels',
-      '/tours/dates',
-    ];
-    
-    // Проверяем, является ли это справочником
-    const isDictionary = dictionaryEndpoints.some(ep => endpoint.includes(ep));
+    const isDictionary = isDictionaryEndpoint(endpoint);
     
     return isDictionary ? 'dictionary' : 'search';
   }
@@ -175,6 +194,10 @@ class TourvisorApiService {
     retryCount: number = 0,
     maxRetries: number = 3
   ): Promise<ApiResponse<T>> {
+    if (networkService.getPolicyState().isBlocked) {
+      throw new Error('Отключите VPN/блокировщик и повторите запрос.');
+    }
+
     // Быстрый выход: сервер ранее вернул 429 с Retry-After
     if (Date.now() < this.rateLimitCooldownUntil) {
       const secLeft = Math.ceil((this.rateLimitCooldownUntil - Date.now()) / 1000);
@@ -227,7 +250,10 @@ class TourvisorApiService {
 
     const { signal: incomingSignal, ...restOptions } = options;
     const timeoutController = new AbortController();
-    const timeoutId = setTimeout(() => timeoutController.abort(), REQUEST_TIMEOUT_MS);
+    const requestTimeoutMs = isTourSearchEndpoint(endpoint)
+      ? SEARCH_REQUEST_TIMEOUT_MS
+      : DICTIONARY_REQUEST_TIMEOUT_MS;
+    const timeoutId = setTimeout(() => timeoutController.abort(), requestTimeoutMs);
     const onIncomingAbort = () => {
       clearTimeout(timeoutId);
       timeoutController.abort();
@@ -424,17 +450,47 @@ class TourvisorApiService {
         headers: response.headers,
       };
     } catch (error: any) {
+      const isDictionaryRequest = isDictionaryEndpoint(endpoint);
       if (error?.name === 'AbortError') {
         logger.warn(`[Tourvisor API] Timeout или отмена: ${endpoint}`);
+        if (isDictionaryRequest && retryCount < DICTIONARY_RETRY_LIMIT) {
+          const delay = DICTIONARY_RETRY_BASE_DELAY_MS * (retryCount + 1);
+          logger.warn(
+            `[Tourvisor API] Повтор справочника после таймаута (${retryCount + 1}/${DICTIONARY_RETRY_LIMIT}): ${endpoint}, delay=${delay}ms`
+          );
+          await new Promise((resolve) => setTimeout(resolve, delay));
+          return this.request<T>(endpoint, options, retryCount + 1, maxRetries);
+        }
+        if (isTourSearchEndpoint(endpoint) && retryCount < 2) {
+          logger.warn(`[Tourvisor API] Повтор после таймаута (${retryCount + 1}/2): ${endpoint}`);
+          return this.request<T>(endpoint, options, retryCount + 1, maxRetries);
+        }
+        const timeoutSec = Math.round(requestTimeoutMs / 1000);
         throw new Error(
-          'Tourvisor API: запрос превысил время ожидания (30 с). Проверьте сеть и повторите.'
+          `Tourvisor API: запрос превысил время ожидания (${timeoutSec} с). Проверьте сеть и повторите.`
         );
       }
       // Более детальная обработка ошибок
       if (error.message?.includes('Network request failed')) {
+        if (isDictionaryRequest && retryCount < DICTIONARY_RETRY_LIMIT) {
+          const delay = DICTIONARY_RETRY_BASE_DELAY_MS * (retryCount + 1);
+          logger.warn(
+            `[Tourvisor API] Повтор справочника после network error (${retryCount + 1}/${DICTIONARY_RETRY_LIMIT}): ${endpoint}, delay=${delay}ms`
+          );
+          await new Promise((resolve) => setTimeout(resolve, delay));
+          return this.request<T>(endpoint, options, retryCount + 1, maxRetries);
+        }
         logger.error(`Tourvisor API network error: ${endpoint} - сервер недоступен`);
         throw new Error(`Не удалось связаться с сервером. Проверьте интернет или попробуйте позже.`);
       } else if (error.message?.includes('Failed to fetch')) {
+        if (isDictionaryRequest && retryCount < DICTIONARY_RETRY_LIMIT) {
+          const delay = DICTIONARY_RETRY_BASE_DELAY_MS * (retryCount + 1);
+          logger.warn(
+            `[Tourvisor API] Повтор справочника после fetch error (${retryCount + 1}/${DICTIONARY_RETRY_LIMIT}): ${endpoint}, delay=${delay}ms`
+          );
+          await new Promise((resolve) => setTimeout(resolve, delay));
+          return this.request<T>(endpoint, options, retryCount + 1, maxRetries);
+        }
         logger.error(`Tourvisor API fetch failed: ${endpoint} - Возможно, сервер недоступен`);
         throw new Error(`Server unavailable: ${this.baseUrl} is not reachable.`);
       } else {
@@ -853,30 +909,64 @@ class TourvisorApiService {
     return response.data;
   }
 
+  /**
+   * Ожидает завершения поиска (до 2 мин). Повторяет опрос статуса при обрывах LTE.
+   */
+  async pollTourSearchUntilReady(
+    searchId: number,
+    onProgress?: (status: TourSearchStatus) => void,
+    maxWaitMs: number = TOUR_SEARCH_MAX_WAIT_MS,
+    pollIntervalMs: number = TOUR_SEARCH_POLL_INTERVAL_MS,
+  ): Promise<TourSearchStatus> {
+    const startedAt = Date.now();
+    let lastStatus: TourSearchStatus | null = null;
+
+    while (Date.now() - startedAt < maxWaitMs) {
+      let status: TourSearchStatus | null = null;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          status = await this.getTourSearchStatus(searchId, false);
+          break;
+        } catch (e) {
+          if (attempt >= 2) throw e;
+          await new Promise((r) => setTimeout(r, 1500 * (attempt + 1)));
+        }
+      }
+      if (!status) {
+        throw new Error('Tourvisor API: не удалось получить статус поиска');
+      }
+      lastStatus = status;
+      onProgress?.(status);
+
+      if (isTourSearchStatusError(status.status)) {
+        throw new Error('Tourvisor API: ошибка поиска на сервере');
+      }
+      if (isTourSearchStatusFinished(status.status, status.progress)) {
+        return status;
+      }
+
+      await new Promise((r) => setTimeout(r, pollIntervalMs));
+    }
+
+    if (lastStatus && (lastStatus.progress ?? 0) > 0) {
+      logger.warn('[Tourvisor API] poll timeout but progress > 0, fetching results anyway', {
+        searchId,
+        progress: lastStatus.progress,
+      });
+      return lastStatus;
+    }
+
+    throw new Error('Tourvisor API: поиск не завершился вовремя. Проверьте интернет и повторите.');
+  }
+
   // Utility methods
   async waitForSearchCompletion(
     searchId: number,
     onProgress?: (status: TourSearchStatus) => void,
-    maxWaitTime: number = 120000, // 2 minutes
-    checkInterval: number = 2000 // 2 seconds
+    maxWaitTime: number = TOUR_SEARCH_MAX_WAIT_MS,
+    checkInterval: number = TOUR_SEARCH_POLL_INTERVAL_MS,
   ): Promise<TourSearchStatus> {
-    const startTime = Date.now();
-
-    while (Date.now() - startTime < maxWaitTime) {
-      const status = await this.getTourSearchStatus(searchId);
-
-      if (onProgress) {
-        onProgress(status);
-      }
-
-      if (status.status === 'completed' || status.status === 'error') {
-        return status;
-      }
-
-      await new Promise(resolve => setTimeout(resolve, checkInterval));
-    }
-
-    throw new Error('Search timeout exceeded');
+    return this.pollTourSearchUntilReady(searchId, onProgress, maxWaitTime, checkInterval);
   }
 }
 

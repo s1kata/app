@@ -185,3 +185,32 @@ export function filterToursByParamsFromCacheRelaxed(
     return { ...hotel, tours: filteredTours };
   });
 }
+
+/** Интервал опроса статуса поиска (мс) */
+export const TOUR_SEARCH_POLL_INTERVAL_MS = 3000;
+
+/** Максимальное ожидание завершения поиска на Tourvisor (мс) — важно для медленного LTE */
+export const TOUR_SEARCH_MAX_WAIT_MS = 120_000;
+
+/** Tourvisor отдаёт status: "complete" или "completed" */
+export function isTourSearchStatusFinished(status?: string, progress?: number): boolean {
+  const s = (status || '').toLowerCase();
+  return s === 'completed' || s === 'complete' || (progress ?? 0) >= 100;
+}
+
+export function isTourSearchStatusError(status?: string): boolean {
+  return (status || '').toLowerCase() === 'error';
+}
+
+export function isTransientTourvisorError(error: unknown): boolean {
+  const message = String((error as Error)?.message || '').toLowerCase();
+  return (
+    message.includes('timeout') ||
+    message.includes('timed out') ||
+    message.includes('превысил время') ||
+    message.includes('network request failed') ||
+    message.includes('failed to fetch') ||
+    message.includes('не удалось связаться') ||
+    message.includes('server unavailable')
+  );
+}

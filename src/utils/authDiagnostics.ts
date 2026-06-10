@@ -47,23 +47,44 @@ async function checkInternet(): Promise<AuthDiagnosticStep> {
   }
 }
 
-async function checkAuthApiReachable(): Promise<AuthDiagnosticStep> {
+async function checkAuthApiHealth(): Promise<AuthDiagnosticStep> {
   const url = getAuthApiUrl();
   try {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 10000);
+    const timeout = setTimeout(() => controller.abort(), 12000);
     const response = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'ping-test-invalid' }),
+      body: JSON.stringify({ action: 'health' }),
       signal: controller.signal,
     });
     clearTimeout(timeout);
-    const reachable = response.status === 400 || response.status === 200;
+    const data = (await response.json().catch(() => ({}))) as {
+      success?: boolean;
+      error?: string;
+      db?: { connected?: boolean; host?: string; name?: string };
+      tables?: Record<string, boolean>;
+    };
+
+    if (data.success && data.db?.connected) {
+      const tables = data.tables
+        ? Object.entries(data.tables)
+            .map(([k, v]) => `${k}=${v ? '✓' : '✗'}`)
+            .join(', ')
+        : '';
+      return {
+        name: 'Auth API + MySQL',
+        ok: true,
+        detail: `БД ${data.db.name}@${data.db.host}. Таблицы: ${tables || 'ok'}`,
+      };
+    }
+
     return {
-      name: 'Auth API (auth-mobile.php)',
-      ok: reachable,
-      detail: `${url} → HTTP ${response.status}`,
+      name: 'Auth API + MySQL',
+      ok: false,
+      detail: data.error
+        ? `HTTP ${response.status}: ${data.error}`
+        : `HTTP ${response.status} — проверьте auth-mobile.config.php`,
     };
   } catch (error) {
     return {
@@ -112,7 +133,7 @@ export async function runAuthDiagnostics(
   steps.push(config);
   console.log(LOG, config.name, config.ok ? '✓' : '✗', config.detail);
 
-  const api = await checkAuthApiReachable();
+  const api = await checkAuthApiHealth();
   steps.push(api);
   console.log(LOG, api.name, api.ok ? '✓' : '✗', api.detail);
 

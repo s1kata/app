@@ -190,7 +190,7 @@ function PersonalDataInputField({
 }
 
 export default function PersonalDataScreen({ navigation }: any) {
-  const { theme, isDark } = useAppContext();
+  const { theme, isDark, user } = useAppContext();
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -227,7 +227,7 @@ export default function PersonalDataScreen({ navigation }: any) {
         return;
       }
 
-      const userData = await AuthService.getCurrentUser();
+      const userData = await AuthService.getCurrentUser(true);
       if (!personalDataMounted.current) return;
 
       if (userData) {
@@ -256,19 +256,7 @@ export default function PersonalDataScreen({ navigation }: any) {
   const handleSave = async () => {
     try {
       setSaving(true);
-      if (!auth || !db) {
-        Alert.alert('Ошибка', 'Сервис недоступен. Проверьте подключение.');
-        return;
-      }
-      // Проверяем авторизацию через Firebase Auth
-      const currentUser = auth.currentUser;
-      if (!currentUser || !currentUser.uid) {
-        Alert.alert('Ошибка', 'Пользователь не авторизован. Пожалуйста, войдите в систему.');
-        return;
-      }
-
-      // Проверяем, что это не гость
-      if (currentUser.isAnonymous || currentUser.uid.startsWith('guest_')) {
+      if (!user?.uid || user.isAnonymous || user.uid.startsWith('guest_')) {
         Alert.alert('Ошибка', 'Для сохранения данных необходимо войти в систему.');
         return;
       }
@@ -290,90 +278,41 @@ export default function PersonalDataScreen({ navigation }: any) {
         return;
       }
 
-      // Подготавливаем данные для сохранения в Firestore
-      const userDocRef = doc(db, 'users', currentUser.uid);
-      const userDocSnap = await getDoc(userDocRef);
-      
-      const passportData = formData.passportSeries.trim() || formData.passportNumber.trim() || formData.passportIssuedBy.trim() ? {
-        series: normalizeDigits(formData.passportSeries.trim()),
-        number: normalizeDigits(formData.passportNumber.trim()),
-        issuedBy: formData.passportIssuedBy.trim(),
-        issueDate: formData.passportIssuedDate.trim(),
-        birthDate: formData.birthDate.trim() || undefined,
-        birthPlace: formData.birthPlace.trim() || undefined,
-      } : undefined;
+      const passportData =
+        formData.passportSeries.trim() ||
+        formData.passportNumber.trim() ||
+        formData.passportIssuedBy.trim()
+          ? {
+              series: normalizeDigits(formData.passportSeries.trim()),
+              number: normalizeDigits(formData.passportNumber.trim()),
+              issuedBy: formData.passportIssuedBy.trim(),
+              issueDate: formData.passportIssuedDate.trim(),
+              birthDate: formData.birthDate.trim() || undefined,
+              birthPlace: formData.birthPlace.trim() || undefined,
+            }
+          : null;
 
-      if (userDocSnap.exists()) {
-        // Обновляем существующий документ в Firestore
-        const updateData: any = {
-          fullName: formData.name.trim(),
-          phone: formData.phone.trim() || null,
-          passport: passportData || null,
-          updatedAt: new Date().toISOString(),
-        };
-        
-        // Обновляем email только если он изменился
-        if (
-          formData.email.trim() &&
-          formData.email.trim() !== (profile?.email ?? currentUser.email ?? '')
-        ) {
-          updateData.email = formData.email.trim();
-        }
-        
-        await updateDoc(userDocRef, updateData);
-        
-        // Обновляем displayName в Firebase Auth
-        if (auth.currentUser) {
-          await updateAuthProfile(auth.currentUser, {
-            displayName: formData.name.trim(),
-          });
-        }
-      } else {
-        // Создаем новый документ в Firestore
-        const newProfile: UserProfile = {
-          id: currentUser.uid,
-          email: formData.email.trim() || currentUser.email || '',
-          fullName: formData.name.trim(),
-          phone: formData.phone.trim() || undefined,
-          passwordHash: '', // Для пользователей Firebase Auth может быть пустым
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-          isActive: true,
-          passport: passportData,
-        };
-        await setDoc(userDocRef, newProfile);
+      const ok = await AuthService.updateProfile(user.uid, {
+        fullName: formData.name.trim(),
+        phone: formData.phone.trim() || undefined,
+        email:
+          formData.email.trim() && formData.email.trim() !== (profile?.email ?? '')
+            ? formData.email.trim()
+            : undefined,
+        passport: passportData || undefined,
+      });
+
+      if (!ok) {
+        Alert.alert('Ошибка', 'Не удалось сохранить данные на сервере.');
+        return;
       }
-      
-      // Обновляем displayName в Firebase Auth (для существующих и новых профилей)
-      if (currentUser) {
-        try {
-          await updateAuthProfile(currentUser, {
-            displayName: formData.name.trim(),
-          });
-        } catch (authError) {
-          logger.warn('Не удалось обновить displayName в Firebase Auth:', authError);
-          // Продолжаем выполнение, так как данные в Firestore уже сохранены
-        }
-      }
-      
-      Alert.alert('Успех', 'Данные сохранены в Firestore');
+
+      Alert.alert('Успех', 'Данные сохранены');
       setEditing(false);
-      loadProfile();
-      
-    } catch (error: any) {
+      await loadProfile();
+    } catch (error: unknown) {
       logger.error('Error saving profile:', error);
-      
-      // Более детальная обработка ошибок
-      if (error.code === 'permission-denied' || error.message?.includes('permission')) {
-        Alert.alert(
-          'Ошибка доступа', 
-          'Недостаточно прав для сохранения данных. Пожалуйста, убедитесь, что вы авторизованы.'
-        );
-      } else if (error.code === 'unavailable') {
-        Alert.alert('Ошибка сети', 'Нет подключения к интернету. Проверьте соединение и попробуйте снова.');
-      } else {
-        Alert.alert('Ошибка', `Не удалось сохранить данные: ${error.message || 'Неизвестная ошибка'}`);
-      }
+      Alert.alert('Ошибка', `Не удалось сохранить данные: ${(error as Error)?.message || 'Неизвестная ошибка'}`);
     } finally {
       setSaving(false);
     }

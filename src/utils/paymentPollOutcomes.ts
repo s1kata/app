@@ -14,6 +14,8 @@ export type PresentPaymentPollOutcomeParams = {
   transactionId: string;
   result: PaymentStatusResult;
   onReload?: () => Promise<void>;
+  /** Синхронизация локального статуса брони с итогом опроса оплаты */
+  onStatusResolved?: (result: PaymentStatusResult) => Promise<void> | void;
   onBeforeSuccessAlert?: () => Promise<void>;
   /** После «OK» при pending (короткий или длинный сценарий) */
   onPendingOk?: () => void;
@@ -31,6 +33,7 @@ export function presentPaymentPollOutcome(params: PresentPaymentPollOutcomeParam
     transactionId,
     result,
     onReload,
+    onStatusResolved,
     onBeforeSuccessAlert,
     onPendingOk,
     alertSuccess,
@@ -42,6 +45,7 @@ export function presentPaymentPollOutcome(params: PresentPaymentPollOutcomeParam
   const run = async () => {
     try {
       if (result.success && result.status === 'success') {
+        await onStatusResolved?.(result);
         showPaymentStatusBar(i18n.t('payment.successBanner'), 'success');
         await onReload?.();
         await onBeforeSuccessAlert?.();
@@ -49,18 +53,21 @@ export function presentPaymentPollOutcome(params: PresentPaymentPollOutcomeParam
         return;
       }
       if (result.success && result.status === 'failed') {
+        await onStatusResolved?.(result);
         showPaymentStatusBar(i18n.t('payment.failedBanner'), 'error');
         await onReload?.();
         alertFailed();
         return;
       }
       if (result.success && result.status === 'cancelled') {
+        await onStatusResolved?.(result);
         showPaymentStatusBar(i18n.t('payment.cancelledBanner'), 'warning');
         await onReload?.();
         alertFailed();
         return;
       }
       if (result.success && result.status === 'pending') {
+        await onStatusResolved?.(result);
         showPaymentStatusBar(i18n.t('payment.pendingBanner'), 'info');
         await onReload?.();
         if (result.pendingLong) {

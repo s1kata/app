@@ -34,7 +34,7 @@ interface ApiHotToursScreenProps {
 }
 
 export default function ApiHotToursScreen({ navigation, route }: ApiHotToursScreenProps) {
-  const { apiReady, theme, isDark, user, currency } = useAppContext();
+  const { apiReady, theme, isDark, user, currency, networkPolicy } = useAppContext();
   const isGuest = user?.uid?.startsWith('guest_') || user?.isAnonymous === true;
 
   // Логируем параметры route при монтировании
@@ -169,6 +169,12 @@ export default function ApiHotToursScreen({ navigation, route }: ApiHotToursScre
   };
 
   const loadHotTours = async () => {
+    if (networkPolicy.isBlocked) {
+      setHasFailedOnce(true);
+      setHotTours([]);
+      Alert.alert(i18n.t('network.vpnBlockedTitle'), i18n.t('network.vpnBlockedBody'));
+      return;
+    }
     if (!selectedDeparture) return;
     
     // Если уже была неудача, не делаем новые запросы
@@ -543,7 +549,7 @@ export default function ApiHotToursScreen({ navigation, route }: ApiHotToursScre
       .getFavoriteTours()
       .then((favs) => {
         if (hotToursMountedRef.current) {
-          setFavoriteIds(new Set(favs.map((f) => f.id)));
+          setFavoriteIds(new Set(favs.map((f) => String(f.id))));
         }
       })
       .catch(() => {});
@@ -554,26 +560,34 @@ export default function ApiHotToursScreen({ navigation, route }: ApiHotToursScre
 
   const handleFavoritePress = useCallback(
     async (item: TourHotel, firstTour: Tour) => {
-      if (isGuest || !user) {
-        Alert.alert(
-          i18n.t('favorites.authRequired'),
-          i18n.t('auth.favoritesRequired'),
-          [
-            { text: i18n.t('common.cancel'), style: 'cancel' },
-            { text: i18n.t('auth.login'), onPress: () => navigation.navigate('Login') },
-          ]
-        );
-        return;
-      }
-      const tourOutput = buildTourOutputFromSearchResult(item, firstTour);
-      const result = await FavoritesService.getInstance().toggleTourFavorite(tourOutput);
-      if (result.success) {
-        setFavoriteIds((prev) => {
-          const next = new Set(prev);
-          if (result.isFavorite) next.add(firstTour.id);
-          else next.delete(firstTour.id);
-          return next;
-        });
+      try {
+        if (isGuest || !user) {
+          Alert.alert(
+            i18n.t('favorites.authRequired'),
+            i18n.t('auth.favoritesRequired'),
+            [
+              { text: i18n.t('common.cancel'), style: 'cancel' },
+              { text: i18n.t('auth.login'), onPress: () => navigation.navigate('Login') },
+            ]
+          );
+          return;
+        }
+        const tourOutput = buildTourOutputFromSearchResult(item, firstTour);
+        const result = await FavoritesService.getInstance().toggleTourFavorite(tourOutput);
+        if (result.success) {
+          const tourId = String(firstTour.id);
+          setFavoriteIds((prev) => {
+            const next = new Set(prev);
+            if (result.isFavorite) next.add(tourId);
+            else next.delete(tourId);
+            return next;
+          });
+        } else if (result.error) {
+          Alert.alert(i18n.t('common.error'), result.error);
+        }
+      } catch (error) {
+        logger.error('[ApiHotTours] favorite toggle:', error);
+        Alert.alert(i18n.t('common.error'), i18n.t('auth.connectionError'));
       }
     },
     [isGuest, user, navigation]
@@ -648,11 +662,12 @@ export default function ApiHotToursScreen({ navigation, route }: ApiHotToursScre
               onPress={() => handleFavoritePress(item, firstTour)}
               style={styles.favoriteIcon}
               activeOpacity={0.7}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             >
               <Ionicons
-                name={favoriteIds.has(firstTour.id) ? 'heart' : 'heart-outline'}
+                name={favoriteIds.has(String(firstTour.id)) ? 'heart' : 'heart-outline'}
                 size={22}
-                color={favoriteIds.has(firstTour.id) ? theme.error : theme.secondaryText}
+                color={favoriteIds.has(String(firstTour.id)) ? theme.error : theme.secondaryText}
               />
             </TouchableOpacity>
             <Text style={[styles.operatorName, { color: theme.primary }]}>

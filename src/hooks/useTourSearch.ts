@@ -9,7 +9,12 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
 import { Alert } from 'react-native';
 import { TourSearchParams, TourHotel } from '../types/tourvisor';
-import { getTourSearchCacheKey, normalizeTourSearchParams, TOUR_SEARCH_LIMIT } from '../utils/tourSearchCache';
+import {
+  getTourSearchCacheKey,
+  isTransientTourvisorError,
+  normalizeTourSearchParams,
+  TOUR_SEARCH_LIMIT,
+} from '../utils/tourSearchCache';
 import type { CacheEntry } from '../services/FreshCacheService';
 import {
   getFromSharedCacheWithMeta,
@@ -19,6 +24,7 @@ import { tourvisorApi } from '../services/TourvisorApiService';
 import { freshCacheService } from '../services/FreshCacheService';
 import { logger } from '../utils/logger';
 import { cacheService, CacheType } from '../services/CacheService';
+import { networkService } from '../services/NetworkService';
 
 const FRESH_CACHE_ASYNC_PREFIX = 'fresh_cache_';
 
@@ -89,6 +95,9 @@ export async function saveTourSearchToLocalCaches(
 }
 
 async function fetchTourSearch(params: TourSearchParams, limit: number): Promise<TourHotel[]> {
+  if (networkService.getPolicyState().isBlocked) {
+    throw new Error('Отключите VPN/блокировщик и повторите поиск.');
+  }
   const workerUrl = (Constants.expoConfig?.extra as Record<string, string> | undefined)
     ?.tourvisorWorkerUrl as string | undefined;
   const tourvisorUrl = tourvisorApi.getBaseUrl();
@@ -97,14 +106,6 @@ async function fetchTourSearch(params: TourSearchParams, limit: number): Promise
   const baseIsTourvisorMobileProxy = /\/api\/tourvisor-mobile\b/i.test(tourvisorUrl);
   const isApiPassthroughWorker =
     (typeof workerUrl === 'string' && /tourvisor-mobile/i.test(workerUrl)) || baseIsTourvisorMobileProxy;
-
-  // Принудительный лог для preview/release, чтобы видеть старт поиска в Logcat/Xcode.
-  console.error('[FORCE_LOG] !!! SEARCH START:', {
-    url: workerUrl || tourvisorUrl,
-    token: !!token,
-    hasParams: !!params,
-    viaTourvisorApi: baseIsTourvisorMobileProxy || !workerUrl || isApiPassthroughWorker,
-  });
 
   logger.debug('[useTourSearch] start fetchTourSearch', {
     workerEnabled: !!workerUrl,
@@ -134,7 +135,6 @@ async function fetchTourSearch(params: TourSearchParams, limit: number): Promise
       const searchParams = new URLSearchParams(entries);
       const endpoint = `${workerUrl.replace(/\/+$/, '')}/tours/search?${searchParams.toString()}`;
       logger.debug('[useTourSearch] worker request', { endpoint, params: normalized, limit });
-      console.error('[FORCE_LOG] worker request dispatch', { endpoint, limit });
       const res = await fetch(endpoint, {
         headers: { Accept: 'application/json' },
       });
@@ -151,44 +151,37 @@ async function fetchTourSearch(params: TourSearchParams, limit: number): Promise
         throw new Error('Invalid worker response');
       }
       logger.debug('[useTourSearch] worker response', { count: data.length });
-      console.error('[FORCE_LOG] worker response ok', { count: data.length });
       return data;
     } catch (e) {
-      console.error('[FORCE_LOG] worker request failed', {
-        error: (e as Error)?.message || String(e),
-      });
       throw new Error(`Worker search failed: ${(e as Error)?.message || String(e)}`);
     }
   } else if (workerUrl && !isApiPassthroughWorker) {
-    console.error('[FORCE_LOG] worker url invalid', { workerUrl });
     throw new Error('TOURVISOR_WORKER_URL is invalid');
   }
 
   if (tourvisorApi.isRateLimited()) {
-    console.error('[FORCE_LOG] search blocked by rate limit cooldown');
     throw new Error('Rate limit. Попробуйте позже.');
   }
   const passthroughSearch = /\/api\/tourvisor-mobile\b/i.test(tourvisorUrl);
   if (!passthroughSearch && !tourvisorApi.getJwtToken()) {
-    console.error('[FORCE_LOG] direct Tourvisor request without token');
     logger.warn('[useTourSearch] JWT token missing before direct Tourvisor request');
   }
 
   logger.debug('[useTourSearch] direct Tourvisor startTourSearch request', { params: normalized, limit });
-  console.error('[FORCE_LOG] direct Tourvisor startTourSearch dispatch', { tourvisorUrl, limit });
-  const { searchId } = await tourvisorApi.startTourSearch(params);
+  const { searchId } = await tourvisorApi.startTourSearch(normalized);
   logger.debug('[useTourSearch] direct Tourvisor searchId received', { searchId });
-  console.error('[FORCE_LOG] direct Tourvisor searchId', { searchId });
-  for (let i = 0; i < 40; i++) {
-    await new Promise((r) => setTimeout(r, 3000));
-    const st = await tourvisorApi.getTourSearchStatus(searchId, true);
-    const statusLower = (st.status || '').toLowerCase();
-    if (statusLower === 'completed' || (st.progress ?? 0) >= 100) break;
-    if (statusLower === 'error') throw new Error('Search error');
+  await tourvisorApi.pollTourSearchUntilReady(searchId);
+  let results: TourHotel[] = [];
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      results = await tourvisorApi.getTourSearchResults(searchId, limit);
+      break;
+    } catch (e) {
+      if (!isTransientTourvisorError(e) || attempt >= 2) throw e;
+      await new Promise((r) => setTimeout(r, 2000 * (attempt + 1)));
+    }
   }
-  const results = await tourvisorApi.getTourSearchResults(searchId, limit);
   logger.debug('[useTourSearch] direct Tourvisor results received', { searchId, count: results.length });
-  console.error('[FORCE_LOG] direct Tourvisor results received', { searchId, count: results.length });
   return results;
 }
 

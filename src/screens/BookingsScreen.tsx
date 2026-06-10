@@ -37,8 +37,114 @@ export default function BookingsScreen({ navigation }: any) {
   const [refreshing, setRefreshing] = useState(false);
   const [loadingDocuments, setLoadingDocuments] = useState<Set<string>>(new Set());
   const [payingBookingId, setPayingBookingId] = useState<string | null>(null);
+  const bookingsRef = useRef<Booking[]>([]);
+  const crmPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const crmSyncInFlightRef = useRef(false);
 
   const isGuest = user?.uid?.startsWith('guest_') || user?.isAnonymous === true;
+
+  useEffect(() => {
+    bookingsRef.current = bookings;
+  }, [bookings]);
+
+  const mapCrmStatusToBookingStatus = (crmStatusRaw?: string): Booking['status'] | null => {
+    const s = String(crmStatusRaw || '').toLowerCase().trim();
+    if (!s) return null;
+
+    if (s.includes('cancel') || s.includes('отмен') || s.includes('аннул')) return 'cancelled';
+    if (s.includes('complete') || s.includes('closed') || s.includes('заверш') || s.includes('архив') || s.includes('выдан')) return 'completed';
+    if (s.includes('confirm') || s.includes('approved') || s.includes('подтверж')) return 'confirmed';
+    if (s.includes('new') || s.includes('open') || s.includes('pending') || s.includes('wait') || s.includes('нов')) return 'pending';
+
+    return null;
+  };
+
+  const syncCrmStatusesForVisibleBookings = useCallback(async (source: Booking[]) => {
+    if (!source.length || crmSyncInFlightRef.current) return;
+
+    const candidates = source.filter(
+      (b) =>
+        b.status !== 'cancelled' &&
+        (b.status === 'pending' || b.status === 'confirmed') &&
+        Boolean((b as any).sotaBookingId || (b as any).crmBookingId || (b as any).requestId)
+    );
+    if (!candidates.length) return;
+
+    crmSyncInFlightRef.current = true;
+    try {
+      await Promise.all(
+        candidates.map(async (b) => {
+          try {
+            const crmId = String((b as any).sotaBookingId || (b as any).crmBookingId || (b as any).requestId || '').trim();
+            if (!crmId) return;
+
+            const r = await sotaCrmService.getBookingById(crmId);
+            if (!r?.success || !r.data) return;
+
+            const crmStatusRaw =
+              (r.data as any).status ||
+              (r.data as any).requestStatus ||
+              '';
+
+            const nextStatus = mapCrmStatusToBookingStatus(crmStatusRaw);
+            if (!nextStatus || nextStatus === b.status) return;
+
+            await bookingService.markPaymentStatus(
+              b.id,
+              b.paymentStatus || 'pending',
+              {
+                status: nextStatus,
+                updatedAt: new Date().toISOString(),
+              } as Partial<Booking>
+            );
+          } catch (e) {
+            logger.warn('[BookingsScreen] CRM status sync item failed:', e);
+          }
+        })
+      );
+    } finally {
+      crmSyncInFlightRef.current = false;
+    }
+  }, []);
+
+  const stopCrmPoll = useCallback(() => {
+    if (crmPollRef.current) {
+      clearInterval(crmPollRef.current);
+      crmPollRef.current = null;
+    }
+  }, []);
+
+  const startCrmPollIfNeeded = useCallback((items: Booking[]) => {
+    const hasLive = items.some(
+      (b) =>
+        (b.status === 'pending' || b.status === 'confirmed') &&
+        Boolean((b as any).sotaBookingId || (b as any).crmBookingId || (b as any).requestId)
+    );
+
+    if (!hasLive) {
+      stopCrmPoll();
+      return;
+    }
+
+    if (crmPollRef.current) return;
+
+    crmPollRef.current = setInterval(async () => {
+      try {
+        const current = bookingsRef.current || [];
+        await syncCrmStatusesForVisibleBookings(current);
+
+        if (user?.uid && !isGuest) {
+          const latest = await bookingService.getUserBookings(user.uid);
+          const own = latest.filter((b) => b.userId === user.uid);
+          setBookings(own);
+          bookingsRef.current = own;
+          startCrmPollIfNeeded(own);
+        }
+      } catch (e) {
+        logger.warn('[BookingsScreen] CRM poll failed:', e);
+      }
+    }, 30000);
+  }, [stopCrmPoll, syncCrmStatusesForVisibleBookings, user?.uid, isGuest]);
 
   const loadDepartureDocuments = useCallback(async () => {
     try {
@@ -107,6 +213,16 @@ export default function BookingsScreen({ navigation }: any) {
         const userBookings = await bookingService.getUserBookings(user.uid);
         const ownBookings = userBookings.filter(b => b.userId === user.uid);
         setBookings(ownBookings);
+        bookingsRef.current = ownBookings;
+
+        await syncCrmStatusesForVisibleBookings(ownBookings);
+
+        const afterSync = await bookingService.getUserBookings(user.uid);
+        const ownAfterSync = afterSync.filter((b) => b.userId === user.uid);
+        setBookings(ownAfterSync);
+        bookingsRef.current = ownAfterSync;
+        startCrmPollIfNeeded(ownAfterSync);
+
         for (const b of ownBookings) {
           if (b.paymentStatus === 'paid') {
             await bookingService.maybeAwardLoyaltyAfterPaidBooking(user.uid, b.id);
@@ -116,6 +232,7 @@ export default function BookingsScreen({ navigation }: any) {
           await loadDepartureDocuments();
         }
       } else {
+        stopCrmPoll();
         setBookings([]);
       }
     } catch (error: any) {
@@ -125,7 +242,15 @@ export default function BookingsScreen({ navigation }: any) {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [isGuest, user?.uid, user?.email, loadDepartureDocuments]);
+  }, [
+    isGuest,
+    user?.uid,
+    user?.email,
+    loadDepartureDocuments,
+    startCrmPollIfNeeded,
+    stopCrmPoll,
+    syncCrmStatusesForVisibleBookings,
+  ]);
 
   const loadBookingsRef = useRef(loadBookings);
   loadBookingsRef.current = loadBookings;
@@ -134,6 +259,10 @@ export default function BookingsScreen({ navigation }: any) {
     registerBookingsReloadHandler(loadBookings);
     return () => registerBookingsReloadHandler(null);
   }, [loadBookings]);
+
+  useEffect(() => {
+    return () => stopCrmPoll();
+  }, [stopCrmPoll]);
 
   useFocusEffect(
     useCallback(() => {
@@ -256,6 +385,24 @@ export default function BookingsScreen({ navigation }: any) {
                 presentPaymentPollOutcome({
                   transactionId: paymentResult.transactionId!,
                   result: statusResult,
+                  onStatusResolved: async (r) => {
+                    if (!r.success) return;
+                    if (r.status === 'success') {
+                      await bookingService.markPaymentStatus(booking.id, 'paid', { status: 'confirmed' });
+                      return;
+                    }
+                    if (r.status === 'failed') {
+                      await bookingService.markPaymentStatus(booking.id, 'failed');
+                      return;
+                    }
+                    if (r.status === 'cancelled') {
+                      await bookingService.markPaymentStatus(booking.id, 'cancelled');
+                      return;
+                    }
+                    if (r.status === 'pending') {
+                      await bookingService.markPaymentStatus(booking.id, 'payment_processing');
+                    }
+                  },
                   onReload: loadBookings,
                   alertSuccess: () =>
                     Alert.alert(i18n.t('payment.successTitle'), i18n.t('payment.successMessage'), [

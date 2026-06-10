@@ -8,7 +8,9 @@
 import * as WebBrowser from 'expo-web-browser';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getValidAccessToken } from './AuthApiClient';
+import { authSession } from './AuthSession';
 import { getBackendBaseUrl } from '../api/apiClient';
+import { networkService } from './NetworkService';
 import { logger } from '../utils/logger';
 const STORAGE_KEY_LAST_TRANSACTION = 'payment_last_transaction_id';
 const MAX_RETRIES = 3;
@@ -79,6 +81,9 @@ async function getAuthToken(): Promise<string | null> {
  * чтобы кнопка «Вернуться в приложение» открывала travelhub://booking-success|booking-fail?bookingId=...
  */
 export async function createPaymentIntent(params: CreatePaymentParams): Promise<CreatePaymentResult> {
+  if (networkService.getPolicyState().isBlocked) {
+    return { success: false, error: 'Отключите VPN/блокировщик и повторите оплату.' };
+  }
   const base = getApiBase();
   const url = `${base}/api/create-payment`;
   const {
@@ -213,6 +218,9 @@ export async function openPaymentInBrowser(paymentUrl: string): Promise<{ type: 
  * Проверка статуса платежа после возврата из браузера.
  */
 export async function checkPaymentStatus(transactionId: string): Promise<PaymentStatusResult> {
+  if (networkService.getPolicyState().isBlocked) {
+    return { success: false, error: 'Отключите VPN/блокировщик и повторите проверку оплаты.' };
+  }
   const base = getApiBase();
   const url = `${base}/api/payment-status/${encodeURIComponent(transactionId)}`;
 
@@ -400,7 +408,7 @@ class PaymentService {
       };
     }
 
-    const userId = auth?.currentUser?.uid;
+    const userId = (await authSession.getStoredUser())?.id;
     if (!userId) {
       return { success: false, error: 'Войдите в аккаунт для оплаты' };
     }

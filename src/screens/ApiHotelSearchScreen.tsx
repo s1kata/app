@@ -1685,8 +1685,8 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   categoryButtonActive: {
-    backgroundcolor: '#0066CC',
-    bordercolor: '#0066CC',
+    backgroundColor: '#0066CC',
+    borderColor: '#0066CC',
   },
   listContent: {
     padding: 16,
@@ -1880,7 +1880,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderWidth: 1,
-    bordercolor: '#0066CC',
+    borderColor: '#0066CC',
     gap: 6,
     position: 'relative',
   },
@@ -1921,7 +1921,7 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     gap: 6,
     borderWidth: 1,
-    bordercolor: '#0066CC',
+    borderColor: '#0066CC',
   },
   filterChipText: {
     fontSize: 12,
@@ -2043,7 +2043,7 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingVertical: 14,
     borderRadius: 12,
-    backgroundcolor: '#0066CC',
+    backgroundColor: '#0066CC',
     alignItems: 'center',
   },
   modalApplyText: {

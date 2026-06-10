@@ -7,6 +7,7 @@ import { authSession } from './AuthSession';
 import { logger } from '../utils/logger';
 
 const LOG = '[AuthApiClient]';
+const AUTH_API_REQUEST_TIMEOUT_MS = 15_000;
 
 interface ApiErrorBody {
   success?: boolean;
@@ -26,10 +27,15 @@ async function postAuth<T extends ApiErrorBody>(
   }
 
   console.log(`${LOG} ${action} →`, url);
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), AUTH_API_REQUEST_TIMEOUT_MS);
   const response = await fetch(url, {
     method: 'POST',
     headers,
     body: JSON.stringify({ action, ...body }),
+    signal: controller.signal,
+  }).finally(() => {
+    clearTimeout(timeoutId);
   });
 
   const data = (await response.json().catch(() => ({}))) as T;
@@ -92,6 +98,7 @@ export const authApiClient = {
   async refresh(): Promise<boolean> {
     const refreshToken = await authSession.getRefreshToken();
     if (!refreshToken) return false;
+    logger.debug('[AuthApiClient] refresh start');
     try {
       const data = await postAuth<AuthTokenResponse>('refresh', { refreshToken });
       if (data.accessToken && data.refreshToken && data.user && data.expiresIn) {
@@ -101,8 +108,10 @@ export const authApiClient = {
           expiresIn: data.expiresIn,
           user: data.user,
         });
+        logger.info('[AuthApiClient] refresh success');
         return true;
       }
+      logger.warn('[AuthApiClient] refresh failed: invalid payload');
     } catch (e) {
       logger.warn('[AuthApiClient] refresh failed:', e);
     }

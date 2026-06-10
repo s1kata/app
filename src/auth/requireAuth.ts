@@ -1,5 +1,6 @@
 import type { AppUser } from '../types/auth';
 import { authSession } from '../services/AuthSession';
+import { getValidAccessToken } from '../services/AuthApiClient';
 
 export type BookingAuthUser = Pick<AppUser, 'uid' | 'isAnonymous'> | null | undefined;
 
@@ -17,7 +18,7 @@ export async function requireAuthForBooking(
 ): Promise<
   { ok: true; uid: string } | { ok: false; reason: 'guest' | 'signed_out' | 'auth_desync' }
 > {
-  const token = await authSession.getAccessToken();
+  const token = await getValidAccessToken();
   const stored = await authSession.getStoredUser();
   const liveUid = stored?.id;
 
