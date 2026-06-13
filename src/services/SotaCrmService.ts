@@ -1096,6 +1096,48 @@ class SotaCrmService {
   }
 
   /**
+   * Активация бонусной карты (U-ON: bcard-activate/create.json).
+   */
+  async activateBonusCard(clientId: number, bcNumber: string): Promise<SotaApiResponse<unknown>> {
+    logger.log(`[SOTA] Активация бонусной карты для клиента ${clientId}`);
+    return this.request<unknown>('bcard-activate/create.json', {
+      method: 'POST',
+      body: JSON.stringify({ bc_number: bcNumber.trim(), user_id: clientId }),
+    });
+  }
+
+  /**
+   * Начисление (type=1) или списание (type=2) бонусов (U-ON: bcard-bonus/create.json).
+   */
+  async createBonusOperation(params: {
+    bc_id: number;
+    type: 1 | 2;
+    bonuses: number;
+    reason?: string;
+    datetime?: string;
+  }): Promise<SotaApiResponse<unknown>> {
+    const now = new Date();
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const datetime =
+      params.datetime ||
+      `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+
+    const body: Record<string, unknown> = {
+      bc_id: params.bc_id,
+      datetime,
+      type: params.type,
+      bonuses: params.bonuses,
+    };
+    if (params.reason) body.reason = params.reason;
+
+    logger.log(`[SOTA] Операция с бонусами: type=${params.type}, amount=${params.bonuses}`);
+    return this.request<unknown>('bcard-bonus/create.json', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+  }
+
+  /**
    * Получение всех документов на вылет для пользователя по email или телефону
    */
   async getUserDepartureDocuments(

@@ -16,6 +16,21 @@ const CRM_SUBMIT_PATHS = [
   '/api/crm-submit-booking.php',
 ] as const;
 
+const CRM_BONUS_BALANCE_PATHS = [
+  '/api/crm/bonus-balance',
+  '/api/crm/bonus-balance.php',
+] as const;
+
+const CRM_BCARD_ACTIVATE_PATHS = [
+  '/api/crm/bcard-activate',
+  '/api/crm/bcard-activate.php',
+] as const;
+
+const CRM_BCARD_BONUS_CREATE_PATHS = [
+  '/api/crm/bcard-bonus-create',
+  '/api/crm/bcard-bonus-create.php',
+] as const;
+
 /**
  * База для CRM-прокси: `${base}/api/crm/*` на сайте (U-ON ключ только на сервере).
  * Приоритет: `SOTA_CRM_BASE_URL` / `extra.sotaCrmBaseUrl` — корень URL (например `https://travelhub63.ru`);
@@ -188,14 +203,79 @@ export async function fetchBonusBalanceViaBackend(
   const params = new URLSearchParams();
   if (email) params.set('email', email);
   if (phone) params.set('phone', phone);
+  const query = params.toString();
+  let lastError = 'CRM error';
   try {
-    const res = await fetch(`${base}/api/crm/bonus-balance?${params.toString()}`, {
-      headers: { Authorization: `Bearer ${bearer}` },
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) return { success: false, error: data?.error || `HTTP ${res.status}` };
-    return { success: !!data.success, data: data.data, error: data.error };
+    for (const path of CRM_BONUS_BALANCE_PATHS) {
+      const res = await fetch(`${base}${path}?${query}`, {
+        headers: { Authorization: `Bearer ${bearer}` },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.status === 404 || res.status === 405) {
+        lastError = data?.error || `HTTP ${res.status}`;
+        continue;
+      }
+      if (!res.ok) return { success: false, error: data?.error || `HTTP ${res.status}` };
+      return { success: !!data.success, data: data.data, error: data.error };
+    }
+    return { success: false, error: lastError };
   } catch (e: unknown) {
     return { success: false, error: e instanceof Error ? e.message : 'Network error' };
   }
+}
+
+async function postCrmJson(
+  paths: readonly string[],
+  body: Record<string, unknown>,
+): Promise<{ success: boolean; data?: unknown; error?: string }> {
+  const base = getCrmBackendBaseUrl();
+  if (!base) return { success: false, error: 'no_backend' };
+  const bearer = await getBearer();
+  if (!bearer) return { success: false, error: 'unauthorized' };
+  let lastError = 'CRM error';
+  try {
+    for (const path of paths) {
+      const res = await fetch(`${base}${path}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${bearer}`,
+        },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.status === 404 || res.status === 405) {
+        lastError = data?.error || `HTTP ${res.status}`;
+        continue;
+      }
+      if (!res.ok) return { success: false, error: data?.error || `HTTP ${res.status}` };
+      return { success: !!data.success, data: data.data, error: data.error };
+    }
+    return { success: false, error: lastError };
+  } catch (e: unknown) {
+    return { success: false, error: e instanceof Error ? e.message : 'Network error' };
+  }
+}
+
+export async function activateBonusCardViaBackend(
+  bcNumber: string,
+  userId?: number,
+): Promise<{ success: boolean; data?: unknown; error?: string }> {
+  const payload: Record<string, unknown> = { bc_number: bcNumber.trim() };
+  if (userId != null && userId > 0) payload.user_id = userId;
+  return postCrmJson(CRM_BCARD_ACTIVATE_PATHS, payload);
+}
+
+export async function createBonusOperationViaBackend(params: {
+  bc_id: number;
+  type: 1 | 2;
+  bonuses: number;
+  reason?: string;
+}): Promise<{ success: boolean; data?: unknown; error?: string }> {
+  return postCrmJson(CRM_BCARD_BONUS_CREATE_PATHS, {
+    bc_id: params.bc_id,
+    type: params.type,
+    bonuses: params.bonuses,
+    ...(params.reason ? { reason: params.reason } : {}),
+  });
 }

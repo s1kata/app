@@ -365,9 +365,9 @@ class BookingService {
         };
       }
 
+      /* TODO: Закомментировано до получения тестовых данных от заказчика (Никита). Вернуть после настройки API.
       const documentsResponse = await sotaCrmService.getDepartureDocuments(sotaBookingId);
       const documents = documentsResponse.success ? documentsResponse.data || [] : [];
-
       const departureDocuments = documents.map((d) => ({
         id: d.id,
         bookingId: sotaBookingId,
@@ -379,7 +379,6 @@ class BookingService {
         uploadedAt: d.uploadedAt,
         description: d.description,
       }));
-
       if (this.useFirestore()) {
         await updateDoc(doc(db!, this.COLLECTION_NAME, bookingId), {
           departureDocuments,
@@ -388,6 +387,7 @@ class BookingService {
       } else {
         await bookingLocalStore.update(bookingId, { departureDocuments });
       }
+      */
 
       return { success: true };
     } catch (error: unknown) {

@@ -351,7 +351,7 @@ export default function ExtendedHotelDetailScreen({ navigation, route }: Extende
           </Text>
         </View>
         <TouchableOpacity
-          style={[styles.bookButton, { backgroundcolor: '#0066CC' }]}
+          style={[styles.bookButton, { backgroundColor: '#0066CC' }]}
           onPress={handleBookNow}
           activeOpacity={0.8}
         >

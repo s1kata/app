@@ -7,6 +7,8 @@ import {
   RefreshControl,
   ActivityIndicator,
   TouchableOpacity,
+  TextInput,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -37,6 +39,8 @@ export default function BonusScreen({ navigation }: any) {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [cardNumber, setCardNumber] = useState('');
+  const [activating, setActivating] = useState(false);
 
   const isGuest = user?.uid?.startsWith('guest_') || user?.isAnonymous === true;
   const email = (user as any)?.email || undefined;
@@ -60,11 +64,11 @@ export default function BonusScreen({ navigation }: any) {
           )
         );
       } else {
-        setError(res.error || 'Ошибка загрузки');
+        setError(res.error || i18n.t('bonus.unavailable'));
       }
     } catch (e: any) {
       logger.error('[BonusScreen] load error', e);
-      setError(e?.message || 'Ошибка');
+      setError(i18n.t('bonus.unavailable'));
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -78,6 +82,29 @@ export default function BonusScreen({ navigation }: any) {
   const onRefresh = () => {
     setRefreshing(true);
     load();
+  };
+
+  const handleActivate = async () => {
+    const num = cardNumber.trim();
+    if (!num) {
+      Alert.alert(i18n.t('common.error'), i18n.t('bonus.cardNumber'));
+      return;
+    }
+    setActivating(true);
+    try {
+      const res = await bonusService.activateBonusCard({ bc_number: num, email, phone });
+      if (res.success) {
+        Alert.alert(i18n.t('common.success') || 'OK', i18n.t('bonus.activateSuccess'));
+        setCardNumber('');
+        await load();
+      } else {
+        Alert.alert(i18n.t('common.error'), res.error || i18n.t('bonus.activateError'));
+      }
+    } catch (e: any) {
+      Alert.alert(i18n.t('common.error'), e?.message || i18n.t('bonus.activateError'));
+    } finally {
+      setActivating(false);
+    }
   };
 
   if (loading && !refreshing) {
@@ -116,6 +143,37 @@ export default function BonusScreen({ navigation }: any) {
           <View style={[styles.errorBox, { backgroundColor: `${theme.error}18`, borderColor: theme.error }]}>
             <Ionicons name="warning-outline" size={20} color={theme.error} />
             <Text style={[styles.errorText, { color: theme.error }]}>{error}</Text>
+          </View>
+        )}
+
+        {!isGuest && (
+          <View style={[styles.activateCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+            <Text style={[styles.sectionTitle, { color: theme.text, marginBottom: 10 }]}>
+              {i18n.t('bonus.activateTitle')}
+            </Text>
+            <TextInput
+              style={[
+                styles.input,
+                { color: theme.text, borderColor: theme.border, backgroundColor: theme.secondaryBackground },
+              ]}
+              placeholder={i18n.t('bonus.cardNumber')}
+              placeholderTextColor={theme.tertiaryText}
+              value={cardNumber}
+              onChangeText={setCardNumber}
+              autoCapitalize="characters"
+              editable={!activating}
+            />
+            <TouchableOpacity
+              style={[styles.activateBtn, { backgroundColor: theme.primary, opacity: activating ? 0.7 : 1 }]}
+              onPress={handleActivate}
+              disabled={activating}
+            >
+              {activating ? (
+                <ActivityIndicator size="small" color={theme.surface} />
+              ) : (
+                <Text style={[styles.activateBtnText, { color: theme.surface }]}>{i18n.t('bonus.activate')}</Text>
+              )}
+            </TouchableOpacity>
           </View>
         )}
 
@@ -199,6 +257,26 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   errorText: { flex: 1, fontSize: 14 },
+  activateCard: {
+    borderRadius: 16,
+    borderWidth: 1,
+    padding: 16,
+    marginBottom: 20,
+  },
+  input: {
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontSize: 16,
+    marginBottom: 12,
+  },
+  activateBtn: {
+    borderRadius: 12,
+    paddingVertical: 14,
+    alignItems: 'center',
+  },
+  activateBtnText: { fontSize: 16, fontWeight: '600' },
   sectionTitle: { fontSize: 18, fontWeight: '600', marginBottom: 12 },
   empty: {
     borderRadius: 12,

@@ -10,7 +10,6 @@ import {
   ActivityIndicator,
   RefreshControl,
   Alert,
-  Linking,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -22,7 +21,7 @@ import { paymentService, openPaymentInBrowser } from '../services/PaymentService
 import { presentPaymentPollOutcome } from '../utils/paymentPollOutcomes';
 import { resolvePaymentAfterBrowser } from '../utils/paymentAfterBrowser';
 import { showPaymentStatusBar } from '../utils/paymentStatusBanner';
-import { Booking, DepartureDocument, SotaBooking } from '../types/index';
+import { Booking } from '../types/index';
 import { logger } from '../utils/logger';
 import { logIosTestStep, IosTestStep } from '../utils/iosTestFlows';
 import { registerBookingsReloadHandler } from '../utils/paymentBookingsReload';
@@ -30,12 +29,14 @@ import { registerBookingsReloadHandler } from '../utils/paymentBookingsReload';
 export default function BookingsScreen({ navigation }: any) {
   const { user, theme } = useAppContext();
   const [bookings, setBookings] = useState<Booking[]>([]);
+  /* TODO: Закомментировано до получения тестовых данных от заказчика (Никита). Вернуть после настройки API.
   const [departureDocuments, setDepartureDocuments] = useState<DepartureDocument[]>([]);
   const [documentsByDate, setDocumentsByDate] = useState<Map<string, DepartureDocument[]>>(new Map());
   const [crmBookingsWithDocuments, setCrmBookingsWithDocuments] = useState<Array<{ booking: SotaBooking; documents: DepartureDocument[] }>>([]);
+  const [loadingDocuments, setLoadingDocuments] = useState<Set<string>>(new Set());
+  */
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [loadingDocuments, setLoadingDocuments] = useState<Set<string>>(new Set());
   const [payingBookingId, setPayingBookingId] = useState<string | null>(null);
   const bookingsRef = useRef<Booking[]>([]);
   const crmPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -146,40 +147,32 @@ export default function BookingsScreen({ navigation }: any) {
     }, 30000);
   }, [stopCrmPoll, syncCrmStatusesForVisibleBookings, user?.uid, isGuest]);
 
+  /* TODO: Закомментировано до получения тестовых данных от заказчика (Никита). Вернуть после настройки API.
   const loadDepartureDocuments = useCallback(async () => {
     try {
       if (!user?.email) {
         return;
       }
 
-      // Проверяем, настроены ли учетные данные для SOTA
       if (!sotaCrmService.hasCredentials()) {
         logger.debug('[BookingsScreen] SOTA credentials not configured');
         return;
       }
 
-      // Получаем телефон из user объекта (может быть в phoneNumber или в customClaims)
       const userPhone = (user as any).phoneNumber || (user as any).phone || undefined;
-      
-      // Получаем все документы на вылет для пользователя
       const response = await sotaCrmService.getUserDepartureDocuments(
         user.email || undefined,
         userPhone
       );
 
       if (response.success && response.data) {
-        // Сохраняем бронирования с документами для отображения
         setCrmBookingsWithDocuments(response.data);
-        
-        // Собираем все документы в один массив
         const allDocuments: DepartureDocument[] = [];
         const docsByDate = new Map<string, DepartureDocument[]>();
-
         response.data.forEach(
           ({ booking, documents }: { booking: SotaBooking; documents: DepartureDocument[] }) => {
           documents.forEach((doc: DepartureDocument) => {
             allDocuments.push(doc);
-            // Группируем документы по дате вылета бронирования
             const depRaw = booking.departureDate?.split('T')[0] || '';
             if (depRaw) {
               if (!docsByDate.has(depRaw)) docsByDate.set(depRaw, []);
@@ -187,7 +180,6 @@ export default function BookingsScreen({ navigation }: any) {
             }
           });
         });
-
         setDepartureDocuments(allDocuments);
         setDocumentsByDate(docsByDate);
         logger.debug(`[BookingsScreen] Loaded ${allDocuments.length} departure documents from SOTA`);
@@ -204,6 +196,7 @@ export default function BookingsScreen({ navigation }: any) {
       logger.error('[BookingsScreen] Error loading departure documents:', error);
     }
   }, [user]);
+  */
 
   const loadBookings = useCallback(async () => {
     try {
@@ -228,9 +221,11 @@ export default function BookingsScreen({ navigation }: any) {
             await bookingService.maybeAwardLoyaltyAfterPaidBooking(user.uid, b.id);
           }
         }
+        /* TODO: документы на вылет — см. loadDepartureDocuments выше
         if (user?.email) {
           await loadDepartureDocuments();
         }
+        */
       } else {
         stopCrmPoll();
         setBookings([]);
@@ -245,8 +240,6 @@ export default function BookingsScreen({ navigation }: any) {
   }, [
     isGuest,
     user?.uid,
-    user?.email,
-    loadDepartureDocuments,
     startCrmPollIfNeeded,
     stopCrmPoll,
     syncCrmStatusesForVisibleBookings,
@@ -267,11 +260,10 @@ export default function BookingsScreen({ navigation }: any) {
   useFocusEffect(
     useCallback(() => {
       void loadBookingsRef.current();
-      // eslint-disable-next-line react-hooks/exhaustive-deps -- ref держит актуальный loadBookings; при фокусе всегда свежий список (после браузера/оплаты)
     }, [])
   );
 
-  // Получить документы для конкретной даты вылета
+  /* TODO: Закомментировано до получения тестовых данных от заказчика (Никита). Вернуть после настройки API.
   const getDocumentsForDate = (dateStr: string): DepartureDocument[] => {
     if (!dateStr) return [];
     const date = new Date(dateStr);
@@ -280,22 +272,14 @@ export default function BookingsScreen({ navigation }: any) {
     return documentsByDate.get(dateKey) || [];
   };
 
-  const onRefresh = () => {
-    setRefreshing(true);
-    loadBookings();
-  };
-
   const handleDocumentPress = async (document: DepartureDocument, bookingId: string) => {
     try {
       setLoadingDocuments(prev => new Set(prev).add(document.id));
-      
-      // Пытаемся открыть документ по URL
       if (document.fileUrl) {
         const canOpen = await Linking.canOpenURL(document.fileUrl);
         if (canOpen) {
           await Linking.openURL(document.fileUrl);
         } else {
-          // Если не удалось открыть напрямую, пытаемся скачать
           const downloadResponse = await sotaCrmService.downloadDocument(document.id, bookingId);
           if (downloadResponse.success && downloadResponse.data) {
             Alert.alert(i18n.t('bookings.docOther'), i18n.t('bookings.docLoaded'));
@@ -341,6 +325,12 @@ export default function BookingsScreen({ navigation }: any) {
       case 'visa': return i18n.t('bookings.docVisa');
       default: return i18n.t('bookings.docOther');
     }
+  };
+  */
+
+  const onRefresh = () => {
+    setRefreshing(true);
+    loadBookings();
   };
 
   const handlePayBooking = async (booking: Booking) => {
@@ -681,6 +671,7 @@ export default function BookingsScreen({ navigation }: any) {
                         </TouchableOpacity>
                       )}
 
+                      {/* TODO: Закомментировано до получения тестовых данных от заказчика (Никита). Вернуть после настройки API.
                       {(() => {
                         const tourDocuments = getDocumentsForDate(booking.startDate);
                         if (tourDocuments.length > 0) {
@@ -719,6 +710,7 @@ export default function BookingsScreen({ navigation }: any) {
                         }
                         return null;
                       })()}
+                      */}
                     </View>
                   </TouchableOpacity>
                 );

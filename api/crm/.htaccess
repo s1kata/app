@@ -1,2 +1,5 @@
 RewriteEngine On
 RewriteRule ^submit-booking$ submit-booking.php [L,QSA]
+RewriteRule ^bonus-balance$ bonus-balance.php [L,QSA]
+RewriteRule ^bcard-activate$ bcard-activate.php [L,QSA]
+RewriteRule ^bcard-bonus-create$ bcard-bonus-create.php [L,QSA]

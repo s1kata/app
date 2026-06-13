@@ -293,7 +293,7 @@ export default function CountryInfoScreen({ navigation, route }: CountryInfoScre
           onPress={handleBookTour}
           activeOpacity={0.9}
         >
-          <View style={[styles.bookButtonGradient, { backgroundcolor: '#0066CC' }]}>
+          <View style={[styles.bookButtonGradient, { backgroundColor: '#0066CC' }]}>
             <Ionicons name="airplane" size={24} color="#FFFFFF" />
             <Text style={styles.bookButtonText}>Забронировать тур</Text>
           </View>
@@ -494,7 +494,7 @@ const styles = StyleSheet.create({
   bookButton: {
     borderRadius: 16,
     overflow: 'hidden',
-    shadowcolor: '#0066CC',
+    shadowColor: '#0066CC',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.08,
     shadowRadius: 12,

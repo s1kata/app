@@ -81,6 +81,8 @@ const translations: Translations = {
   'documents.departureTitle': { ru: 'Документы о вылете', en: 'Departure Documents' },
   'documents.noDocuments': { ru: 'Нет документов', en: 'No documents' },
   'documents.emptyDesc': { ru: 'Здесь будут отображаться ваши документы о вылете', en: 'Your departure documents will be displayed here' },
+  'documents.temporarilyUnavailable': { ru: 'Документы временно недоступны', en: 'Documents temporarily unavailable' },
+  'documents.temporarilyUnavailableDesc': { ru: 'Раздел будет доступен после настройки API. Обратитесь в офис при необходимости.', en: 'This section will be available after API setup. Contact the office if needed.' },
   'facts.longestFlight': { ru: 'Самый длинный беспосадочный перелет', en: 'The longest non-stop flight' },
   'facts.longestFlightDesc': { ru: 'Рекорд — 18 часов 40 минут (Сингапур — Нью-Йорк)', en: 'The longest non-stop flight lasts 18 hours 40 minutes (Singapore - New York)' },
   'facts.mostVisited': { ru: 'Самая посещаемая страна', en: 'Most visited country' },
@@ -132,6 +134,12 @@ const translations: Translations = {
   'bonus.accrual': { ru: 'Начисление', en: 'Accrual' },
   'bonus.deduction': { ru: 'Списание', en: 'Deduction' },
   'bonus.reason': { ru: 'Причина', en: 'Reason' },
+  'bonus.unavailable': { ru: 'Бонусы временно недоступны', en: 'Bonuses are temporarily unavailable' },
+  'bonus.activateTitle': { ru: 'Активация карты', en: 'Activate card' },
+  'bonus.cardNumber': { ru: 'Номер бонусной карты', en: 'Bonus card number' },
+  'bonus.activate': { ru: 'Активировать', en: 'Activate' },
+  'bonus.activateSuccess': { ru: 'Карта успешно активирована', en: 'Card activated successfully' },
+  'bonus.activateError': { ru: 'Не удалось активировать карту', en: 'Failed to activate card' },
 
   // Purchase history
   'purchaseHistory.title': { ru: 'История покупок', en: 'Purchase history' },

@@ -19,7 +19,9 @@
     "build:production:all": "eas build --profile production --platform all",
     "submit:production:ios": "eas submit --profile production --platform ios",
     "submit:production:android": "eas submit --profile production --platform android",
-    "server": "node server/index.js"
+    "server": "node server/index.js",
+    "lint": "eslint \"src/**/*.{ts,tsx}\" --max-warnings 50",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",
