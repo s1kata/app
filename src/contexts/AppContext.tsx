@@ -28,7 +28,7 @@ import { tourvisorApi } from '../services/TourvisorApiService';
 import { dictionaryService } from '../services/DictionaryService';
 import { priceTrackingService } from '../services/PriceTrackingService';
 import { sotaCrmService } from '../services/SotaCrmService';
-import { networkService, NetworkPolicyState } from '../services/NetworkService';
+import { networkService, NetworkConnectionState } from '../services/NetworkService';
 import { logger } from '../utils/logger';
 
 function isTourvisorPassthroughBaseUrl(baseUrl: string): boolean {
@@ -65,7 +65,11 @@ interface AppContextType {
   setTourvisorToken: (token: string) => Promise<void>;
   initializeApi: () => Promise<void>;
   clearRateLimitCooldown: () => Promise<void>;
-  networkPolicy: NetworkPolicyState;
+  networkConnection: NetworkConnectionState;
+  /** Кратковременный flash «соединение восстановлено» */
+  networkRecoveredFlash: boolean;
+  /** Инкремент при восстановлении бэкенда — перезагрузка экранов */
+  backendRefreshCounter: number;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -115,9 +119,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // Tourvisor API state
   const [tourvisorToken, setTourvisorTokenState] = useState<string | null>(null);
   const [apiReady, setApiReady] = useState<boolean>(false);
-  const [networkPolicy, setNetworkPolicy] = useState<NetworkPolicyState>(() =>
-    networkService.getPolicyState()
+  const [networkConnection, setNetworkConnection] = useState<NetworkConnectionState>(() =>
+    networkService.connection,
   );
+  const [networkRecoveredFlash, setNetworkRecoveredFlash] = useState(false);
+  const [backendRefreshCounter, setBackendRefreshCounter] = useState(0);
 
   // Отслеживаем изменения размера шрифта системы
   useEffect(() => {
@@ -135,10 +141,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, []);
 
   useEffect(() => {
-    const unsubNetwork = networkService.subscribe(() => {
-      setNetworkPolicy(networkService.getPolicyState());
-    });
-
     let cancelled = false;
     const isCancelled = () => cancelled;
 
@@ -165,15 +167,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const buildProfile = typeof extra?.eas?.buildProfile === 'string' ? extra.eas.buildProfile : undefined;
       const base = tourvisorApi.getBaseUrl();
 
-      console.error('[FORCE_LOG] AppContext token bootstrap', {
-        buildProfile: buildProfile || 'unknown',
-        tourvisorBase: base,
-        passthrough: isTourvisorPassthroughBaseUrl(base),
-        hasToken: !!rawEnv,
-        tokenLength: rawEnv?.length || 0,
-        hasWorkerUrl: !!workerUrl,
-        workerUrl: workerUrl || null,
-      });
+      if (__DEV__) {
+        console.error('[FORCE_LOG] AppContext token bootstrap', {
+          buildProfile: buildProfile || 'unknown',
+          tourvisorBase: base,
+          passthrough: isTourvisorPassthroughBaseUrl(base),
+          hasToken: !!rawEnv,
+          tokenLength: rawEnv?.length || 0,
+          hasWorkerUrl: !!workerUrl,
+          workerUrl: workerUrl || null,
+        });
+      } else {
+        logger.debug('[AppContext] token bootstrap', {
+          buildProfile: buildProfile || 'unknown',
+          passthrough: isTourvisorPassthroughBaseUrl(base),
+        });
+      }
 
       const isValidToken = (token: string | null | undefined): boolean => {
         if (!token || token.trim() === '') return false;
@@ -194,10 +203,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         if (isCancelled()) return;
         setTourvisorTokenState(rawEnv);
         tourvisorApi.setJwtToken(rawEnv);
-        console.error('[FORCE_LOG] Tourvisor token accepted', {
-          tokenLength: rawEnv.length,
-          workerUrl: workerUrl || null,
-        });
+        if (__DEV__) {
+          console.error('[FORCE_LOG] Tourvisor token accepted', {
+            tokenLength: rawEnv.length,
+            workerUrl: workerUrl || null,
+          });
+        }
         logger.debug('[Token Load] Токен из .env / extra (длина:', rawEnv.length, ')');
         void initializeApi();
         return;
@@ -210,7 +221,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
 
       logger.warn('⚠️ Tourvisor JWT token must be provided via secure env configuration.');
-      console.error('[FORCE_LOG] Tourvisor token missing or invalid');
+      if (__DEV__) console.error('[FORCE_LOG] Tourvisor token missing or invalid');
       setApiReady(false);
     };
     void loadToken();
@@ -256,7 +267,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }, 2000); // 2 секунды после старта
 
     return () => {
-      unsubNetwork();
       cancelled = true;
       clearTimeout(outerDictionaryTimeout);
       if (innerDictionaryTimeout) clearTimeout(innerDictionaryTimeout);
@@ -627,6 +637,34 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
   }, [tourvisorToken, apiReady]);
 
+  const refreshBackendData = React.useCallback(async () => {
+    logger.debug('[AppContext] Backend OK — refreshing dictionaries and API');
+    setBackendRefreshCounter((c) => c + 1);
+    try {
+      await initializeApi();
+      await dictionaryService.updateStaleDictionaries();
+    } catch (e) {
+      logger.warn('[AppContext] refreshBackendData:', e);
+    }
+  }, [tourvisorToken]);
+
+  useEffect(() => {
+    const unsubConnection = networkService.subscribeConnection((state, prev) => {
+      setNetworkConnection(state);
+      if (prev.status !== 'ok' && state.status === 'ok') {
+        setNetworkRecoveredFlash(true);
+        void refreshBackendData();
+      }
+    });
+    return () => unsubConnection();
+  }, [refreshBackendData]);
+
+  useEffect(() => {
+    if (!networkRecoveredFlash) return;
+    const t = setTimeout(() => setNetworkRecoveredFlash(false), 3500);
+    return () => clearTimeout(t);
+  }, [networkRecoveredFlash]);
+
   const contextValue: AppContextType = {
     theme: theme || defaultTheme,
     themeMode,
@@ -654,7 +692,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setTourvisorToken,
     initializeApi,
     clearRateLimitCooldown: () => tourvisorApi.clearRateLimitCooldown(),
-    networkPolicy,
+    networkConnection,
+    networkRecoveredFlash,
+    backendRefreshCounter,
     updateCounter, // Добавляем для принудительного обновления
   };
 
@@ -696,7 +736,9 @@ export const useAppContext = (): AppContextType => {
       setTourvisorToken: async () => {},
       initializeApi: async () => {},
       clearRateLimitCooldown: async () => {},
-      networkPolicy: { isBlocked: false, reason: null, canProceed: true },
+      networkConnection: { status: 'ok', issue: null },
+      networkRecoveredFlash: false,
+      backendRefreshCounter: 0,
     };
   }
   return {

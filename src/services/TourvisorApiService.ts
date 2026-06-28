@@ -30,7 +30,8 @@ import { getJwtDiagnostics } from '../utils/jwtDiagnostics';
 import { normalizeHotelImages } from '../utils/hotelImages';
 import { rateLimiter } from './RateLimiter';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { networkService } from './NetworkService';
+import { mapTourvisorHttpError } from '../utils/tourvisorErrors';
+import { applyTourMealToSearchParams } from '../utils/tourvisorMeals';
 import {
   isTourSearchStatusError,
   isTourSearchStatusFinished,
@@ -194,10 +195,6 @@ class TourvisorApiService {
     retryCount: number = 0,
     maxRetries: number = 3
   ): Promise<ApiResponse<T>> {
-    if (networkService.getPolicyState().isBlocked) {
-      throw new Error('Отключите VPN/блокировщик и повторите запрос.');
-    }
-
     // Быстрый выход: сервер ранее вернул 429 с Retry-After
     if (Date.now() < this.rateLimitCooldownUntil) {
       const secLeft = Math.ceil((this.rateLimitCooldownUntil - Date.now()) / 1000);
@@ -351,11 +348,10 @@ class TourvisorApiService {
           throw error;
         }
         
-        // Специальная обработка для 401 (Unauthorized)
+        // Специальная обработка для 401 (Unauthorized) — прокси Tourvisor, не user auth
         if (response.status === 401) {
-          const errorMsg = `Tourvisor API: Unauthorized (401). JWT token is invalid or expired. Endpoint: ${endpoint}`;
-          logger.error(errorMsg);
-          throw new Error('Tourvisor API: Unauthorized. Please update your JWT token.');
+          logger.error(`Tourvisor API: 401 on ${endpoint}`);
+          throw new Error(mapTourvisorHttpError(401, errorText));
         }
         
         // Специальная обработка для 429 (Too Many Requests)
@@ -411,7 +407,7 @@ class TourvisorApiService {
         }
         
         logger.error(`[Tourvisor API] Error response:`, errorText);
-        throw new Error(`HTTP ${response.status}: ${errorText}`);
+        throw new Error(mapTourvisorHttpError(response.status, errorText));
       }
 
       // Проверяем Content-Type перед парсингом JSON
@@ -821,11 +817,11 @@ class TourvisorApiService {
       throw new Error('Tourvisor API: currency is required for tour search');
     }
     if (params.onlyCharter === undefined) {
-      // onlyCharter обязателен, но имеет default: false в документации
       params.onlyCharter = false;
     }
-    
-    const query = this.buildQueryString(params);
+
+    const sanitized = applyTourMealToSearchParams(params);
+    const query = this.buildQueryString(sanitized);
     // Для startTourSearch не делаем retry при 429 - сразу возвращаем ошибку для использования кэша
     const response = await this.request<TourSearchOutput>(
       `/tours/search?${query}`,
@@ -860,7 +856,12 @@ class TourvisorApiService {
       0,
       2 // Retry для методов поиска (300 запросов/мин)
     );
-    return response.data;
+    const raw = response.data;
+    if (Array.isArray(raw)) return raw;
+    if (raw && typeof raw === 'object' && Array.isArray((raw as { data?: TourHotel[] }).data)) {
+      return (raw as { data: TourHotel[] }).data;
+    }
+    return [];
   }
 
   async continueTourSearch(searchId: number): Promise<TourSearchContinueOutput> {

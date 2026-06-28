@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, memo } from 'react';
 import {
   View,
   Text,
@@ -7,11 +7,12 @@ import {
   FlatList,
   ActivityIndicator,
   StatusBar,
-  Image,
+  InteractionManager,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import PercentageLoader from '../components/PercentageLoader';
+import CachedImage from '../components/ui/CachedImage';
 
 import { tourvisorApi } from '../services/TourvisorApiService';
 import { TourHotel, TourSearchStatus, TourSearchParams, Tour } from '../types/tourvisor';
@@ -27,25 +28,144 @@ import {
   isTransientTourvisorError,
   TOUR_SEARCH_LIMIT,
   TOUR_SEARCH_MAX_WAIT_MS,
-  TOUR_SEARCH_POLL_INTERVAL_MS,
+  getTourSearchPollIntervalMs,
+  sanitizeTourHotelsFromCache,
 } from '../utils/tourSearchCache';
 import { getFromSharedCache } from '../services/TourvisorFirestoreCache';
 import { saveTourSearchToAllCaches, searchTours } from '../hooks/useTourSearch';
 import { preCacheTourDetailsFromSearchResults, cacheTourFromSearchResult, buildTourOutputFromSearchResult } from '../utils/tourDetailsCache';
 import { FavoritesService } from '../services/FavoritesService';
+import type { NavigationProp, RouteProp } from '@react-navigation/native';
+import type { ApiTourResultsRouteParams } from '../navigation/types';
 
-interface ApiTourResultsScreenProps {
-  navigation: any;
-  route: any;
-}
+type ApiTourResultsScreenProps = {
+  navigation: NavigationProp<Record<string, object | undefined>> & {
+    navigate: (screen: string, params?: object) => void;
+    goBack: () => void;
+    replace: (screen: string, params?: object) => void;
+  };
+  route: RouteProp<{ ApiTourResults: ApiTourResultsRouteParams }, 'ApiTourResults'>;
+};
+
+type ResultsTheme = {
+  card: string;
+  border: string;
+  text: string;
+  secondaryText: string;
+  primary: string;
+  secondaryBackground: string;
+  error: string;
+};
+
+type TourResultCardProps = {
+  hotel: TourHotel;
+  theme: ResultsTheme;
+  favoriteIds: Set<string>;
+  onTourPress: (tourId: string, hotel: TourHotel, tour: Tour) => void;
+  onFavoritePress: (hotel: TourHotel, tour: Tour) => void;
+  formatPrice: (price: number, fromCurrency: string) => string;
+  formatDate: (dateStr: string) => string;
+};
+
+const TourResultCard = memo(function TourResultCard({
+  hotel,
+  theme,
+  favoriteIds,
+  onTourPress,
+  onFavoritePress,
+  formatPrice,
+  formatDate,
+}: TourResultCardProps) {
+  if (!hotel?.id || !hotel.name || !hotel.region?.name || !Array.isArray(hotel.tours) || hotel.tours.length === 0) {
+    return null;
+  }
+
+  const visibleTours = hotel.tours.filter(
+    (t) => t && t.operator?.name && t.meal?.name && typeof t.price === 'number' && t.date,
+  );
+  if (visibleTours.length === 0) return null;
+
+  return (
+    <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
+      {hotel.picturelink ? (
+        <CachedImage
+          source={hotel.picturelink}
+          style={styles.cardImage}
+          contentFit="cover"
+          recyclingKey={`hotel-${hotel.id}`}
+        />
+      ) : (
+        <View style={[styles.cardImagePlaceholder, { backgroundColor: theme.secondaryBackground }]}>
+          <Ionicons name="image-outline" size={40} color={theme.secondaryText} />
+        </View>
+      )}
+      <View style={styles.cardBody}>
+        <Text style={[styles.hotelName, { color: theme.text }]} numberOfLines={2}>
+          {hotel.name}
+        </Text>
+        <Text style={[styles.hotelRegion, { color: theme.secondaryText }]}>
+          {hotel.region.name}
+          {hotel.subRegion ? `, ${hotel.subRegion.name}` : ''}
+        </Text>
+        {hotel.rating > 0 && (
+          <View style={[styles.rating, { backgroundColor: theme.primary }]}>
+            <Ionicons name="star" size={12} color="#fff" />
+            <Text style={styles.ratingText}>{hotel.rating.toFixed(1)}</Text>
+          </View>
+        )}
+      </View>
+      <View style={styles.toursList}>
+        {visibleTours.map((tour, idx) => (
+          <TouchableOpacity
+            key={`${tour.id}-${idx}`}
+            style={[styles.tourRow, { borderColor: theme.border }]}
+            onPress={() => onTourPress(tour.id, hotel, tour)}
+            activeOpacity={0.7}
+          >
+            <View style={styles.tourLeft}>
+              <Text style={[styles.tourOperator, { color: theme.primary }]}>
+                {tour.operator.name}
+              </Text>
+              <Text style={[styles.tourMeta, { color: theme.secondaryText }]}>
+                {tour.adults} {i18n.t('tours.adultsShort')} · {tour.nights} {i18n.t('search.nights')} · {tour.meal.name}
+              </Text>
+            </View>
+            <View style={[styles.tourRight, { flexDirection: 'row', alignItems: 'center', gap: 8 }]}>
+              <TouchableOpacity
+                onPress={() => onFavoritePress(hotel, tour)}
+                style={styles.favoriteIcon}
+                activeOpacity={0.7}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <Ionicons
+                  name={favoriteIds.has(String(tour.id)) ? 'heart' : 'heart-outline'}
+                  size={20}
+                  color={favoriteIds.has(String(tour.id)) ? theme.error : theme.secondaryText}
+                />
+              </TouchableOpacity>
+              <View style={{ alignItems: 'flex-end' }}>
+                <Text style={[styles.tourPrice, { color: theme.primary }]}>
+                  {formatPrice(tour.price, tour.currency)}
+                </Text>
+                <Text style={[styles.tourDate, { color: theme.secondaryText }]}>
+                  {formatDate(tour.date)}
+                </Text>
+              </View>
+            </View>
+          </TouchableOpacity>
+        ))}
+      </View>
+    </View>
+  );
+});
 
 export default function ApiTourResultsScreen({ navigation, route }: ApiTourResultsScreenProps) {
   const { theme, isDark, user, currency } = useAppContext();
   const isGuest = user?.uid?.startsWith('guest_') || user?.isAnonymous === true;
 
-  const params = route?.params ?? {};
+  const params = route.params ?? {};
   const searchId = params.searchId ?? -1;
-  const searchParams = params.searchParams as TourSearchParams | undefined;
+  const searchParams = params.searchParams;
   const useCache = params.useCache === true;
   const runSearch = params.runSearch === true;
 
@@ -57,42 +177,73 @@ export default function ApiTourResultsScreen({ navigation, route }: ApiTourResul
   const progressIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [hasMore, setHasMore] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [showingStaleHint, setShowingStaleHint] = useState(false);
 
   const mountedRef = useRef(true);
-  const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pollInFlightRef = useRef(false);
   const pollStartedAtRef = useRef(0);
   const pollErrorStreakRef = useRef(0);
+  const lastSearchStatusRef = useRef<TourSearchStatus | null>(null);
+
+  const schedulePreCache = useCallback((list: TourHotel[], currencyCode: string) => {
+    if (!list.length) return;
+    InteractionManager.runAfterInteractions(() => {
+      preCacheTourDetailsFromSearchResults(list, currencyCode).catch(() => {});
+    });
+  }, []);
+
+  const applyTourList = useCallback(
+    (raw: unknown, currencyCode: string): TourHotel[] => {
+      const valid = sanitizeTourHotelsFromCache(raw);
+      setTours(valid);
+      setHasMore(false);
+      if (valid.length > 0) schedulePreCache(valid, currencyCode);
+      return valid;
+    },
+    [schedulePreCache],
+  );
+
+  const fetchResultsForSearchId = useCallback(async (id: number): Promise<TourHotel[]> => {
+    const statusHint = lastSearchStatusRef.current;
+    for (let emptyRetry = 0; emptyRetry < 4; emptyRetry++) {
+      let list: TourHotel[] = [];
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          list = await tourvisorApi.getTourSearchResults(id, TOUR_SEARCH_LIMIT);
+          break;
+        } catch (e) {
+          if (!isTransientTourvisorError(e) || attempt >= 2) throw e;
+          await new Promise((r) => setTimeout(r, 2000 * (attempt + 1)));
+        }
+      }
+      if (list.length > 0) return list;
+      if (!statusHint?.minPrice || statusHint.minPrice <= 0 || emptyRetry >= 3) return list;
+      await new Promise((r) => setTimeout(r, 1500 * (emptyRetry + 1)));
+    }
+    return [];
+  }, []);
 
   const loadFromApi = useCallback(
     async () => {
       if (searchId === -1 || !searchParams) return;
       try {
-        let list: TourHotel[] = [];
-        for (let attempt = 0; attempt < 3; attempt++) {
-          try {
-            list = await tourvisorApi.getTourSearchResults(searchId, TOUR_SEARCH_LIMIT);
-            break;
-          } catch (e) {
-            if (!isTransientTourvisorError(e) || attempt >= 2) throw e;
-            await new Promise((r) => setTimeout(r, 2000 * (attempt + 1)));
-          }
-        }
+        const list = await fetchResultsForSearchId(searchId);
         if (!mountedRef.current) return;
-        setTours(list ?? []);
-        setHasMore(false);
-        if (list && list.length > 0 && searchParams) {
-          saveTourSearchToAllCaches(searchParams, list, TOUR_SEARCH_LIMIT).catch(() => {});
-          preCacheTourDetailsFromSearchResults(list, searchParams.currency || 'RUB').catch(() => {});
+        setLoadError(null);
+        setShowingStaleHint(false);
+        const valid = applyTourList(list, searchParams.currency || 'RUB');
+        if (valid.length > 0 && searchParams) {
+          saveTourSearchToAllCaches(searchParams, valid, TOUR_SEARCH_LIMIT).catch(() => {});
         }
-      } catch (e: any) {
-        const is429 = e?.message?.includes('429') || e?.message?.includes('Rate limit');
+      } catch (e: unknown) {
+        const is429 =
+          (e as Error)?.message?.includes('429') || (e as Error)?.message?.includes('Rate limit');
         if (is429 && searchParams && mountedRef.current) {
           const key = getTourSearchCacheKey(searchParams, TOUR_SEARCH_LIMIT);
           cacheService.get<TourHotel[]>(CacheType.SEARCH_RESULTS, key, true).then((cached) => {
             if (!mountedRef.current) return;
-            setTours(cached ?? []);
-            setHasMore(false);
-            if (cached?.length) preCacheTourDetailsFromSearchResults(cached, searchParams.currency || 'RUB').catch(() => {});
+            applyTourList(cached ?? [], searchParams.currency || 'RUB');
           }).catch(() => {
             if (mountedRef.current) setTours([]);
           }).finally(() => {
@@ -109,7 +260,7 @@ export default function ApiTourResultsScreen({ navigation, route }: ApiTourResul
         if (mountedRef.current) setIsLoading(false);
       }
     },
-    [searchId, searchParams]
+    [searchId, searchParams, fetchResultsForSearchId, applyTourList]
   );
 
   /** Кэш только при полном совпадении параметров и свежести до 2 недель (Firestore + localStorage). */
@@ -125,15 +276,46 @@ export default function ApiTourResultsScreen({ navigation, route }: ApiTourResul
         cached = await cacheService.get<TourHotel[]>(CacheType.SEARCH_RESULTS, key, false);
       }
       if (!mountedRef.current) return;
-      setTours(cached ?? []);
+      const raw = cached ?? [];
+      const valid = sanitizeTourHotelsFromCache(raw);
+      if (Array.isArray(raw) && raw.length > 0 && valid.length === 0) {
+        await cacheService.remove(CacheType.SEARCH_RESULTS, key).catch(() => {});
+        setTours([]);
+        setLoadError(i18n.t('search.cacheCorrupted'));
+        return;
+      }
+      setTours(valid);
       setHasMore(false);
-      if (cached?.length) preCacheTourDetailsFromSearchResults(cached, searchParams.currency || 'RUB').catch(() => {});
+      if (valid.length) schedulePreCache(valid, searchParams.currency || 'RUB');
     } catch {
       if (mountedRef.current) setTours([]);
     } finally {
       if (mountedRef.current) setIsLoading(false);
     }
-  }, [searchParams]);
+  }, [searchParams, schedulePreCache]);
+
+  /** Показать устаревший кэш сразу, пока идёт опрос Tourvisor. */
+  const loadStaleCacheIfAny = useCallback(async (): Promise<boolean> => {
+    if (!searchParams) return false;
+    const key = getTourSearchCacheKey(searchParams, TOUR_SEARCH_LIMIT);
+    try {
+      let cached = await getFromSharedCache(searchParams, TOUR_SEARCH_LIMIT);
+      if (!cached?.length) {
+        cached = await cacheService.get<TourHotel[]>(CacheType.SEARCH_RESULTS, key, false);
+      }
+      if (!mountedRef.current || !cached?.length) return false;
+      const valid = sanitizeTourHotelsFromCache(cached);
+      if (valid.length === 0) return false;
+      setTours(valid);
+      setHasMore(false);
+      setShowingStaleHint(true);
+      setIsLoading(false);
+      schedulePreCache(valid, searchParams.currency || 'RUB');
+      return true;
+    } catch {
+      return false;
+    }
+  }, [searchParams, schedulePreCache]);
 
   useEffect(() => {
     FavoritesService.getInstance().getFavoriteTours().then((favs) => {
@@ -182,9 +364,9 @@ export default function ApiTourResultsScreen({ navigation, route }: ApiTourResul
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
-      if (pollIntervalRef.current) {
-        clearInterval(pollIntervalRef.current);
-        pollIntervalRef.current = null;
+      if (pollTimerRef.current) {
+        clearTimeout(pollTimerRef.current);
+        pollTimerRef.current = null;
       }
       if (progressIntervalRef.current) {
         clearInterval(progressIntervalRef.current);
@@ -210,11 +392,10 @@ export default function ApiTourResultsScreen({ navigation, route }: ApiTourResul
       }
       setLoaderProgress(100);
       if (!mountedRef.current) return;
-      setTours(list ?? []);
-      setHasMore(false);
-      if (list?.length && searchParams) {
-        saveTourSearchToAllCaches(searchParams, list, TOUR_SEARCH_LIMIT).catch(() => {});
-        preCacheTourDetailsFromSearchResults(list, searchParams.currency || 'RUB').catch(() => {});
+      setLoadError(null);
+      const valid = applyTourList(list, searchParams.currency || 'RUB');
+      if (valid.length > 0 && searchParams) {
+        saveTourSearchToAllCaches(searchParams, valid, TOUR_SEARCH_LIMIT).catch(() => {});
       }
     } catch (e: unknown) {
       if (progressIntervalRef.current) {
@@ -228,7 +409,7 @@ export default function ApiTourResultsScreen({ navigation, route }: ApiTourResul
     } finally {
       if (mountedRef.current) setIsLoading(false);
     }
-  }, [searchParams]);
+  }, [searchParams, applyTourList]);
 
   const handleRetrySearch = useCallback(() => {
     if (!searchParams) return;
@@ -258,20 +439,27 @@ export default function ApiTourResultsScreen({ navigation, route }: ApiTourResul
       return;
     }
 
-    if (useCache || searchId === -1) {
+    if (searchId === -1) {
       loadFromCache();
       return;
     }
 
     let cancelled = false;
     setLoadError(null);
+    setShowingStaleHint(false);
+    setIsLoading(true);
+    lastSearchStatusRef.current = null;
     pollStartedAtRef.current = Date.now();
     pollErrorStreakRef.current = 0;
 
+    if (useCache) {
+      void loadStaleCacheIfAny();
+    }
+
     const stopPolling = () => {
-      if (pollIntervalRef.current) {
-        clearInterval(pollIntervalRef.current);
-        pollIntervalRef.current = null;
+      if (pollTimerRef.current) {
+        clearTimeout(pollTimerRef.current);
+        pollTimerRef.current = null;
       }
     };
 
@@ -288,51 +476,78 @@ export default function ApiTourResultsScreen({ navigation, route }: ApiTourResul
       }
     };
 
-    const pollStatus = async () => {
-      if (cancelled || !mountedRef.current) return;
+    const pollStatus = async (): Promise<boolean> => {
+      if (cancelled || !mountedRef.current) return true;
 
       const elapsed = Date.now() - pollStartedAtRef.current;
       if (elapsed >= TOUR_SEARCH_MAX_WAIT_MS) {
         stopPollingAndLoad();
-        return;
+        return true;
       }
 
       try {
-        const st = await tourvisorApi.getTourSearchStatus(searchId, true);
-        if (cancelled || !mountedRef.current) return;
+        const st = await tourvisorApi.getTourSearchStatus(searchId, false);
+        if (cancelled || !mountedRef.current) return true;
         pollErrorStreakRef.current = 0;
+        lastSearchStatusRef.current = st;
         setStatus(st);
 
         if (isTourSearchStatusError(st.status)) {
           failPolling(i18n.t('search.errorProgress'));
-          return;
+          return true;
         }
 
         if (isTourSearchStatusFinished(st.status, st.progress)) {
           stopPollingAndLoad();
+          return true;
         }
+        return false;
       } catch (e: unknown) {
         const err = e as Error;
         const is429 = err?.message?.includes('429') || err?.message?.includes('Rate limit');
         if (is429 && searchParams && mountedRef.current) {
           stopPolling();
           loadFromCache();
-          return;
+          return true;
         }
 
         if (isTransientTourvisorError(e)) {
           pollErrorStreakRef.current += 1;
-          if (pollErrorStreakRef.current < 6) return;
+          if (pollErrorStreakRef.current < 6) return false;
         }
 
         failPolling(err?.message || i18n.t('search.errorSearchFailed'));
+        return true;
       }
     };
 
-    const t1 = setTimeout(() => {
-      pollStatus();
-      pollIntervalRef.current = setInterval(pollStatus, TOUR_SEARCH_POLL_INTERVAL_MS);
-    }, 1500);
+    const scheduleNextPoll = (delayMs: number) => {
+      if (cancelled) return;
+      pollTimerRef.current = setTimeout(() => {
+        void (async () => {
+          if (cancelled || pollInFlightRef.current) {
+            if (!cancelled) {
+              const interval = await getTourSearchPollIntervalMs();
+              scheduleNextPoll(interval);
+            }
+            return;
+          }
+          pollInFlightRef.current = true;
+          let finished = false;
+          try {
+            finished = await pollStatus();
+          } finally {
+            pollInFlightRef.current = false;
+          }
+          if (!cancelled && !finished) {
+            const interval = await getTourSearchPollIntervalMs();
+            scheduleNextPoll(interval);
+          }
+        })();
+      }, delayMs);
+    };
+
+    scheduleNextPoll(400);
 
     const maxWaitTimer = setTimeout(() => {
       if (cancelled || !mountedRef.current) return;
@@ -341,11 +556,10 @@ export default function ApiTourResultsScreen({ navigation, route }: ApiTourResul
 
     return () => {
       cancelled = true;
-      clearTimeout(t1);
       clearTimeout(maxWaitTimer);
       stopPolling();
     };
-  }, [searchId, useCache, searchParams, runSearch, runSearchAndPopulate, loadFromCache, loadFromApi]);
+  }, [searchId, useCache, searchParams, runSearch, runSearchAndPopulate, loadFromCache, loadFromApi, loadStaleCacheIfAny]);
 
   const handleTourPress = useCallback(
     (tourId: string, hotel?: TourHotel, tour?: Tour) => {
@@ -354,90 +568,39 @@ export default function ApiTourResultsScreen({ navigation, route }: ApiTourResul
       }
       navigation.navigate('ApiTourDetails', {
         tourId,
-        searchParams: searchParams ?? {},
+        searchParams: searchParams ?? undefined,
       });
     },
     [navigation, searchParams]
   );
 
-  const formatPrice = (price: number, fromCurrency: string) =>
-    settingsService.formatTourPrice(price, fromCurrency as Currency, currency);
-  const formatDate = (dateStr: string) =>
-    new Date(dateStr).toLocaleDateString('ru-RU', {
-      day: 'numeric',
-      month: 'short',
-    });
+  const formatPrice = useCallback(
+    (price: number, fromCurrency: string) =>
+      settingsService.formatTourPrice(price, fromCurrency as Currency, currency),
+    [currency],
+  );
+  const formatDate = useCallback(
+    (dateStr: string) =>
+      new Date(dateStr).toLocaleDateString('ru-RU', {
+        day: 'numeric',
+        month: 'short',
+      }),
+    [],
+  );
 
-  const renderHotel = ({ item: hotel }: { item: TourHotel }) => (
-    <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
-      {hotel.picturelink ? (
-        <Image
-          source={{ uri: hotel.picturelink }}
-          style={styles.cardImage}
-          resizeMode="cover"
-        />
-      ) : (
-        <View style={[styles.cardImagePlaceholder, { backgroundColor: theme.secondaryBackground }]}>
-          <Ionicons name="image-outline" size={40} color={theme.secondaryText} />
-        </View>
-      )}
-      <View style={styles.cardBody}>
-        <Text style={[styles.hotelName, { color: theme.text }]} numberOfLines={2}>
-          {hotel.name}
-        </Text>
-        <Text style={[styles.hotelRegion, { color: theme.secondaryText }]}>
-          {hotel.region.name}
-          {hotel.subRegion ? `, ${hotel.subRegion.name}` : ''}
-        </Text>
-        {hotel.rating > 0 && (
-          <View style={[styles.rating, { backgroundColor: theme.primary }]}>
-            <Ionicons name="star" size={12} color="#fff" />
-            <Text style={styles.ratingText}>{hotel.rating.toFixed(1)}</Text>
-          </View>
-        )}
-      </View>
-      <View style={styles.toursList}>
-        {hotel.tours.map((tour, idx) => (
-          <TouchableOpacity
-            key={`${tour.id}-${idx}`}
-            style={[styles.tourRow, { borderColor: theme.border }]}
-            onPress={() => handleTourPress(tour.id, hotel, tour)}
-            activeOpacity={0.7}
-          >
-            <View style={styles.tourLeft}>
-              <Text style={[styles.tourOperator, { color: theme.primary }]}>
-                {tour.operator.name}
-              </Text>
-              <Text style={[styles.tourMeta, { color: theme.secondaryText }]}>
-                {tour.adults} {i18n.t('tours.adultsShort')} · {tour.nights} {i18n.t('search.nights')} · {tour.meal.name}
-              </Text>
-            </View>
-            <View style={[styles.tourRight, { flexDirection: 'row', alignItems: 'center', gap: 8 }]}>
-              <TouchableOpacity
-                onPress={() => handleFavoritePress(hotel, tour)}
-                style={styles.favoriteIcon}
-                activeOpacity={0.7}
-                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-              >
-                <Ionicons
-                  name={favoriteIds.has(String(tour.id)) ? 'heart' : 'heart-outline'}
-                  size={20}
-                  color={favoriteIds.has(String(tour.id)) ? theme.error : theme.secondaryText}
-                />
-              </TouchableOpacity>
-              <View style={{ alignItems: 'flex-end' }}>
-                <Text style={[styles.tourPrice, { color: theme.primary }]}>
-                  {formatPrice(tour.price, tour.currency)}
-                </Text>
-                <Text style={[styles.tourDate, { color: theme.secondaryText }]}>
-                  {formatDate(tour.date)}
-                </Text>
-              </View>
-            </View>
-          </TouchableOpacity>
-        ))}
-      </View>
-    </View>
+  const renderHotel = useCallback(
+    ({ item: hotel }: { item: TourHotel }) => (
+      <TourResultCard
+        hotel={hotel}
+        theme={theme}
+        favoriteIds={favoriteIds}
+        onTourPress={handleTourPress}
+        onFavoritePress={handleFavoritePress}
+        formatPrice={formatPrice}
+        formatDate={formatDate}
+      />
+    ),
+    [theme, favoriteIds, handleTourPress, handleFavoritePress, formatPrice, formatDate],
   );
 
   const renderHeader = () => (
@@ -459,6 +622,18 @@ export default function ApiTourResultsScreen({ navigation, route }: ApiTourResul
       </View>
     </View>
   );
+
+  const renderStaleHint = () => {
+    if (!showingStaleHint) return null;
+    return (
+      <View style={[styles.statusBar, { backgroundColor: theme.secondaryBackground }]}>
+        <Ionicons name="refresh-outline" size={18} color={theme.primary} />
+        <Text style={[styles.statusText, { color: theme.secondaryText }]}>
+          {i18n.t('search.staleCacheHint')}
+        </Text>
+      </View>
+    );
+  };
 
   const renderStatus = () => {
     if (!status || loadError) return null;
@@ -515,6 +690,7 @@ export default function ApiTourResultsScreen({ navigation, route }: ApiTourResul
       />
       {renderHeader()}
       {renderStatus()}
+      {renderStaleHint()}
       {runSearch && isLoading && tours.length === 0 ? (
         <PercentageLoader visible={true} progress={loaderProgress} />
       ) : isLoading && tours.length === 0 && !loadError ? (
@@ -529,12 +705,13 @@ export default function ApiTourResultsScreen({ navigation, route }: ApiTourResul
         <FlatList
           data={tours}
           renderItem={renderHotel}
-          keyExtractor={(item) => String(item.id)}
+          keyExtractor={(item, index) => `hotel-${item.id}-${index}`}
           contentContainerStyle={styles.listContent}
           removeClippedSubviews={false}
           initialNumToRender={8}
-          maxToRenderPerBatch={10}
-          windowSize={6}
+          maxToRenderPerBatch={8}
+          windowSize={5}
+          updateCellsBatchingPeriod={50}
           ListEmptyComponent={renderEmpty}
         />
       )}

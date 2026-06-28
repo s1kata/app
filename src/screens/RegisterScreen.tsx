@@ -72,7 +72,6 @@ export default function RegisterScreen({ navigation, route }: RegisterScreenProp
               routes: [
                 { name: 'Home', state: { routes: [{ name: 'HomeMain' }, { name: returnTo.name, params: returnTo.params }], index: 1 } },
                 { name: 'Bookings' },
-                { name: 'Documents' },
                 { name: 'Settings' },
               ],
               index: 0,

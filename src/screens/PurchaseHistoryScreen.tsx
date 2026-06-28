@@ -14,6 +14,7 @@ import { useAppContext } from '../contexts/AppContext';
 import { i18n } from '../config/i18n';
 import { sotaCrmService } from '../services/SotaCrmService';
 import { SotaBooking } from '../types';
+import { PrimaryButton } from '../components/ui';
 
 function formatDate(s: string): string {
   if (!s) return '—';
@@ -49,10 +50,15 @@ export default function PurchaseHistoryScreen({ navigation }: any) {
       if (res.success && res.data) {
         setBookings(res.data);
       } else {
-        setError(res.error || 'Ошибка загрузки');
+        setError(res.error || i18n.t('purchaseHistory.unavailable'));
       }
     } catch (e: any) {
-      setError(e?.message || 'Ошибка');
+      const msg = String(e?.message || '');
+      setError(
+        msg.toLowerCase().includes('404') || msg.toLowerCase().includes('not found')
+          ? i18n.t('purchaseHistory.unavailable')
+          : msg || i18n.t('purchaseHistory.unavailable')
+      );
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -67,6 +73,15 @@ export default function PurchaseHistoryScreen({ navigation }: any) {
     setRefreshing(true);
     load();
   };
+
+  const handleRepeatOrder = useCallback(() => {
+    const tabNav = navigation.getParent?.();
+    if (tabNav?.navigate) {
+      tabNav.navigate('Home', { screen: 'HomeMain' });
+      return;
+    }
+    navigation.navigate('Home', { screen: 'HomeMain' });
+  }, [navigation]);
 
   if (loading && !refreshing) {
     return (
@@ -136,6 +151,15 @@ export default function PurchaseHistoryScreen({ navigation }: any) {
                   № {b.bookingNumber}
                 </Text>
               ) : null}
+              <PrimaryButton
+                title={i18n.t('purchaseHistory.repeatOrder')}
+                onPress={handleRepeatOrder}
+                outline
+                small
+                iconLeft={<Ionicons name="refresh-outline" size={16} color={theme.primary} />}
+                style={styles.repeatBtn}
+                textStyle={styles.repeatBtnText}
+              />
             </View>
           ))
         )}
@@ -191,4 +215,9 @@ const styles = StyleSheet.create({
   metaText: { fontSize: 13 },
   status: { fontSize: 12, marginTop: 2 },
   bookingNumber: { fontSize: 12, marginTop: 4 },
+  repeatBtn: {
+    marginTop: 12,
+    alignSelf: 'flex-start',
+  },
+  repeatBtnText: { fontSize: 13, fontWeight: '600', letterSpacing: 0.2 },
 });

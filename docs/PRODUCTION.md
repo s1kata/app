@@ -6,9 +6,9 @@
 
 | Компонент | Назначение |
 |-----------|------------|
-| **Приложение** (React Native / Expo) | Поиск туров (Tourvisor), бронирования (Firestore), оплата через внешний сайт, CRM SOTA (U-ON) |
-| **Firebase** | Auth, Firestore, Storage |
-| **Сайт / API** (например `travelhub63.ru`) | Создание платежа, webhook банка, проверка статуса — см. [`server/README.md`](../server/README.md) |
+| **Приложение** (React Native / Expo) | Поиск туров (Tourvisor через прокси), бронирования, оплата через внешний сайт, CRM SOTA (U-ON) |
+| **Сайт** (`travelhub63.ru`) | JWT auth (`auth-mobile.php`), Tourvisor proxy (`/api/tourvisor-mobile`), CRM proxy, оплата |
+| **Firebase** | Опционально: Firestore-кэш поиска (Auth для входа не используется) |
 | **EAS Build / Submit** | Сборка AAB/APK/IPA и отправка в Google Play / App Store |
 | **EAS Update** | OTA-обновления JS/ассетов (`expo-updates`, канал `production` в `eas.json`) |
 
@@ -24,8 +24,8 @@
 
 | Переменная | Назначение |
 |------------|------------|
-| `FIREBASE_*` | Ключи Firebase (консоль проекта → настройки приложения) |
-| `TOURVISOR_TOKEN` | JWT Tourvisor (поиск туров). Альтернатива: `TOURVISOR_JWT_TOKEN` |
+| `FIREBASE_*` | Опционально: Firestore-кэш. Вход — через `auth-mobile.php` на сайте, не Firebase Auth |
+| `TOURVISOR_TOKEN` | JWT Tourvisor — **только dev**. В production/preview — прокси `${WEBSITE_BASE_URL}/api/tourvisor-mobile` |
 | `EAS_PROJECT_ID` | UUID проекта в **текущем** аккаунте expo.dev (`eas project:info` или настройки проекта). Без него в конфиг не подставляются OTA `updates.url` и `extra.eas.projectId` |
 
 ### Продакшен-сервисы
@@ -158,7 +158,7 @@ npx eas submit --platform ios
 3. **Firebase**: продакшен-проект, правила Firestore/Storage проверены.
 4. **U-ON**: `UON_API_KEY` на сервере / в EAS для Node; тест создания заявки.
 5. **Сборка**: `production` AAB/IPA; версии `version` / `versionCode` / `buildNumber` увеличены.
-6. **UI релиза**: персональные рекомендации скрыты на фронте (фича отложена до next patch), кнопки/секции не торчат в навигации.
+6. **UI релиза**: отельный флоу удалён (`RELEASE_HIDE_NEXT_PATCH_UI`); персональные рекомендации скрыты; поиск туров — `runSearch: true` на экране результатов.
 7. **Сторы**: скриншоты, описание, политика конфиденциальности, контакты поддержки.
 8. **Sentry**: `EXPO_PUBLIC_SENTRY_DSN` в EAS для production; тестовая ошибка видна в консоли Sentry.
 

@@ -28,6 +28,7 @@ import { settingsService } from '../services/SettingsService';
 import type { Currency } from '../services/SettingsService';
 import { i18n } from '../config/i18n';
 import { logger } from '../utils/logger';
+import TourReviewsSection from '../components/TourReviewsSection';
 
 interface ApiTourDetailsScreenProps {
   navigation: any;
@@ -727,6 +728,13 @@ export default function ApiTourDetailsScreen({ navigation, route }: ApiTourDetai
         
         {renderTourInfo()}
         {renderFlights()}
+        {tourId ? (
+          <TourReviewsSection
+            tourId={String(tourId)}
+            hotelId={tour?.hotel?.id}
+            navigation={navigation}
+          />
+        ) : null}
       </ScrollView>
 
       {/* Sticky кнопка «Оставить заявку» */}

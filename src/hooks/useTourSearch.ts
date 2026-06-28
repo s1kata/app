@@ -24,7 +24,6 @@ import { tourvisorApi } from '../services/TourvisorApiService';
 import { freshCacheService } from '../services/FreshCacheService';
 import { logger } from '../utils/logger';
 import { cacheService, CacheType } from '../services/CacheService';
-import { networkService } from '../services/NetworkService';
 
 const FRESH_CACHE_ASYNC_PREFIX = 'fresh_cache_';
 
@@ -95,9 +94,6 @@ export async function saveTourSearchToLocalCaches(
 }
 
 async function fetchTourSearch(params: TourSearchParams, limit: number): Promise<TourHotel[]> {
-  if (networkService.getPolicyState().isBlocked) {
-    throw new Error('Отключите VPN/блокировщик и повторите поиск.');
-  }
   const workerUrl = (Constants.expoConfig?.extra as Record<string, string> | undefined)
     ?.tourvisorWorkerUrl as string | undefined;
   const tourvisorUrl = tourvisorApi.getBaseUrl();
@@ -182,7 +178,7 @@ async function fetchTourSearch(params: TourSearchParams, limit: number): Promise
     }
   }
   logger.debug('[useTourSearch] direct Tourvisor results received', { searchId, count: results.length });
-  return results;
+  return Array.isArray(results) ? results : [];
 }
 
 /**

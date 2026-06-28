@@ -145,6 +145,17 @@ const translations: Translations = {
   'purchaseHistory.title': { ru: 'История покупок', en: 'Purchase history' },
   'purchaseHistory.empty': { ru: 'Нет покупок', en: 'No purchases' },
   'purchaseHistory.emptyDesc': { ru: 'Здесь появятся ваши заявки', en: 'Your requests will appear here' },
+  'tour.reviewsTitle': { ru: 'Отзывы', en: 'Reviews' },
+  'tour.allReviews': { ru: 'Все', en: 'All' },
+  'tour.noReviews': { ru: 'Пока нет отзывов. Будьте первым!', en: 'No reviews yet. Be the first!' },
+  'tour.addReview': { ru: 'Оставить отзыв', en: 'Write a review' },
+  'reviews.anonymous': { ru: 'Пользователь', en: 'User' },
+  'reviews.authRequiredTitle': { ru: 'Требуется авторизация', en: 'Sign in required' },
+  'reviews.authRequiredBody': {
+    ru: 'Войдите в аккаунт, чтобы оставить отзыв.',
+    en: 'Sign in to leave a review.',
+  },
+  'purchaseHistory.repeatOrder': { ru: 'Повторить заказ', en: 'Repeat order' },
 
   // Settings
   'settings.title': { ru: 'Настройки', en: 'Settings' },
@@ -343,6 +354,8 @@ const translations: Translations = {
   'search.errorLoad': { ru: 'Ошибка загрузки туров', en: 'Error loading tours' },
   'search.errorProgress': { ru: 'Ошибка поиска', en: 'Search error' },
   'search.progress': { ru: 'Поиск:', en: 'Search:' },
+  'search.staleCacheHint': { ru: 'Показаны сохранённые результаты, обновляем…', en: 'Showing saved results, refreshing…' },
+  'search.cacheCorrupted': { ru: 'Сохранённые результаты повреждены. Выполняем новый поиск…', en: 'Saved results are corrupted. Running a new search…' },
   'tours.notFoundShort': { ru: 'Туры не найдены', en: 'No tours found' },
   'tours.adultsShort': { ru: 'взр.', en: 'adults' },
   'tours.childrenShort': { ru: 'дет.', en: 'ch.' },
@@ -421,15 +434,53 @@ const translations: Translations = {
     en: 'Tap «Retry» or restart the app.',
   },
   'errors.retryButton': { ru: 'Повторить', en: 'Retry' },
+  'network.offlineTitle': {
+    ru: 'Нет подключения к интернету',
+    en: 'No internet connection',
+  },
+  'network.offlineBody': {
+    ru: 'Проверьте Wi‑Fi или мобильную сеть и попробуйте снова.',
+    en: 'Check your Wi‑Fi or mobile data and try again.',
+  },
+  'network.offlineBanner': {
+    ru: 'Нет интернета. Проверьте Wi‑Fi или мобильную сеть.',
+    en: 'No internet. Check Wi‑Fi or mobile data.',
+  },
+  'network.backendUnreachableBanner': {
+    ru: 'Проблемы с сетью. Проверьте интернет или отключите VPN — переподключаемся…',
+    en: 'Network issue. Check connection or disable VPN — reconnecting…',
+  },
+  'network.restoredBanner': {
+    ru: 'Соединение восстановлено',
+    en: 'Connection restored',
+  },
+  'network.backendUnreachableTitle': {
+    ru: 'Не удаётся подключиться к серверу',
+    en: 'Cannot reach the server',
+  },
+  'network.backendUnreachableBody': {
+    ru: 'Проверьте интернет. Если используете VPN, блокировщик рекламы или DNS‑фильтр — отключите их и нажмите «Проверить снова».',
+    en: 'Check your internet. If you use a VPN, ad blocker, or DNS filter, disable it and tap «Retry».',
+  },
+  'network.backendUnreachableShort': {
+    ru: 'Сервер недоступен. Выключите VPN или проверьте интернет.',
+    en: 'Server unreachable. Turn off VPN or check your connection.',
+  },
+  'network.blockHint': {
+    ru: 'Без доступа к серверу поиск туров, оплата и бронирование недоступны.',
+    en: 'Tour search, payment, and booking require server access.',
+  },
+  /** @deprecated используйте network.backendUnreachableTitle */
   'network.vpnBlockedTitle': {
-    ru: 'Подключение через VPN/блокировщик',
-    en: 'VPN or blocker detected',
+    ru: 'Не удаётся подключиться к серверу',
+    en: 'Cannot reach the server',
   },
+  /** @deprecated используйте network.backendUnreachableBody */
   'network.vpnBlockedBody': {
-    ru: 'Отключите VPN, DNS-фильтр или блокировщик рекламы для продолжения.',
-    en: 'Disable VPN, DNS filter, or ad blocker to continue.',
+    ru: 'Проверьте интернет. Если используете VPN, блокировщик рекламы или DNS‑фильтр — отключите их и попробуйте снова.',
+    en: 'Check your internet. If you use a VPN, ad blocker, or DNS filter, disable it and try again.',
   },
-  'network.retryCheck': { ru: 'Проверить снова', en: 'Retry check' },
+  'network.retryCheck': { ru: 'Проверить снова', en: 'Retry' },
   'auth.sessionExpired': { ru: 'Сессия истекла. Войдите снова.', en: 'Session expired. Sign in again.' },
   'network.slowHint': {
     ru: 'На мобильной сети загрузка может занять больше времени.',

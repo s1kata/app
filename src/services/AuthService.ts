@@ -9,8 +9,8 @@ const LOG_PREFIX = '[AuthService]';
 
 function logStep(method: string, message: string, data?: unknown) {
   const line = `${LOG_PREFIX}.${method} ${message}`;
-  console.log(line, data !== undefined ? data : '');
-  logger.debug(line, data);
+  if (__DEV__) logger.debug(line, data);
+  else if (data !== undefined) logger.debug(line, data);
 }
 
 function mapAuthError(error: unknown, fallback: string): string {

@@ -99,7 +99,7 @@ export default function CountryDetailScreen({ navigation, route }: CountryDetail
 
   const renderHighlight = (text: string, index: number) => (
     <View key={index} style={styles.highlightItem}>
-      <View style={[styles.highlightCheck, { backgroundcolor: '#0066CC' }]}>
+      <View style={[styles.highlightCheck, { backgroundColor: '#0066CC' }]}>
         <Ionicons name="checkmark" size={14} color="#fff" />
       </View>
       <Text style={[styles.highlightText, { color: '#1D1D1F' }]}>{text}</Text>
@@ -150,7 +150,7 @@ export default function CountryDetailScreen({ navigation, route }: CountryDetail
         resizeMode="cover"
       />
       {tour.badge && (
-        <View style={[styles.tourBadge, { backgroundcolor: '#0066CC' }]}>
+        <View style={[styles.tourBadge, { backgroundColor: '#0066CC' }]}>
           <Text style={styles.tourBadgeText}>{tour.badge}</Text>
         </View>
       )}
@@ -231,7 +231,7 @@ export default function CountryDetailScreen({ navigation, route }: CountryDetail
         {/* About Section */}
         <View style={[styles.section, styles.aboutSection, { backgroundColor: '#FFFFFF' }]}>
           <View style={styles.aboutHeader}>
-            <View style={[styles.aboutIcon, { backgroundcolor: '#0066CC' }]}>
+            <View style={[styles.aboutIcon, { backgroundColor: '#0066CC' }]}>
               <Ionicons name="book-outline" size={24} color="#fff" />
             </View>
             <Text style={[styles.aboutTitle, { color: '#1D1D1F' }]}>
@@ -300,7 +300,7 @@ export default function CountryDetailScreen({ navigation, route }: CountryDetail
             </Text>
             <TouchableOpacity
               onPress={() => navigation.navigate('Countries')}
-              style={[styles.viewAllButton, { bordercolor: '#0066CC' }]}
+              style={[styles.viewAllButton, { borderColor: '#0066CC' }]}
             >
               <Text style={[styles.viewAllText, { color: '#0066CC' }]}>Все туры</Text>
               <Ionicons name="arrow-forward" size={16} color={'#0066CC'} />
@@ -325,7 +325,7 @@ export default function CountryDetailScreen({ navigation, route }: CountryDetail
             {/* Simple tour search */}
             <TouchableOpacity
               style={[styles.quickBookButton, {
-                backgroundcolor: '#0066CC',
+                backgroundColor: '#0066CC',
                 marginBottom: 12
               }]}
               onPress={() => navigation.navigate('ApiTourSearch')}
@@ -359,7 +359,7 @@ export default function CountryDetailScreen({ navigation, route }: CountryDetail
                 Туры в данную страну скоро появятся
               </Text>
               <TouchableOpacity
-                style={[styles.searchToursButton, { backgroundcolor: '#0066CC' }]}
+                style={[styles.searchToursButton, { backgroundColor: '#0066CC' }]}
                 onPress={() => navigation.navigate('Countries')}
               >
                 <Text style={styles.searchToursButtonText}>Искать туры</Text>

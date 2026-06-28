@@ -25,7 +25,7 @@ const getLegacyBottomInset = () => {
 };
 
 // Табы для навигации
-const TAB_ROUTES = ['Home', 'Bookings', 'Documents', 'Settings'];
+const TAB_ROUTES = ['Home', 'Bookings', 'Profile'];
 
 // Список экранов, на которых нужно скрыть таб бар
 function stackRouteAt(state: NavigationState | undefined): { name: string } | undefined {
@@ -164,10 +164,8 @@ function CustomTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
           iconName = isFocused ? 'home' : 'home-outline';
         } else if (route.name === 'Bookings') {
           iconName = isFocused ? 'calendar' : 'calendar-outline';
-        } else if (route.name === 'Documents') {
-          iconName = isFocused ? 'document-text' : 'document-text-outline';
-        } else if (route.name === 'Settings') {
-          iconName = isFocused ? 'settings' : 'settings-outline';
+        } else if (route.name === 'Profile') {
+          iconName = isFocused ? 'person' : 'person-outline';
         }
 
         return (
@@ -322,7 +320,6 @@ import ImprovedHomeScreen from '../screens/ImprovedHomeScreen';
 import ProfileScreen from '../screens/ProfileScreen';
 import FavoritesScreen from '../screens/FavoritesScreen';
 import BookingsScreen from '../screens/BookingsScreen';
-import DepartureDocumentsScreen from '../screens/DepartureDocumentsScreen';
 import CountryInfoScreen from '../screens/CountryInfoScreen';
 
 import LoginScreen from '../screens/LoginScreen';
@@ -369,8 +366,8 @@ function HomeStack() {
       />
       {/* Релиз: только туры (отели вне навигатора — см. releaseUiFlags) */}
       <Stack.Screen name="ApiHotTours" component={ApiHotToursScreen} />
-      <Stack.Screen name="ApiTourSearch" component={ApiTourSearchScreen} />
-      <Stack.Screen name="ApiTourResults" component={ApiTourResultsScreen} />
+      <Stack.Screen name="ApiTourSearch" component={ApiTourSearchScreen as ComponentType<any>} />
+      <Stack.Screen name="ApiTourResults" component={ApiTourResultsScreen as ComponentType<any>} />
       <Stack.Screen name="ApiTourDetails" component={ApiTourDetailsScreen} />
       <Stack.Screen name="TourBooking" component={TourBookingScreen as ComponentType<any>} />
       <Stack.Screen name="CountryInfo" component={CountryInfoScreen as ComponentType<any>} />
@@ -400,49 +397,24 @@ function BookingsStack() {
   );
 }
 
-// Стек для документов о вылете
-function DocumentsStack() {
+// Стек профиля (нижний таб + ProfileIcon)
+function ProfileStack() {
   return (
-    <Stack.Navigator 
+    <Stack.Navigator
       screenOptions={{
         headerShown: false,
         gestureEnabled: true,
         gestureDirection: 'horizontal',
       }}
-      initialRouteName="DocumentsMain"
     >
-      <Stack.Screen name="DocumentsMain" component={DepartureDocumentsScreen} />
-    </Stack.Navigator>
-  );
-}
-
-
-// Стек для профиля (доступен через ProfileIcon)
-function ProfileStack() {
-  return (
-    <Stack.Navigator screenOptions={{ headerShown: false }}>
       <Stack.Screen name="ProfileMain" component={ProfileScreen} />
+      <Stack.Screen name="Settings" component={ProfileSettings} />
+      <Stack.Screen name="LegalDocument" component={LegalDocumentScreen as ComponentType<any>} />
       <Stack.Screen name="Bookings" component={BookingsScreen} />
       <Stack.Screen name="PersonalData" component={PersonalDataScreen} />
       <Stack.Screen name="Bonus" component={BonusScreen} />
       <Stack.Screen name="PurchaseHistory" component={PurchaseHistoryScreen} />
       <Stack.Screen name="HelperChat" component={HelperChatScreen} />
-    </Stack.Navigator>
-  );
-}
-
-// Стек для настроек
-function SettingsStack() {
-  return (
-    <Stack.Navigator 
-      screenOptions={{
-        headerShown: false,
-        gestureEnabled: true,
-        gestureDirection: 'horizontal',
-      }}
-    >
-      <Stack.Screen name="SettingsMain" component={ProfileSettings} />
-      <Stack.Screen name="LegalDocument" component={LegalDocumentScreen as ComponentType<any>} />
     </Stack.Navigator>
   );
 }
@@ -479,15 +451,27 @@ function MainTabNavigator() {
         component={BookingsStack}
         options={{ title: i18n.t('nav.bookings') }}
       />
+      {/* TODO: вкладка Documents скрыта до настройки API документов (Никита)
       <Tab.Screen
         name="Documents"
         component={DocumentsStack}
         options={{ title: i18n.t('nav.documents') }}
       />
+      */}
       <Tab.Screen
-        name="Settings"
-        component={SettingsStack}
-        options={{ title: i18n.t('settings.title') }}
+        name="Profile"
+        component={ProfileStack}
+        options={{ title: i18n.t('nav.profile') }}
+        listeners={({ navigation }) => ({
+          tabPress: (e) => {
+            const state = navigation.getState();
+            const current = state.routes[state.index];
+            if (current?.name === 'Profile') {
+              e.preventDefault();
+              navigation.navigate('Profile', { screen: 'ProfileMain' });
+            }
+          },
+        })}
       />
     </Tab.Navigator>
   );
@@ -509,7 +493,6 @@ export default function AppNavigator() {
       <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
       <Stack.Screen name="ResetPassword" component={ResetPasswordScreen} />
       <Stack.Screen name="MainTabs" component={MainTabNavigator} />
-      <Stack.Screen name="Profile" component={ProfileStack} />
     </Stack.Navigator>
   );
 }

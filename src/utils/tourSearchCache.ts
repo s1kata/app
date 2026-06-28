@@ -1,15 +1,17 @@
 /**
  * Общий ключ кэша и фильтр туров для поиска туров.
- * Используется в useTourSearch, ApiTourSearchScreen и ApiTourHotelSearch.
+ * Используется в useTourSearch и ApiTourHotelSearch.
  *
  * ВАЖНО: Нормализация и стабильный хэш — одинаковые параметры
  * (разный порядок полей, пробелы в строках) дают один и тот же ключ.
  */
 
+import NetInfo from '@react-native-community/netinfo';
 import { TourSearchParams, TourHotel } from '../types/tourvisor';
+import { sanitizeTourMealParam } from './tourvisorMeals';
 
 /** Показываем и ищем столько туров, сколько вернёт API (без пагинации) */
-export const TOUR_SEARCH_LIMIT = 200;
+export const TOUR_SEARCH_LIMIT = 30;
 const DEFAULT_LIMIT = TOUR_SEARCH_LIMIT;
 
 /** Порядок полей для стабильной сериализации (алфавитный) */
@@ -39,7 +41,12 @@ export function normalizeTourSearchParams(params: TourSearchParams): TourSearchP
   p.nightsTo = Number(p.nightsTo);
   p.adults = Number(p.adults);
   p.onlyCharter = Boolean(p.onlyCharter);
-  if (p.meal != null) p.meal = Number(p.meal);
+  const meal = sanitizeTourMealParam(p.meal);
+  if (meal !== undefined) {
+    p.meal = meal;
+  } else {
+    delete p.meal;
+  }
   if (p.arrivalId != null) p.arrivalId = Number(p.arrivalId);
   if (p.hotelCategory != null) p.hotelCategory = Number(p.hotelCategory);
   if (p.hotelRating != null) p.hotelRating = Number(p.hotelRating);
@@ -186,8 +193,45 @@ export function filterToursByParamsFromCacheRelaxed(
   });
 }
 
+/**
+ * Валидация и очистка результатов из кэша (защита от битых данных и зависания FlatList).
+ */
+export function sanitizeTourHotelsFromCache(raw: unknown): TourHotel[] {
+  if (!Array.isArray(raw)) return [];
+  const result: TourHotel[] = [];
+  for (const h of raw) {
+    if (!h || typeof h !== 'object') continue;
+    const hotel = h as TourHotel;
+    if (typeof hotel.id !== 'number' || !hotel.name || !hotel.region?.name) continue;
+    if (!Array.isArray(hotel.tours)) continue;
+    const tours = hotel.tours.filter((t) => {
+      if (!t || typeof t.id !== 'number') return false;
+      if (!t.operator?.name || !t.meal?.name) return false;
+      if (typeof t.price !== 'number' || !t.date) return false;
+      return true;
+    });
+    if (tours.length === 0) continue;
+    result.push({ ...hotel, tours });
+  }
+  return result;
+}
+
 /** Интервал опроса статуса поиска (мс) */
 export const TOUR_SEARCH_POLL_INTERVAL_MS = 3000;
+
+/** Увеличенный интервал на мобильной сети — меньше round-trip на LTE */
+export const TOUR_SEARCH_POLL_INTERVAL_CELLULAR_MS = 6000;
+
+/** Интервал polling с учётом типа сети */
+export async function getTourSearchPollIntervalMs(): Promise<number> {
+  try {
+    const state = await NetInfo.fetch();
+    if (state.type === 'cellular') return TOUR_SEARCH_POLL_INTERVAL_CELLULAR_MS;
+  } catch {
+    /* ignore */
+  }
+  return TOUR_SEARCH_POLL_INTERVAL_MS;
+}
 
 /** Максимальное ожидание завершения поиска на Tourvisor (мс) — важно для медленного LTE */
 export const TOUR_SEARCH_MAX_WAIT_MS = 120_000;

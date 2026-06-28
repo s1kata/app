@@ -13,6 +13,7 @@ import {
 } from '../types/tourvisor';
 import { tourvisorApi } from './TourvisorApiService';
 import { logger } from '../utils/logger';
+import { filterMealsForUi } from '../utils/tourvisorMeals';
 import { cacheService, CacheType } from './CacheService';
 import {
   getCountriesFromFirestore,
@@ -424,36 +425,46 @@ class DictionaryService {
     );
   }
 
-  /** Запасной список типов питания, если API и Firestore пусты */
+  /** Запасной список типов питания (id совпадают с Tourvisor API). */
   private static readonly MEALS_FALLBACK: Meal[] = [
-    { id: 1, name: 'RO', russianName: 'Без питания', fullName: 'Room only', fullRussianName: 'Без питания' },
-    { id: 2, name: 'BB', russianName: 'Завтраки', fullName: 'Bed & Breakfast', fullRussianName: 'Завтраки' },
-    { id: 3, name: 'HB', russianName: 'Полупансион', fullName: 'Half Board', fullRussianName: 'Полупансион' },
-    { id: 4, name: 'FB', russianName: 'Полный пансион', fullName: 'Full Board', fullRussianName: 'Полный пансион' },
-    { id: 5, name: 'AI', russianName: 'Всё включено', fullName: 'All Inclusive', fullRussianName: 'Всё включено' },
-    { id: 6, name: 'UAI', russianName: 'Ультра всё включено', fullName: 'Ultra All Inclusive', fullRussianName: 'Ультра всё включено' },
+    { id: 2, name: 'RO', russianName: 'Без питания', fullName: 'Room Only', fullRussianName: 'Без питания' },
+    { id: 3, name: 'BB', russianName: 'Завтрак', fullName: 'Bed & Breakfast', fullRussianName: 'Завтрак' },
+    { id: 4, name: 'HB', russianName: 'Полупансион', fullName: 'Half Board', fullRussianName: 'Полупансион' },
+    { id: 5, name: 'FB', russianName: 'Полный пансион', fullName: 'Full Board', fullRussianName: 'Полный пансион' },
+    { id: 7, name: 'AI', russianName: 'Все включено', fullName: 'All Inclusive', fullRussianName: 'Все включено' },
+    { id: 9, name: 'UAI', russianName: 'Ультра все включено', fullName: 'Ultra All Inclusive', fullRussianName: 'Ультра все включено' },
   ];
 
   // Meals — источник данных: API; при ошибке — кэш/Firestore; при пустом — запасной список
   async getMeals(): Promise<Meal[]> {
     const key = this.getCacheKey('meals');
+    const normalize = (list: Meal[]) => filterMealsForUi(list);
     try {
       const fromApi = await tourvisorApi.getMeals();
       if (fromApi && fromApi.length > 0) {
-        await this.set(key, fromApi);
-        setMealsToFirestore(fromApi).catch(() => {});
-        return fromApi;
+        const valid = normalize(fromApi);
+        if (valid.length > 0) {
+          await this.set(key, valid);
+          setMealsToFirestore(valid).catch(() => {});
+          return valid;
+        }
       }
     } catch (e) {
       logger.warn('[DictionaryService] getMeals from API failed, using cache', (e as Error)?.message);
     }
     const fromFirestore = await getMealsFromFirestore();
     if (fromFirestore && fromFirestore.length > 0) {
-      await this.set(key, fromFirestore);
-      return fromFirestore;
+      const valid = normalize(fromFirestore);
+      if (valid.length > 0) {
+        await this.set(key, valid);
+        return valid;
+      }
     }
     const fromLocal = await this.get<Meal[]>(key);
-    if (fromLocal && fromLocal.length > 0) return fromLocal;
+    if (fromLocal && fromLocal.length > 0) {
+      const valid = normalize(fromLocal);
+      if (valid.length > 0) return valid;
+    }
     return DictionaryService.MEALS_FALLBACK;
   }
 

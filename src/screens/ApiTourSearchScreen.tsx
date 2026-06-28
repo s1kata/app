@@ -19,14 +19,16 @@ import { dictionaryService } from '../services/DictionaryService';
 import { tourvisorApi } from '../services/TourvisorApiService';
 import { TourSearchParams, Country, Departure, Region, Meal } from '../types/tourvisor';
 import { platform } from '../utils/platform';
-import { searchTours, saveTourSearchToAllCaches } from '../hooks/useTourSearch';
+import { filterMealsForUi, sanitizeTourMealParam } from '../utils/tourvisorMeals';
 import { logger } from '../utils/logger';
 import { radius, shadows } from '../config/designSystem';
 
-interface ApiTourSearchScreenProps {
-  navigation: any;
-  route: any;
-}
+import type { NavigationProp } from '@react-navigation/native';
+
+type ApiTourSearchScreenProps = {
+  navigation: NavigationProp<Record<string, object | undefined>>;
+  route: { params?: Record<string, unknown> };
+};
 
 export default function ApiTourSearchScreen({ navigation, route }: ApiTourSearchScreenProps) {
   const { apiReady, theme, isDark, currency } = useAppContext();
@@ -107,8 +109,9 @@ export default function ApiTourSearchScreen({ navigation, route }: ApiTourSearch
       
       try {
         mealsData = await dictionaryService.getMeals();
-      } catch (error: any) {
-        logger.warn('Failed to load meals:', error?.message);
+        mealsData = filterMealsForUi(mealsData);
+      } catch (error: unknown) {
+        logger.warn('Failed to load meals:', (error as Error)?.message);
         mealsData = [];
       }
 
@@ -197,10 +200,6 @@ export default function ApiTourSearchScreen({ navigation, route }: ApiTourSearch
     } catch (error) {
       logger.error('Failed to load available dates:', error);
     }
-  };
-
-  const refreshSearchCacheInBackground = (params: TourSearchParams) => {
-    searchTours(params, 25).catch(() => {});
   };
 
   const handleSearch = async () => {
@@ -300,17 +299,25 @@ export default function ApiTourSearchScreen({ navigation, route }: ApiTourSearch
       currency: searchParams.currency || currency || 'RUB',
       onlyCharter: searchParams.onlyCharter !== undefined ? searchParams.onlyCharter : false,
       ...(searchParams.regionIds && { regionIds: searchParams.regionIds }),
-      ...(searchParams.meal && { meal: searchParams.meal }),
+      ...(sanitizeTourMealParam(searchParams.meal) !== undefined
+        ? { meal: sanitizeTourMealParam(searchParams.meal) }
+        : {}),
     };
 
     try {
       setIsSearching(true);
 
-      const list = await searchTours(params, 25);
-      navigation.navigate('ApiTourResults', { searchId: -1, searchParams: params, useCache: true });
-      if (list.length > 0) refreshSearchCacheInBackground(params);
+      if (tourvisorApi.isRateLimited()) {
+        Alert.alert(i18n.t('errors.rateLimit'), i18n.t('errors.rateLimitDesc'));
+        return;
+      }
 
-    } catch (error: any) {
+      navigation.navigate('ApiTourResults', {
+        searchParams: params,
+        useCache: false,
+        runSearch: true,
+      });
+    } catch (error: unknown) {
       logger.error('Search failed:', error);
       Alert.alert(i18n.t('common.error'), i18n.t('search.errorSearchFailed'));
     } finally {
@@ -804,7 +811,8 @@ export default function ApiTourSearchScreen({ navigation, route }: ApiTourSearch
                   key={meal.id}
                   style={[styles.modalItem, { borderBottomColor: theme.border }]}
                   onPress={() => {
-                    updateSearchParam('meal', meal.id);
+                    const validMeal = sanitizeTourMealParam(meal.id);
+                    if (validMeal !== undefined) updateSearchParam('meal', validMeal);
                     setShowMealModal(false);
                   }}
                 >

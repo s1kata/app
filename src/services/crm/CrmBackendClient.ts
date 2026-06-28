@@ -5,30 +5,30 @@
  */
 import Constants from 'expo-constants';
 import { authApiClient, getValidAccessToken } from '../AuthApiClient';
+import { navigateToLoginAfterSessionExpired } from '../../auth/authNavigation';
 import type { CrmBookingQueuePayload } from '../../types/crmQueue';
 import { logger } from '../../utils/logger';
-import { networkService } from '../NetworkService';
 
-/** Порядок важен: сначала маршрут с rewrite, затем прямой .php на shared-хостинге */
+/** Порядок важен: сначала прямой .php (работает на travelhub63.ru), затем rewrite без .php */
 const CRM_SUBMIT_PATHS = [
-  '/api/crm/submit-booking',
   '/api/crm/submit-booking.php',
+  '/api/crm/submit-booking',
   '/api/crm-submit-booking.php',
 ] as const;
 
 const CRM_BONUS_BALANCE_PATHS = [
-  '/api/crm/bonus-balance',
   '/api/crm/bonus-balance.php',
+  '/api/crm/bonus-balance',
 ] as const;
 
 const CRM_BCARD_ACTIVATE_PATHS = [
-  '/api/crm/bcard-activate',
   '/api/crm/bcard-activate.php',
+  '/api/crm/bcard-activate',
 ] as const;
 
 const CRM_BCARD_BONUS_CREATE_PATHS = [
-  '/api/crm/bcard-bonus-create',
   '/api/crm/bcard-bonus-create.php',
+  '/api/crm/bcard-bonus-create',
 ] as const;
 
 /**
@@ -58,6 +58,12 @@ async function getBearer(): Promise<string | null> {
   } catch {
     return null;
   }
+}
+
+async function handleCrmSessionExpired(): Promise<{ success: false; error: string }> {
+  await authApiClient.logout();
+  navigateToLoginAfterSessionExpired();
+  return { success: false, error: 'Сессия истекла. Войдите в аккаунт повторно.' };
 }
 
 async function postCrmSubmit(
@@ -91,9 +97,6 @@ export async function submitBookingToBackend(
   data?: { id?: string; requestId?: string; bookingNumber?: string };
   error?: string;
 }> {
-  if (networkService.getPolicyState().isBlocked) {
-    return { success: false, error: 'Отключите VPN/блокировщик и повторите отправку заявки.' };
-  }
   const base = getCrmBackendBaseUrl();
   if (!base) {
     return { success: false, error: 'Не задан URL бэкенда (paymentPageUrl)' };
@@ -115,12 +118,10 @@ export async function submitBookingToBackend(
           bearer = (await getBearer()) || bearer;
           attempt = await postCrmSubmit(base, path, bearer, idempotencyKey, payload);
           if (attempt.status === 401) {
-            await authApiClient.logout();
-            return { success: false, error: 'Сессия истекла. Войдите в аккаунт повторно.' };
+            return handleCrmSessionExpired();
           }
         } else {
-          await authApiClient.logout();
-          return { success: false, error: 'Сессия истекла. Войдите в аккаунт повторно.' };
+          return handleCrmSessionExpired();
         }
       }
 
@@ -210,6 +211,11 @@ export async function fetchBonusBalanceViaBackend(
       const res = await fetch(`${base}${path}?${query}`, {
         headers: { Authorization: `Bearer ${bearer}` },
       });
+      const ct = res.headers.get('content-type') || '';
+      if (!ct.includes('application/json')) {
+        lastError = `HTTP ${res.status}`;
+        continue;
+      }
       const data = await res.json().catch(() => ({}));
       if (res.status === 404 || res.status === 405) {
         lastError = data?.error || `HTTP ${res.status}`;
@@ -243,6 +249,11 @@ async function postCrmJson(
         },
         body: JSON.stringify(body),
       });
+      const ct = res.headers.get('content-type') || '';
+      if (!ct.includes('application/json')) {
+        lastError = `HTTP ${res.status}`;
+        continue;
+      }
       const data = await res.json().catch(() => ({}));
       if (res.status === 404 || res.status === 405) {
         lastError = data?.error || `HTTP ${res.status}`;

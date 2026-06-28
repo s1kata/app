@@ -24,10 +24,8 @@ import { tourvisorApi } from '../services/TourvisorApiService';
 import { cacheService, CacheType } from '../services/CacheService';
 import { locationService } from '../services/LocationService';
 import { Country, Departure, Region, Meal, TourSearchParams, TourHotel } from '../types/tourvisor';
-import { TOUR_SEARCH_LIMIT } from '../utils/tourSearchCache';
+import { filterMealsForUi, isValidTourMealId, sanitizeTourMealParam } from '../utils/tourvisorMeals';
 import TourSearchLoader from './TourSearchLoader';
-import { searchTours, saveTourSearchToAllCaches } from '../hooks/useTourSearch';
-import { preCacheTourDetailsFromSearchResults } from '../utils/tourDetailsCache';
 import DateRangeCalendar from './DateRangeCalendar';
 import { useAppContext } from '../contexts/AppContext';
 import { i18n } from '../config/i18n';
@@ -60,7 +58,7 @@ export default function ApiTourHotelSearch({
 }: ApiTourHotelSearchProps) {
   useLifecycleLog('ApiTourHotelSearch');
   const enableHotelSearch = RELEASE_HIDE_NEXT_PATCH_UI ? false : enableHotelSearchProp;
-  const { theme, themeMode, isDark, apiReady, language } = useAppContext();
+  const { theme, themeMode, isDark, language, backendRefreshCounter } = useAppContext();
   const { height: windowHeight } = useWindowDimensions();
 
   const [activeTab, setActiveTab] = useState<'tours' | 'hotels'>('tours');
@@ -120,6 +118,7 @@ export default function ApiTourHotelSearch({
   const [filterRegionId, setFilterRegionId] = useState<string>('');
   const [filterHotelCategory, setFilterHotelCategory] = useState<number | ''>('');
   const [adultsManual, setAdultsManual] = useState(false);
+  const [adultsInput, setAdultsInput] = useState('');
   const [childrenManual, setChildrenManual] = useState(false);
 
   useEffect(() => {
@@ -135,18 +134,18 @@ export default function ApiTourHotelSearch({
     }
   }, [enableHotelSearch, activeTab]);
 
-  // Load dictionary data on mount
+  // Load dictionary data on mount / после восстановления бэкенда
   useEffect(() => {
     let cancelled = false;
     void loadDictionaryData(() => cancelled);
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [backendRefreshCounter]);
 
   // Подгрузка стран по выбранному городу вылета; Турция первой (как на сайте)
   useEffect(() => {
-    if (!apiReady || !tourSearch.departureId) {
+    if (!tourSearch.departureId) {
       setCountries([]);
       return;
     }
@@ -179,12 +178,12 @@ export default function ApiTourHotelSearch({
       if (!cancelled) setCountries([]);
     });
     return () => { cancelled = true; };
-  }, [tourSearch.departureId, apiReady]);
+  }, [tourSearch.departureId]);
 
   // Регионы для фильтра (курорты) из API по выбранной стране
   useEffect(() => {
     const countryId = activeTab === 'tours' ? tourSearch.countryId : hotelSearch.countryId;
-    if (!countryId || !apiReady) {
+    if (!countryId) {
       setRegions([]);
       return;
     }
@@ -201,16 +200,15 @@ export default function ApiTourHotelSearch({
         if (!cancelled) setIsLoadingRegions(false);
       });
     return () => { cancelled = true; };
-  }, [activeTab, tourSearch.countryId, hotelSearch.countryId, apiReady]);
+  }, [activeTab, tourSearch.countryId, hotelSearch.countryId]);
 
-  // Типы питания из API (при готовности API)
+  // Типы питания из API (фоновая подгрузка, не блокирует форму)
   useEffect(() => {
-    if (!apiReady) return;
     let cancelled = false;
     setIsLoadingMeals(true);
     dictionaryService.getMeals()
       .then((list) => {
-        if (!cancelled) setMeals(Array.isArray(list) ? list : []);
+        if (!cancelled) setMeals(filterMealsForUi(Array.isArray(list) ? list : []));
       })
       .catch(() => {
         if (!cancelled) setMeals([]);
@@ -219,7 +217,13 @@ export default function ApiTourHotelSearch({
         if (!cancelled) setIsLoadingMeals(false);
       });
     return () => { cancelled = true; };
-  }, [apiReady]);
+  }, []);
+
+  useEffect(() => {
+    if (filterMealId !== '' && !isValidTourMealId(Number(filterMealId))) {
+      setFilterMealId('');
+    }
+  }, [filterMealId, meals]);
 
   // Load regions when country changes
   useEffect(() => {
@@ -230,25 +234,10 @@ export default function ApiTourHotelSearch({
 
   const loadDictionaryData = async (isCancelled?: () => boolean) => {
     const dead = () => isCancelled?.() === true;
-    try {
-      setIsLoading(true);
-      let departuresData: Departure[] = [];
 
-      try {
-        departuresData = await dictionaryService.getDepartures();
-      } catch (e) {
-        if (__DEV__) console.warn('DictionaryService load failed:', (e as Error)?.message);
-      }
-      if (dead()) return;
-
-      if (departuresData.length === 0) {
-        const direct = await getDeparturesAndCountriesFromFirestore();
-        if (direct.departures.length > 0) departuresData = direct.departures;
-      }
-      if (dead()) return;
-
+    const applyDeparturesToForm = async (departuresData: Departure[]) => {
+      if (dead() || departuresData.length === 0) return;
       setDepartures(departuresData);
-      // страны подгружаются по выбранному городу вылета в useEffect
 
       const tomorrow = new Date();
       tomorrow.setDate(tomorrow.getDate() + 1);
@@ -256,56 +245,66 @@ export default function ApiTourHotelSearch({
       inWeek.setDate(inWeek.getDate() + 8);
       const defaultDateFrom = tomorrow.toISOString().split('T')[0];
       const defaultDateTo = inWeek.toISOString().split('T')[0];
-      if (departuresData.length > 0) {
-        if (dead()) return;
 
-        // Определяем предпочтительный город вылета:
-        // 1. Сохранённый вручную пользователем
-        // 2. Дефолт первого запуска: Самара
-        // 3. Определённый по геолокации (если дефолт уже закреплён)
-        // 4. Первый в списке (fallback)
-        let preferredDepartureId = departuresData[0].id.toString();
-
-        try {
-          const savedId = await AsyncStorage.getItem(DEPARTURE_PREF_KEY);
-          const defaultLocked = await AsyncStorage.getItem(DEPARTURE_DEFAULT_LOCK_KEY);
-          if (savedId && departuresData.some(d => d.id.toString() === savedId)) {
-            preferredDepartureId = savedId;
+      let preferredDepartureId = departuresData[0].id.toString();
+      try {
+        const savedId = await AsyncStorage.getItem(DEPARTURE_PREF_KEY);
+        const defaultLocked = await AsyncStorage.getItem(DEPARTURE_DEFAULT_LOCK_KEY);
+        if (savedId && departuresData.some((d) => d.id.toString() === savedId)) {
+          preferredDepartureId = savedId;
+        } else {
+          const defaultSamara = departuresData.find((d) => d.name.toLowerCase().includes(DEFAULT_DEPARTURE_CITY));
+          if (!defaultLocked && defaultSamara) {
+            preferredDepartureId = defaultSamara.id.toString();
+            await AsyncStorage.setItem(DEPARTURE_DEFAULT_LOCK_KEY, '1');
+            await AsyncStorage.setItem(DEPARTURE_PREF_KEY, preferredDepartureId);
+            logger.log('Departure set by first-launch default:', defaultSamara.name);
           } else {
-            const defaultSamara = departuresData.find((d) => d.name.toLowerCase().includes(DEFAULT_DEPARTURE_CITY));
-            if (!defaultLocked && defaultSamara) {
-              preferredDepartureId = defaultSamara.id.toString();
-              await AsyncStorage.setItem(DEPARTURE_DEFAULT_LOCK_KEY, '1');
-              await AsyncStorage.setItem(DEPARTURE_PREF_KEY, preferredDepartureId);
-              logger.log('Departure set by first-launch default:', defaultSamara.name);
-            } else {
-              // Пробуем определить по геолокации
-              const location = locationService.getCachedLocation() ?? await locationService.getSavedLocation();
-              if (location?.city) {
-                const cityLower = location.city.toLowerCase();
-                const matched = departuresData.find(d => {
-                  const nameLower = d.name.toLowerCase();
-                  return nameLower.includes(cityLower) || cityLower.includes(nameLower);
-                });
-                if (matched) {
-                  preferredDepartureId = matched.id.toString();
-                  logger.log('Departure set by geolocation:', matched.name);
-                }
+            const location = locationService.getCachedLocation() ?? await locationService.getSavedLocation();
+            if (location?.city) {
+              const cityLower = location.city.toLowerCase();
+              const matched = departuresData.find((d) => {
+                const nameLower = d.name.toLowerCase();
+                return nameLower.includes(cityLower) || cityLower.includes(nameLower);
+              });
+              if (matched) {
+                preferredDepartureId = matched.id.toString();
+                logger.log('Departure set by geolocation:', matched.name);
               }
             }
           }
-        } catch (prefError) {
-          logger.warn('Could not resolve preferred departure:', prefError);
         }
+      } catch (prefError) {
+        logger.warn('Could not resolve preferred departure:', prefError);
+      }
 
-        if (dead()) return;
-        setTourSearch(prev => ({
-          ...prev,
-          departureId: preferredDepartureId,
-          dateFrom: defaultDateFrom,
-          dateTo: defaultDateTo,
-        }));
-        setHotelSearch(prev => ({ ...prev, checkIn: defaultDateFrom, checkOut: defaultDateTo }));
+      if (dead()) return;
+      setTourSearch((prev) => ({
+        ...prev,
+        departureId: preferredDepartureId,
+        dateFrom: defaultDateFrom,
+        dateTo: defaultDateTo,
+      }));
+      setHotelSearch((prev) => ({ ...prev, checkIn: defaultDateFrom, checkOut: defaultDateTo }));
+    };
+
+    try {
+      const firestorePack = await getDeparturesAndCountriesFromFirestore();
+      if (dead()) return;
+      if (firestorePack.departures.length > 0) {
+        await applyDeparturesToForm(firestorePack.departures);
+        setIsLoading(false);
+      } else {
+        setIsLoading(true);
+      }
+
+      try {
+        const departuresData = await dictionaryService.getDepartures();
+        if (!dead() && departuresData.length > 0) {
+          await applyDeparturesToForm(departuresData);
+        }
+      } catch (e) {
+        if (__DEV__) console.warn('DictionaryService load failed:', (e as Error)?.message);
       }
     } catch (error) {
       logger.error('Failed to load dictionary data:', error);
@@ -328,8 +327,8 @@ export default function ApiTourHotelSearch({
     }
   };
 
-  const handleTourSearch = async (bypassCache: boolean = false) => {
-    if (!apiReady) {
+  const handleTourSearch = async () => {
+    if (!hasData) {
       Alert.alert(i18n.t('common.error'), i18n.t('form.loadingSearchData'));
       return;
     }
@@ -339,16 +338,15 @@ export default function ApiTourHotelSearch({
       return;
     }
 
+    if (isLoadingRegions) {
+      Alert.alert(i18n.t('common.error'), i18n.t('form.loading'));
+      return;
+    }
+
     if (!tourSearch.dateFrom || !tourSearch.dateTo) {
       Alert.alert(i18n.t('common.error'), i18n.t('errors.selectDateRange'));
       return;
     }
-
-    const refreshSearchCacheInBackground = (p: TourSearchParams) => {
-      searchTours(p, TOUR_SEARCH_LIMIT).then(list => {
-        if (list?.length) preCacheTourDetailsFromSearchResults(list, p.currency || 'RUB').catch(() => {});
-      }).catch(() => {});
-    };
 
     // Валидация дат: проверяем, что даты не в прошлом
     const today = new Date();
@@ -407,12 +405,25 @@ export default function ApiTourHotelSearch({
       dateTo: validDateTo,
     });
 
+    let regionsForSearch = regions;
+    if (filterRegionId && !regions.some((r) => String(r.id) === String(filterRegionId))) {
+      try {
+        regionsForSearch = await dictionaryService.getRegions(parseInt(tourSearch.countryId, 10));
+        setRegions(Array.isArray(regionsForSearch) ? regionsForSearch : []);
+      } catch {
+        Alert.alert(i18n.t('common.error'), i18n.t('search.errorLoad'));
+        return;
+      }
+    }
+
     const validRegionId =
-      filterRegionId && regions.some((r) => String(r.id) === String(filterRegionId))
+      filterRegionId && regionsForSearch.some((r) => String(r.id) === String(filterRegionId))
         ? parseInt(filterRegionId, 10)
         : null;
     if (filterRegionId && !validRegionId) {
+      Alert.alert(i18n.t('common.error'), i18n.t('errors.tryChangeFilters'));
       setFilterRegionId('');
+      return;
     }
 
     const params: TourSearchParams = {
@@ -427,7 +438,8 @@ export default function ApiTourHotelSearch({
       currency: 'RUB',
       onlyCharter: false,
     };
-    if (filterMealId) params.meal = filterMealId;
+    const mealParam = sanitizeTourMealParam(filterMealId);
+    if (mealParam !== undefined) params.meal = mealParam;
     if (validRegionId) params.regionIds = [validRegionId];
     if (filterHotelCategory) params.hotelCategory = filterHotelCategory;
 
@@ -459,24 +471,46 @@ export default function ApiTourHotelSearch({
       }
 
       try {
-          const list = await searchTours(params, TOUR_SEARCH_LIMIT, bypassCache);
-          if (progressInterval) clearInterval(progressInterval);
-          setLoaderPercent(100);
-          setLoaderMessage(i18n.t('search.done'));
-          await new Promise((r) => setTimeout(r, 550));
-          setLoaderVisible(false);
-          if (list.length > 0) refreshSearchCacheInBackground(params);
-          navigation.navigate('ApiTourResults', { searchId: -1, searchParams: params, useCache: true, runSearch: false });
-        } catch (err: any) {
-          if (__DEV__) console.warn('[ApiTourHotelSearch] searchTours error:', err?.message || err);
+        if (tourvisorApi.isRateLimited()) {
           if (progressInterval) clearInterval(progressInterval);
           setLoaderVisible(false);
-          const errorMessage = String(err?.message || '');
+          Alert.alert(
+            i18n.t('errors.rateLimit'),
+            i18n.t('errors.rateLimitDesc'),
+            [
+              { text: i18n.t('common.close'), style: 'cancel' },
+              {
+                text: i18n.t('common.resetAndRetry'),
+                onPress: async () => {
+                  await tourvisorApi.clearRateLimitCooldown();
+                  handleTourSearch();
+                },
+              },
+            ],
+          );
+          return;
+        }
+
+        if (progressInterval) clearInterval(progressInterval);
+        setLoaderVisible(false);
+        navigation.navigate('ApiTourResults', {
+          searchParams: params,
+          useCache: false,
+          runSearch: true,
+        });
+      } catch (err: unknown) {
+          const errMessage = err instanceof Error ? err.message : String(err ?? '');
+          if (__DEV__) console.warn('[ApiTourHotelSearch] searchTours error:', errMessage);
+          if (progressInterval) clearInterval(progressInterval);
+          setLoaderVisible(false);
+          const errorMessage = errMessage;
           const errorMessageLower = errorMessage.toLowerCase();
           const isRateLimit = errorMessage.includes('429') || errorMessage.includes('Rate limit');
           const isFilterValidationError =
             errorMessageLower.includes('required') ||
             errorMessageLower.includes('invalid') ||
+            errorMessageLower.includes('meal') ||
+            errorMessageLower.includes('питани') ||
             errorMessageLower.includes('departureid') ||
             errorMessageLower.includes('countryid') ||
             errorMessageLower.includes('nightsfrom') ||
@@ -491,7 +525,7 @@ export default function ApiTourHotelSearch({
                   text: i18n.t('common.resetAndRetry'),
                   onPress: async () => {
                     await tourvisorApi.clearRateLimitCooldown();
-                    handleTourSearch(true);
+                    handleTourSearch();
                   },
                 },
               ],
@@ -502,7 +536,7 @@ export default function ApiTourHotelSearch({
               i18n.t('errors.tryChangeFilters'),
               [
                 { text: i18n.t('common.close'), style: 'cancel' },
-                { text: i18n.t('common.resetAndRetry'), onPress: () => handleTourSearch(true) },
+                { text: i18n.t('common.resetAndRetry'), onPress: () => handleTourSearch() },
               ],
             );
           } else {
@@ -511,7 +545,7 @@ export default function ApiTourHotelSearch({
               i18n.t('search.errorSearchFailed'),
               [
                 { text: i18n.t('common.close'), style: 'cancel' },
-                { text: i18n.t('common.resetAndRetry'), onPress: () => handleTourSearch(true) },
+                { text: i18n.t('common.resetAndRetry'), onPress: () => handleTourSearch() },
               ],
             );
           }
@@ -525,6 +559,8 @@ export default function ApiTourHotelSearch({
       const isFilterValidationError =
         errorMessageLower.includes('required') ||
         errorMessageLower.includes('invalid') ||
+        errorMessageLower.includes('meal') ||
+        errorMessageLower.includes('питани') ||
         errorMessageLower.includes('departureid') ||
         errorMessageLower.includes('countryid') ||
         errorMessageLower.includes('nightsfrom') ||
@@ -539,7 +575,7 @@ export default function ApiTourHotelSearch({
               text: i18n.t('common.resetAndRetry'),
               onPress: async () => {
                 await tourvisorApi.clearRateLimitCooldown();
-                handleTourSearch(true);
+                handleTourSearch();
               },
             },
           ]
@@ -974,14 +1010,21 @@ export default function ApiTourHotelSearch({
                       {[1, 2, 3].map((n) => (
                         <TouchableOpacity
                           key={n}
-                          onPress={() => { setAdultsManual(false); updateTourSearch('adults', n); }}
+                          onPress={() => {
+                            setAdultsManual(false);
+                            updateTourSearch('adults', n);
+                            setAdultsInput(String(n));
+                          }}
                           style={[styles.presetChip, { borderColor: theme.border, backgroundColor: !adultsManual && tourSearch.adults === n ? theme.primary + '20' : undefined }]}
                         >
                           <Text style={[styles.presetChipText, { color: !adultsManual && tourSearch.adults === n ? theme.primary : theme.text }]}>{n}</Text>
                         </TouchableOpacity>
                       ))}
                       <TouchableOpacity
-                        onPress={() => setAdultsManual(true)}
+                        onPress={() => {
+                          setAdultsManual(true);
+                          setAdultsInput(String(tourSearch.adults));
+                        }}
                         style={[styles.presetChip, { borderColor: theme.border, backgroundColor: adultsManual ? theme.primary + '20' : undefined }]}
                       >
                         <Text style={[styles.presetChipText, { color: adultsManual ? theme.primary : theme.text }]}>{i18n.t('form.manualInput')}</Text>
@@ -990,8 +1033,17 @@ export default function ApiTourHotelSearch({
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                           <TextInput
                             style={[styles.childAgeInput, { backgroundColor: theme.secondaryBackground, borderColor: theme.border, color: theme.text, minWidth: 48, textAlign: 'center' }]}
-                            value={String(tourSearch.adults)}
-                            onChangeText={(t) => { const n = parseInt(t, 10); if (!isNaN(n) && n >= 1 && n <= 20) updateTourSearch('adults', n); }}
+                            value={adultsInput}
+                            onChangeText={(text) => {
+                              setAdultsInput(text.replace(/\D/g, '').slice(0, 2));
+                            }}
+                            onBlur={() => {
+                              const n = parseInt(adultsInput, 10);
+                              const normalized =
+                                Number.isFinite(n) && n >= 1 && n <= 20 ? n : 1;
+                              setAdultsInput(String(normalized));
+                              updateTourSearch('adults', normalized);
+                            }}
                             keyboardType="number-pad"
                             maxLength={2}
                           />
@@ -1102,11 +1154,10 @@ export default function ApiTourHotelSearch({
 
           {/* Search Button */}
           <TouchableOpacity
-            style={[styles.searchButton, (!hasData || !apiReady || isSearching) && { opacity: 0.5 }]}
+            style={[styles.searchButton, (!hasData || isSearching) && { opacity: 0.5 }]}
             onPress={activeTab === 'tours' || !enableHotelSearch ? () => handleTourSearch() : handleHotelSearch}
-            onLongPress={activeTab === 'tours' ? () => handleTourSearch(true) : undefined}
             activeOpacity={0.8}
-            disabled={isSearching || !hasData || !apiReady}
+            disabled={isSearching || !hasData}
           >
             <View style={[styles.searchButtonGradient, { backgroundColor: theme.accent }]}>
               {isSearching ? (

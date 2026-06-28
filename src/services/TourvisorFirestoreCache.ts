@@ -57,10 +57,12 @@ export async function getFromSharedCacheWithMeta(
   limit: number = 25
 ): Promise<CacheEntry<TourHotel[]> | null> {
   if (!isFirestoreAvailable()) return null;
+  const firestore = db;
+  if (!firestore) return null;
   const now = Date.now();
   try {
     const cacheKey = getTourSearchCacheKey(params, limit);
-    const ref = doc(db, CACHE_COLLECTION, cacheKey);
+    const ref = doc(firestore, CACHE_COLLECTION, cacheKey);
     const snap = await getDoc(ref);
     if (snap.exists()) {
       const data = snap.data() as Record<string, unknown>;
@@ -88,9 +90,11 @@ export async function setToSharedCache(
   limit: number = 25
 ): Promise<void> {
   if (!isFirestoreAvailable() || !results?.length) return;
+  const firestore = db;
+  if (!firestore) return;
   try {
     const cacheKey = getTourSearchCacheKey(params, limit);
-    const ref = doc(db, CACHE_COLLECTION, cacheKey);
+    const ref = doc(firestore, CACHE_COLLECTION, cacheKey);
     const now = Date.now();
     await setDoc(ref, {
       data: results.slice(0, 200),

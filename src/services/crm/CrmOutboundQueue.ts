@@ -65,11 +65,11 @@ class CrmOutboundQueue {
     this.started = true;
     this.tasks = await loadQueueFromStorage();
     networkService.subscribe(() => {
-      if (networkService.isOnline) {
+      if (networkService.isBackendOk) {
         void this.drain();
       }
     });
-    if (networkService.isOnline) {
+    if (networkService.isBackendOk) {
       void this.drain();
     }
   }
@@ -111,7 +111,7 @@ class CrmOutboundQueue {
       if (!task) {
         return { ok: false, error: 'Задача не найдена' };
       }
-      if (!networkService.isOnline) {
+      if (!networkService.isBackendOk) {
         return { ok: false, queuedOffline: true, error: 'Нет сети' };
       }
       return this.runSingleTask(task);
@@ -124,7 +124,7 @@ class CrmOutboundQueue {
     this.drainPromise = this.enqueueSerial(async () => {
       try {
         await this.ensureLoaded();
-        if (!networkService.isOnline) return;
+        if (!networkService.isBackendOk) return;
         const pending = this.tasks.filter((t) => t.status === 'pending' || t.status === 'processing');
         for (const t of pending) {
           if (t.status === 'processing') {
@@ -159,7 +159,7 @@ class CrmOutboundQueue {
 
     const p = task.payload;
     while (task.retries < MAX_QUEUE_RETRIES) {
-      if (!networkService.isOnline) {
+      if (!networkService.isBackendOk) {
         task.status = 'pending';
         task.updatedAt = Date.now();
         await saveQueueToStorage(this.tasks);

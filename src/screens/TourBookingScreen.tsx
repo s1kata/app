@@ -42,7 +42,7 @@ interface TourBookingScreenProps {
 }
 
 export default function TourBookingScreen({ navigation, route }: TourBookingScreenProps) {
-  const { theme, isDark, user, networkPolicy } = useAppContext();
+  const { theme, isDark, user } = useAppContext();
   const { tour, searchParams } = route.params;
 
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -341,10 +341,6 @@ export default function TourBookingScreen({ navigation, route }: TourBookingScre
   };
 
   const handleBooking = async (payImmediately: boolean) => {
-    if (networkPolicy.isBlocked) {
-      Alert.alert(i18n.t('network.vpnBlockedTitle'), i18n.t('network.vpnBlockedBody'));
-      return;
-    }
     if (bookingSubmitLock.current) return;
     const bookingAuth = await requireAuthForBooking(user);
     if (!bookingAuth.ok) {

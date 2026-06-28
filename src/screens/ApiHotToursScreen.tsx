@@ -34,7 +34,7 @@ interface ApiHotToursScreenProps {
 }
 
 export default function ApiHotToursScreen({ navigation, route }: ApiHotToursScreenProps) {
-  const { apiReady, theme, isDark, user, currency, networkPolicy } = useAppContext();
+  const { apiReady, theme, isDark, user, currency, backendRefreshCounter } = useAppContext();
   const isGuest = user?.uid?.startsWith('guest_') || user?.isAnonymous === true;
 
   // Логируем параметры route при монтировании
@@ -136,6 +136,12 @@ export default function ApiHotToursScreen({ navigation, route }: ApiHotToursScre
     }
   }, [selectedDeparture, selectedCountries, countries, route?.params?.countryId]);
 
+  useEffect(() => {
+    if (backendRefreshCounter <= 0) return;
+    setHasFailedOnce(false);
+    void loadDictionaryData();
+  }, [backendRefreshCounter]);
+
   const loadDictionaryData = async () => {
     try {
       const [departuresData, countriesData] = await Promise.all([
@@ -169,12 +175,6 @@ export default function ApiHotToursScreen({ navigation, route }: ApiHotToursScre
   };
 
   const loadHotTours = async () => {
-    if (networkPolicy.isBlocked) {
-      setHasFailedOnce(true);
-      setHotTours([]);
-      Alert.alert(i18n.t('network.vpnBlockedTitle'), i18n.t('network.vpnBlockedBody'));
-      return;
-    }
     if (!selectedDeparture) return;
     
     // Если уже была неудача, не делаем новые запросы
@@ -1045,7 +1045,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 12,
-    backgroundcolor: '#EBF4FF',
+    backgroundColor: '#EBF4FF',
   },
   mapButtonText: {
     fontSize: 14,

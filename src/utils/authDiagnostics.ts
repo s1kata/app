@@ -3,6 +3,7 @@
  */
 import NetInfo from '@react-native-community/netinfo';
 import Constants from 'expo-constants';
+import { pingBackendHealth, pingGeneralInternet } from './backendHealth';
 import { getAuthApiUrl } from '../api/apiClient';
 import { authSession } from '../services/AuthSession';
 import { AuthService } from '../services/AuthService';
@@ -23,20 +24,12 @@ const LOG = '[AuthDiagnostics]';
 async function checkInternet(): Promise<AuthDiagnosticStep> {
   try {
     const state = await NetInfo.fetch();
-    if (state.isConnected === false) {
-      return { name: 'Интернет (NetInfo)', ok: false, detail: 'isConnected=false' };
-    }
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 8000);
-    const response = await fetch('https://www.google.com/generate_204', {
-      method: 'GET',
-      signal: controller.signal,
-    });
-    clearTimeout(timeout);
+    const netDetail = state.isConnected === false ? 'isConnected=false' : 'NetInfo ok';
+    const ok = await pingGeneralInternet();
     return {
-      name: 'Интернет (fetch)',
-      ok: response.ok || response.status === 204,
-      detail: `HTTP ${response.status}`,
+      name: 'Интернет',
+      ok,
+      detail: ok ? netDetail : `${netDetail}, fetch failed`,
     };
   } catch (error) {
     return {
@@ -50,41 +43,14 @@ async function checkInternet(): Promise<AuthDiagnosticStep> {
 async function checkAuthApiHealth(): Promise<AuthDiagnosticStep> {
   const url = getAuthApiUrl();
   try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 12000);
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'health' }),
-      signal: controller.signal,
-    });
-    clearTimeout(timeout);
-    const data = (await response.json().catch(() => ({}))) as {
-      success?: boolean;
-      error?: string;
-      db?: { connected?: boolean; host?: string; name?: string };
-      tables?: Record<string, boolean>;
-    };
-
-    if (data.success && data.db?.connected) {
-      const tables = data.tables
-        ? Object.entries(data.tables)
-            .map(([k, v]) => `${k}=${v ? '✓' : '✗'}`)
-            .join(', ')
-        : '';
-      return {
-        name: 'Auth API + MySQL',
-        ok: true,
-        detail: `БД ${data.db.name}@${data.db.host}. Таблицы: ${tables || 'ok'}`,
-      };
+    const ok = await pingBackendHealth();
+    if (ok) {
+      return { name: 'Auth API + MySQL', ok: true, detail: `${url} — health OK` };
     }
-
     return {
       name: 'Auth API + MySQL',
       ok: false,
-      detail: data.error
-        ? `HTTP ${response.status}: ${data.error}`
-        : `HTTP ${response.status} — проверьте auth-mobile.config.php`,
+      detail: `${url} — health failed, проверьте auth-mobile.config.php`,
     };
   } catch (error) {
     return {
@@ -127,15 +93,15 @@ export async function runAuthDiagnostics(
 
   const internet = await checkInternet();
   steps.push(internet);
-  console.log(LOG, internet.name, internet.ok ? '✓' : '✗', internet.detail);
+  if (__DEV__) console.log(LOG, internet.name, internet.ok ? '✓' : '✗', internet.detail);
 
   const config = checkLocalSession();
   steps.push(config);
-  console.log(LOG, config.name, config.ok ? '✓' : '✗', config.detail);
+  if (__DEV__) console.log(LOG, config.name, config.ok ? '✓' : '✗', config.detail);
 
   const api = await checkAuthApiHealth();
   steps.push(api);
-  console.log(LOG, api.name, api.ok ? '✓' : '✗', api.detail);
+  if (__DEV__) console.log(LOG, api.name, api.ok ? '✓' : '✗', api.detail);
 
   const token = await authSession.getAccessToken();
   steps.push({
@@ -147,10 +113,10 @@ export async function runAuthDiagnostics(
   const loginStep = await checkLoginAttempt(testEmail, testPassword);
   if (loginStep) {
     steps.push(loginStep);
-    console.log(LOG, loginStep.name, loginStep.ok ? '✓' : '✗', loginStep.detail);
+    if (__DEV__) console.log(LOG, loginStep.name, loginStep.ok ? '✓' : '✗', loginStep.detail);
   }
 
   const ok = steps.every((s) => s.ok);
-  console.log(LOG, ok ? 'Итог: OK' : 'Итог: есть проблемы');
+  if (__DEV__) console.log(LOG, ok ? 'Итог: OK' : 'Итог: есть проблемы');
   return { ok, steps };
 }

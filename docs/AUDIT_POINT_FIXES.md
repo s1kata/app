@@ -1,28 +1,41 @@
 # Аудит: точечные правки (Android / iOS)
 
-## Исправлено в этом проходе
+## Исправлено
 
 | Область | Проблема | Правка |
 |---------|----------|--------|
-| Оплата | Закрытие браузера без проверки dismiss | `resolvePaymentAfterBrowser` + баннер «Оплата отменена» |
-| Оплата | Статус `cancelled` мапился в `failed` на бэкенде | `payment-status.js` → `cancelled` |
-| Оплата | Нет UI при success/pending без Alert | `PaymentStatusBanner` + `showPaymentStatusBar` |
+| Поиск туров | Первый поиск пустой, повтор находит | Единый путь `runSearch: true` → `searchTours()`; валидация курорта |
+| Поиск туров | `meal=8` и др. невалидные id | Whitelist 2,3,4,5,7,9, sanitizer в API |
+| Поиск туров | `[]` показывал ошибку | Empty state + `setLoadError(null)` |
+| API ошибки | Технические HTTP-сообщения | `mapTourvisorHttpError` (400/404/500) |
+| CRM 401 | Logout без перехода | `navigateToLoginAfterSessionExpired` |
+| Оплата | Закрытие браузера без проверки | `resolvePaymentAfterBrowser` + баннер |
+| Оплата | `cancelled` → `failed` | `payment-status.js` → `cancelled` |
 | Deep link | Только `booking-success` | + `travelhub://payment/success\|fail` |
-| AsyncStorage | `JSON.parse` без catch при login | try/catch + очистка ключа |
-| Уведомления | Нет ежедневного напоминания | `scheduleDailyHotToursNotification` в 12:00 |
+| AsyncStorage | `JSON.parse` без catch | try/catch + очистка ключа |
+| Уведомления | Нет ежедневного напоминания | `scheduleDailyHotToursNotification` 12:00 |
+| Код | Мёртвые hotel/mock файлы | Удалены (см. ниже) |
 
-## Требует отдельного обсуждения / не трогали
+## Удалено из релизной ветки (next-patch)
 
-| Область | Риск | Рекомендация |
-|---------|------|--------------|
-| PHP-бэкенд на travelhub63.ru | Node `server/` ≠ прод PHP | Синхронизировать `payment-status` / webhook на PHP |
-| Push vs local 12:00 | Локальное ≠ серверный крон | Для маркетинга с сервера — FCM + cron на бэкенде |
-| `cancelAllScheduledNotificationsAsync` | Сбросит другие локальные напоминания | Используем `identifier: daily-hot-tours-12` |
-| Tourvisor 403 с телефона | IP whitelist | Прокси `tourvisor-mobile` (уже в конфиге) |
-| Стили `backgroundcolor` (lowercase) | TS-ошибки, не runtime | Массовая замена на `backgroundColor` |
-| Виртуализация списков | Большие списки туров | `FlatList` + `windowSize` на тяжёлых экранах |
-| Expo Go Android | Push не работает | Development build (уже в логах NotificationService) |
+Отельный флоу не в навигаторе — файлы удалены:
 
-## Чеклист ручной проверки iOS
+- `ApiHotelSearchScreen`, `ApiHotelDetailsScreen`, `HotelBookingFormScreen`
+- `NativeHotelDetailScreen`, `ExtendedHotelDetailScreen`
+- `useHotelSearch`, `HotelCacheService`, `HotelFirestoreCache`, `hotelSearchCache`
+- Mock-данные: `toursData`, `hotelsData`, `extendedHotels`
+- Неиспользуемые: `ImageStorageService`, `UpdateService`, `AppLoader`, `DepartureDocumentsScreen` (stub)
 
-См. `docs/IOS_TEST_CHECKLIST.md`.
+## Требует отдельной работы
+
+| Область | Рекомендация |
+|---------|--------------|
+| PHP-бэкенд | Синхронизировать payment-status / webhook с Node `server/` |
+| TypeScript | ~20 ошибок tsc (`backgroundcolor`, legacy types) |
+| Tourvisor 403 с телефона | Прокси `tourvisor-mobile` (в конфиге) |
+| Expo Go Android | Push — только development build |
+
+## Чеклисты
+
+- [RELEASE_CHECKLIST.md](./RELEASE_CHECKLIST.md)
+- [IOS_TEST_CHECKLIST.md](./IOS_TEST_CHECKLIST.md)

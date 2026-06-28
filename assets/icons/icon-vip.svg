@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <defs>
+    <linearGradient id="sky" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#0A5BFF;stop-opacity:1"/>
+      <stop offset="55%" style="stop-color:#0F8DFF;stop-opacity:1"/>
+      <stop offset="100%" style="stop-color:#13C2FF;stop-opacity:1"/>
+    </linearGradient>
+    <radialGradient id="topLight" cx="30%" cy="20%" r="72%">
+      <stop offset="0%" style="stop-color:#FFFFFF;stop-opacity:0.24"/>
+      <stop offset="100%" style="stop-color:#FFFFFF;stop-opacity:0"/>
+    </radialGradient>
+    <filter id="planeShadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="1.4" stdDeviation="1.5" flood-color="#0044a8" flood-opacity="0.30"/>
+    </filter>
+  </defs>
+
+  <rect width="64" height="64" rx="14" fill="url(#sky)"/>
+  <rect width="64" height="64" rx="14" fill="url(#topLight)"/>
+
+  <!-- Motion trails -->
+  <path d="M10 44 C14 29, 25 20, 39 20 C47 20, 53 23, 57 29"
+        fill="none" stroke="#FFFFFF" stroke-width="2.2" stroke-linecap="round" opacity="0.40"/>
+  <path d="M13 49 C18 35, 28 27, 40 27"
+        fill="none" stroke="#FFFFFF" stroke-width="1.15" stroke-linecap="round" opacity="0.20"/>
+
+  <!-- Jet mark -->
+  <g filter="url(#planeShadow)">
+    <path d="M16 35.4 L34.5 31.7 L45.8 20.4
+             C47.1 19.1 49.2 19.1 50.5 20.4
+             C51.8 21.7 51.8 23.8 50.5 25.1
+             L39.2 36.4 L35.5 54.9
+             L31.4 50.8 L32.7 40.3
+             L25.4 47.6 L20.4 46.3
+             L27.7 39 L17.2 40.3 Z"
+          fill="#FFFFFF"/>
+  </g>
+</svg>

@@ -584,6 +584,10 @@ class SotaCrmService {
         return { success: true, data: r.data as SotaBooking[] };
       }
       if (r.error && r.error !== 'no_backend') {
+        const errLower = r.error.toLowerCase();
+        if (errLower.includes('404') || errLower.includes('not found')) {
+          return { success: false, error: 'История покупок временно недоступна', data: [] };
+        }
         return { success: false, error: r.error, data: [] };
       }
     }
@@ -1006,7 +1010,7 @@ class SotaCrmService {
 
   /**
    * Алиас для getDocumentUrl — возвращает URL документа для открытия.
-   * @deprecated Используйте getDocumentUrl. Оставлено для совместимости с DepartureDocumentsScreen.
+   * @deprecated Используйте getDocumentUrl.
    */
   async downloadDepartureDocument(documentId: string, bookingId: string): Promise<string | null> {
     return this.getDocumentUrl(documentId, bookingId);

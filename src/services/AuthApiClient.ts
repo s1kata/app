@@ -26,7 +26,8 @@ async function postAuth<T extends ApiErrorBody>(
     headers.Authorization = `Bearer ${bearer}`;
   }
 
-  console.log(`${LOG} ${action} →`, url);
+  if (__DEV__) logger.debug(`${LOG} ${action} → ${url}`);
+  else logger.debug(`${LOG} ${action}`, { url });
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), AUTH_API_REQUEST_TIMEOUT_MS);
   const response = await fetch(url, {
@@ -41,7 +42,8 @@ async function postAuth<T extends ApiErrorBody>(
   const data = (await response.json().catch(() => ({}))) as T;
   if (!response.ok || data.success === false) {
     const msg = data.error || `HTTP ${response.status}`;
-    console.log(`${LOG} ${action} ошибка:`, msg);
+    if (__DEV__) logger.debug(`${LOG} ${action} ошибка: ${msg}`);
+    else logger.debug(`${LOG} ${action} error`, { msg });
     throw new AuthApiError(msg, data.code, response.status);
   }
   return data;
@@ -179,7 +181,7 @@ export const authApiClient = {
 
 /** Access token с авто-refresh при истечении. */
 export async function getValidAccessToken(): Promise<string | null> {
-  let token = await authSession.getAccessToken();
+  const token = await authSession.getAccessToken();
   if (!token) return null;
 
   const expired = await authSession.isAccessTokenExpired();

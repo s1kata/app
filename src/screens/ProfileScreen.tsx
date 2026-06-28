@@ -21,6 +21,8 @@ import { useAppContext } from '../contexts/AppContext';
 import { i18n } from '../config/i18n';
 import { logger } from '../utils/logger';
 import { radius, shadows } from '../config/designSystem';
+import { RELEASE_HIDE_PURCHASE_HISTORY } from '../config/releaseUiFlags';
+import { PrimaryButton } from '../components/ui';
 
 export default function ProfileScreen({ navigation }: any) {
   const { logout, user, theme, isDark } = useAppContext();
@@ -168,7 +170,7 @@ export default function ProfileScreen({ navigation }: any) {
       icon: 'calendar-outline',
       onPress: () => navigation.navigate('MainTabs', { screen: 'Bookings' }),
     },
-    { id: 'settings', title: i18n.t('settings.title'), icon: 'settings-outline', onPress: () => navigation.getParent()?.navigate('MainTabs', { screen: 'Settings' }) },
+    { id: 'settings', title: i18n.t('settings.title'), icon: 'settings-outline', onPress: () => navigation.navigate('Settings') },
     { id: 'help', title: i18n.t('profile.help'), icon: 'help-circle-outline', onPress: () => navigation.navigate('HelperChat') },
   ];
 
@@ -195,14 +197,21 @@ export default function ProfileScreen({ navigation }: any) {
 
         {profile && (
           <View style={[styles.statsContainer, { backgroundColor: theme.secondaryBackground }]}>
-            <TouchableOpacity
-              style={styles.statItem}
-              onPress={() => navigation.navigate('PurchaseHistory')}
-              activeOpacity={0.7}
-            >
-              <Text style={[styles.statValue, { color: theme.primary }]}>{purchaseCount}</Text>
-              <Text style={[styles.statLabel, { color: theme.secondaryText }]}>{i18n.t('profile.purchases')}</Text>
-            </TouchableOpacity>
+            {!RELEASE_HIDE_PURCHASE_HISTORY ? (
+              <TouchableOpacity
+                style={styles.statItem}
+                onPress={() => navigation.navigate('PurchaseHistory')}
+                activeOpacity={0.7}
+              >
+                <Text style={[styles.statValue, { color: theme.primary }]}>{purchaseCount}</Text>
+                <Text style={[styles.statLabel, { color: theme.secondaryText }]}>{i18n.t('profile.purchases')}</Text>
+              </TouchableOpacity>
+            ) : (
+              <View style={styles.statItem}>
+                <Text style={[styles.statValue, { color: theme.primary }]}>{purchaseCount}</Text>
+                <Text style={[styles.statLabel, { color: theme.secondaryText }]}>{i18n.t('profile.purchases')}</Text>
+              </View>
+            )}
 
             <View style={[styles.statDivider, { backgroundColor: theme.border }]} />
 
@@ -239,23 +248,22 @@ export default function ProfileScreen({ navigation }: any) {
       </View>
 
       <View style={[styles.section, { backgroundColor: theme.card, borderRadius: 16 }]}>
-        {/* Кнопка входа для гостей или выхода для авторизованных */}
         {isGuest ? (
-          <TouchableOpacity 
-            style={[styles.loginButton, { borderColor: theme.primary }]} 
+          <PrimaryButton
+            title={i18n.t('auth.login')}
             onPress={() => setShowLoginModal(true)}
-            activeOpacity={0.8}
-          >
-            <View style={[styles.loginButtonGradient, { backgroundColor: theme.primary }]}>
-              <Ionicons name="log-in-outline" size={24} color={theme.surface} />
-              <Text style={[styles.loginButtonText, { color: theme.surface }]}>{i18n.t('auth.login')}</Text>
-            </View>
-          </TouchableOpacity>
+            iconLeft={<Ionicons name="log-in-outline" size={20} color={theme.surface} />}
+            style={styles.actionButton}
+          />
         ) : (
-          <TouchableOpacity style={[styles.logoutButton, { borderColor: theme.error }]} onPress={handleLogout}>
-            <Ionicons name="log-out-outline" size={24} color={theme.error} />
-            <Text style={[styles.logoutButtonText, { color: theme.error }]}>{i18n.t('auth.logout')}</Text>
-          </TouchableOpacity>
+          <PrimaryButton
+            title={i18n.t('auth.logout')}
+            onPress={handleLogout}
+            outline
+            danger
+            iconLeft={<Ionicons name="log-out-outline" size={20} color={theme.error} />}
+            style={styles.actionButton}
+          />
         )}
       </View>
 
@@ -285,31 +293,24 @@ export default function ProfileScreen({ navigation }: any) {
             </View>
             
             <View style={styles.modalButtons}>
-              <TouchableOpacity
-                style={[styles.modalButton, { shadowColor: theme.primary }]}
+              <PrimaryButton
+                title={i18n.t('auth.login')}
                 onPress={() => {
                   setShowLoginModal(false);
                   navigation.navigate('Login', { hideGuestLogin: true });
                 }}
-                activeOpacity={0.8}
-              >
-                <View style={[styles.modalButtonGradient, { backgroundColor: theme.primary }]}>
-                  <Ionicons name="log-in-outline" size={22} color={theme.surface} />
-                  <Text style={[styles.modalButtonText, { color: theme.surface }]}>{i18n.t('auth.login')}</Text>
-                </View>
-              </TouchableOpacity>
+                iconLeft={<Ionicons name="log-in-outline" size={20} color={theme.surface} />}
+              />
 
-              <TouchableOpacity
-                style={[styles.modalButtonSecondary, { borderColor: theme.primary }]}
+              <PrimaryButton
+                title={i18n.t('profile.register')}
                 onPress={() => {
                   setShowLoginModal(false);
                   navigation.navigate('Register');
                 }}
-                activeOpacity={0.8}
-              >
-                <Ionicons name="person-add-outline" size={22} color={theme.primary} />
-                <Text style={[styles.modalButtonSecondaryText, { color: theme.primary }]}>{i18n.t('profile.register')}</Text>
-              </TouchableOpacity>
+                outline
+                iconLeft={<Ionicons name="person-add-outline" size={20} color={theme.primary} />}
+              />
             </View>
           </View>
         </View>
@@ -415,34 +416,8 @@ const styles = StyleSheet.create({
     marginLeft: 12,
     flex: 1,
   },
-  loginButton: {
-    borderRadius: 12,
-    overflow: 'hidden',
-    marginBottom: 12,
-  },
-  loginButtonGradient: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 16,
-    gap: 8,
-  },
-  loginButtonText: {
-    fontSize: 16,
-    fontWeight: '700',
-  },
-  logoutButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 16,
-    borderRadius: 12,
-    borderWidth: 1,
-  },
-  logoutButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
-    marginLeft: 8,
+  actionButton: {
+    marginBottom: 8,
   },
   modalOverlay: {
     flex: 1,
@@ -471,38 +446,6 @@ const styles = StyleSheet.create({
   modalButtons: {
     padding: 20,
     gap: 12,
-  },
-  modalButton: {
-    borderRadius: radius.lg,
-    overflow: 'hidden',
-    ...shadows.button,
-  },
-  modalButtonGradient: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 16,
-    paddingHorizontal: 24,
-    gap: 10,
-  },
-  modalButtonText: {
-    fontSize: 17,
-    fontWeight: '700',
-  },
-  modalButtonSecondary: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 16,
-    paddingHorizontal: 24,
-    borderRadius: 16,
-    borderWidth: 2,
-    backgroundColor: 'transparent',
-    gap: 10,
-  },
-  modalButtonSecondaryText: {
-    fontSize: 17,
-    fontWeight: '700',
   },
   footer: {
     alignItems: 'center',

@@ -135,7 +135,6 @@ export default function LoginScreen({ navigation, route }: any) {
               routes: [
                 { name: 'Home', state: { routes: [{ name: 'HomeMain' }, { name: returnTo.name, params: returnTo.params }], index: 1 } },
                 { name: 'Bookings' },
-                { name: 'Documents' },
                 { name: 'Settings' },
               ],
               index: 0,

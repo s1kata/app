@@ -1,76 +1,51 @@
 /**
- * Сервис для отслеживания состояния сети.
- * Поддерживает офлайн-режим приложения.
- * Использует NetInfo + fetch для проверки (NetInfo на iOS иногда даёт ложный офлайн).
+ * Мониторинг сети: быстрый баннер при проблемах, фоновые ретраи до HTTP 200 от бэкенда.
  */
-
-import NetInfo, { NetInfoState } from '@react-native-community/netinfo';
-import { getBackendBaseUrl } from '../api/apiClient';
+import { AppState, AppStateStatus } from 'react-native';
+import NetInfo from '@react-native-community/netinfo';
+import { pingBackendHealth, pingGeneralInternet } from '../utils/backendHealth';
+import { getNetworkIssueMessage } from '../utils/networkMessages';
 import { logger } from '../utils/logger';
 
-export type NetworkState = {
-  isConnected: boolean;
-  isInternetReachable: boolean | null;
-  type: string;
+export type NetworkIssue = 'offline' | 'backend_unreachable' | null;
+export type ConnectionStatus = 'checking' | 'ok' | 'degraded' | 'offline';
+
+export type NetworkConnectionState = {
+  status: ConnectionStatus;
+  issue: NetworkIssue;
 };
 
-export type NetworkBlockReason = 'vpn' | 'dns_filter' | 'unknown' | null;
-
+/** @deprecated — используйте NetworkConnectionState */
+export type NetworkBlockReason = NetworkIssue;
+/** @deprecated */
 export type NetworkPolicyState = {
   isBlocked: boolean;
   reason: NetworkBlockReason;
   canProceed: boolean;
 };
 
-type Listener = (state: NetworkState) => void;
+type ConnectionListener = (state: NetworkConnectionState, prev: NetworkConnectionState) => void;
+type RecoveryListener = () => void;
+type LegacyListener = () => void;
 
-function getConnectivityCheckUrls(): string[] {
-  const urls = [
-    'https://connectivitycheck.gstatic.com/generate_204',
-    'https://www.google.com/generate_204',
-    'https://clients3.google.com/generate_204',
-    'https://exp.host/--/ping',
-  ];
-  // iOS/LTE: Google может быть недоступен, а travelhub63.ru — доступен (важно для CRM-очереди)
-  try {
-    const site = getBackendBaseUrl();
-    if (site) {
-      urls.unshift(`${site}/api/tourvisor-mobile/departures`);
-    }
-  } catch {
-    /* ignore */
-  }
-  return urls;
-}
-const FETCH_TIMEOUT_MS = 8000;
-
-/**
- * Реальная проверка: есть ли доступ в интернет (fetch к внешнему URL).
- * Пробует несколько URL, чтобы не считать офлайн из-за блокировки одного домена.
- */
-async function pingInternet(): Promise<boolean> {
-  for (const url of getConnectivityCheckUrls()) {
-    try {
-      const ctrl = new AbortController();
-      const timeout = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT_MS);
-      const res = await fetch(url, { method: 'GET', signal: ctrl.signal });
-      clearTimeout(timeout);
-      // 204 / 200 или любой успешный ответ считаем за "интернет есть"
-      if (res && (res.status === 204 || res.status === 200 || res.ok)) return true;
-    } catch (e) {
-      logger.debug('[NetworkService] ping URL failed:', url, (e as Error)?.message || e);
-    }
-  }
-  return false;
-}
+const FAST_FAIL_MS = 2500;
+const RETRY_BASE_MS = 5000;
+const RETRY_MAX_MS = 30000;
 
 class NetworkService {
   private static instance: NetworkService;
+  private _state: NetworkConnectionState = { status: 'checking', issue: null };
+  private connectionListeners = new Set<ConnectionListener>();
+  private recoveryListeners = new Set<RecoveryListener>();
+  private legacyListeners = new Set<LegacyListener>();
+  private netUnsubscribe: (() => void) | null = null;
+  private appStateSubscription: { remove: () => void } | null = null;
+  private _checkInProgress = false;
+  private _pendingRecheck = false;
+  private _retryAttempt = 0;
+  private _retryTimer: ReturnType<typeof setTimeout> | null = null;
+  private _fastFailTimer: ReturnType<typeof setTimeout> | null = null;
   private _isOffline = false;
-  private listeners = new Set<Listener>();
-  private unsubscribe: (() => void) | null = null;
-  private _pingInProgress = false;
-  private _policy: NetworkPolicyState = { isBlocked: false, reason: null, canProceed: true };
 
   static getInstance(): NetworkService {
     if (!NetworkService.instance) {
@@ -79,71 +54,200 @@ class NetworkService {
     return NetworkService.instance;
   }
 
+  get connection(): NetworkConnectionState {
+    return this._state;
+  }
+
+  get isBackendOk(): boolean {
+    return this._state.status === 'ok';
+  }
+
+  /** @deprecated */
+  get isOnline(): boolean {
+    return this._state.status === 'ok';
+  }
+
+  /** @deprecated */
   get isOffline(): boolean {
     return this._isOffline;
   }
 
-  get isOnline(): boolean {
-    return !this._isOffline;
-  }
-
+  /** @deprecated */
   get policy(): NetworkPolicyState {
-    return this._policy;
+    return this._toLegacyPolicy();
   }
 
-  /**
-   * Проверить подключение к интернету
-   */
-  async checkConnection(): Promise<NetworkState> {
+  subscribeConnection(listener: ConnectionListener): () => void {
+    this.connectionListeners.add(listener);
+    return () => this.connectionListeners.delete(listener);
+  }
+
+  onRecovery(listener: RecoveryListener): () => void {
+    this.recoveryListeners.add(listener);
+    return () => this.recoveryListeners.delete(listener);
+  }
+
+  /** @deprecated — для CRM-очереди и старых подписчиков */
+  subscribe(listener: LegacyListener): () => void {
+    this.legacyListeners.add(listener);
+    return () => this.legacyListeners.delete(listener);
+  }
+
+  async checkConnection(): Promise<NetworkConnectionState> {
+    if (this._checkInProgress) {
+      this._pendingRecheck = true;
+      return this._state;
+    }
+    this._checkInProgress = true;
+    this._armFastFail();
     try {
-      const state = await NetInfo.fetch();
-      const isConnected = state.isConnected ?? false;
-      const result: NetworkState = {
-        isConnected,
-        isInternetReachable: state.isInternetReachable,
-        type: state.type,
-      };
-      this._updatePolicyFromState(state, result);
-
-      // NetInfo на iOS иногда даёт isConnected: false при работающем WiFi.
-      // Если NetInfo говорит офлайн — проверяем реальным запросом.
-      if (!isConnected) {
-        const hasInternet = await this._verifyWithFetch();
-        if (hasInternet) {
-          result.isConnected = true;
-          this._setPolicy({ isBlocked: false, reason: null, canProceed: true });
-          this._setOffline(false);
-          return result;
-        }
-      }
-
-      this._updateOfflineState(result);
-      return result;
-    } catch (error) {
-      logger.error('Network check error:', error);
-      const hasInternet = await this._verifyWithFetch();
+      const hasInternet = await pingGeneralInternet();
       if (!hasInternet) {
-        this._setPolicy({ isBlocked: false, reason: null, canProceed: true });
+        this._disarmFastFail();
         this._setOffline(true);
-      } else {
-        this._setPolicy({ isBlocked: false, reason: null, canProceed: true });
-        this._setOffline(false);
+        this._applyState({ status: 'offline', issue: 'offline' });
+        return this._state;
       }
-      return {
-        isConnected: !this._isOffline,
-        isInternetReachable: !this._isOffline,
-        type: 'unknown',
-      };
+      this._setOffline(false);
+
+      const backendOk = await pingBackendHealth();
+      this._disarmFastFail();
+      if (!backendOk) {
+        this._applyState({ status: 'degraded', issue: 'backend_unreachable' });
+        return this._state;
+      }
+
+      this._applyState({ status: 'ok', issue: null });
+      return this._state;
+    } catch (error) {
+      logger.error('[NetworkService] checkConnection error:', error);
+      this._disarmFastFail();
+      this._applyState({ status: 'degraded', issue: 'backend_unreachable' });
+      return this._state;
+    } finally {
+      this._checkInProgress = false;
+      if (this._pendingRecheck) {
+        this._pendingRecheck = false;
+        void this.checkConnection();
+      }
     }
   }
 
-  private async _verifyWithFetch(): Promise<boolean> {
-    if (this._pingInProgress) return !this._isOffline;
-    this._pingInProgress = true;
-    try {
-      return await pingInternet();
-    } finally {
-      this._pingInProgress = false;
+  /** Актуальная проверка перед действием (не блокирует UI). */
+  async refreshConnection(): Promise<NetworkConnectionState> {
+    return this.checkConnection();
+  }
+
+  /** @deprecated */
+  async ensureCanProceed(): Promise<boolean> {
+    await this.checkConnection();
+    return this.isBackendOk;
+  }
+
+  /** @deprecated */
+  getPolicyState(): NetworkPolicyState {
+    return this._toLegacyPolicy();
+  }
+
+  /** @deprecated */
+  getBlockErrorMessage(): string {
+    return getNetworkIssueMessage(this._state.issue);
+  }
+
+  start(): void {
+    if (this.netUnsubscribe) return;
+
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+    this.netUnsubscribe = NetInfo.addEventListener(() => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => void this.checkConnection(), 600);
+    });
+
+    this.appStateSubscription = AppState.addEventListener('change', (next: AppStateStatus) => {
+      if (next === 'active') void this.checkConnection();
+    });
+
+    void this.checkConnection();
+  }
+
+  stop(): void {
+    this.netUnsubscribe?.();
+    this.netUnsubscribe = null;
+    this.appStateSubscription?.remove();
+    this.appStateSubscription = null;
+    this._cancelRetry();
+    this._disarmFastFail();
+  }
+
+  private _toLegacyPolicy(): NetworkPolicyState {
+    const blocked = this._state.status === 'offline' || this._state.status === 'degraded';
+    return {
+      isBlocked: blocked,
+      reason: this._state.issue,
+      canProceed: !blocked,
+    };
+  }
+
+  private _armFastFail(): void {
+    if (this._state.status === 'ok') return;
+    if (this._fastFailTimer) return;
+    this._fastFailTimer = setTimeout(() => {
+      this._fastFailTimer = null;
+      if (this._checkInProgress && this._state.status === 'checking') {
+        this._applyState({ status: 'degraded', issue: 'backend_unreachable' });
+      }
+    }, FAST_FAIL_MS);
+  }
+
+  private _disarmFastFail(): void {
+    if (this._fastFailTimer) {
+      clearTimeout(this._fastFailTimer);
+      this._fastFailTimer = null;
+    }
+  }
+
+  private _applyState(next: NetworkConnectionState): void {
+    const prev = this._state;
+    if (prev.status === next.status && prev.issue === next.issue) return;
+    this._state = next;
+
+    if (prev.status !== 'ok' && next.status === 'ok') {
+      this._retryAttempt = 0;
+      this._cancelRetry();
+      this.recoveryListeners.forEach((cb) => {
+        try {
+          cb();
+        } catch (e) {
+          logger.warn('[NetworkService] recovery listener error:', e);
+        }
+      });
+    } else if (next.status !== 'ok') {
+      this._scheduleRetry();
+    }
+
+    if (next.status === 'ok') {
+      this._cancelRetry();
+    }
+
+    this.connectionListeners.forEach((cb) => cb(next, prev));
+    this.legacyListeners.forEach((cb) => cb());
+    logger.debug('[NetworkService] status:', next.status, next.issue);
+  }
+
+  private _scheduleRetry(): void {
+    if (this._retryTimer) return;
+    const delay = Math.min(RETRY_MAX_MS, RETRY_BASE_MS * Math.pow(1.5, this._retryAttempt));
+    this._retryAttempt += 1;
+    this._retryTimer = setTimeout(() => {
+      this._retryTimer = null;
+      void this.checkConnection();
+    }, delay);
+  }
+
+  private _cancelRetry(): void {
+    if (this._retryTimer) {
+      clearTimeout(this._retryTimer);
+      this._retryTimer = null;
     }
   }
 
@@ -151,108 +255,12 @@ class NetworkService {
     if (this._isOffline !== offline) {
       this._isOffline = offline;
       logger.log(`📶 Сеть: ${offline ? 'офлайн' : 'онлайн'}`);
-      this._notifyListeners();
     }
   }
-
-  private _setPolicy(next: NetworkPolicyState): void {
-    const changed =
-      this._policy.isBlocked !== next.isBlocked ||
-      this._policy.reason !== next.reason ||
-      this._policy.canProceed !== next.canProceed;
-    if (!changed) return;
-    this._policy = next;
-    if (next.isBlocked) {
-      logger.warn('[NetworkService] blocked policy:', next.reason);
-    } else {
-      logger.debug('[NetworkService] policy cleared');
-    }
-    this._notifyListeners();
-  }
-
-  private _updatePolicyFromState(raw: NetInfoState, normalized: NetworkState): void {
-    const type = String(raw.type || normalized.type || '').toLowerCase();
-    const connected = normalized.isConnected;
-    const reachable = normalized.isInternetReachable;
-
-    if (type === 'vpn') {
-      this._setPolicy({ isBlocked: true, reason: 'vpn', canProceed: false });
-      return;
-    }
-
-    if (connected && reachable === false) {
-      this._setPolicy({ isBlocked: true, reason: 'dns_filter', canProceed: false });
-      return;
-    }
-
-    this._setPolicy({ isBlocked: false, reason: null, canProceed: true });
-  }
-
-  private _updateOfflineState(state: NetInfoState | NetworkState): void {
-    const isConnected = state.isConnected ?? false;
-    // NetInfo говорит онлайн — доверяем
-    if (isConnected) {
-      this._setOffline(false);
-      return;
-    }
-      // NetInfo говорит офлайн — ждём реальную проверку (на iOS иначе CRM уходит в «очередь» навсегда)
-    void this._verifyWithFetch().then((hasInternet) => {
-      this._setOffline(!hasInternet);
-    });
-  }
-
-  /**
-   * Дождаться актуального статуса сети (для CRM/брони сразу после checkConnection).
-   */
+  /** @deprecated — используйте isBackendOk / refreshConnection */
   async ensureOnlineVerified(): Promise<boolean> {
     await this.checkConnection();
-    if (this._policy.isBlocked) return false;
-    if (!this._isOffline) return true;
-    const hasInternet = await this._verifyWithFetch();
-    this._setOffline(!hasInternet);
-    return hasInternet;
-  }
-
-  private _notifyListeners(): void {
-    const state: NetworkState = {
-      isConnected: !this._isOffline,
-      isInternetReachable: this._isOffline ? false : true,
-      type: 'unknown',
-    };
-    this.listeners.forEach((cb) => cb(state));
-  }
-
-  /**
-   * Подписаться на изменения состояния сети
-   */
-  subscribe(listener: Listener): () => void {
-    this.listeners.add(listener);
-    return () => this.listeners.delete(listener);
-  }
-
-  getPolicyState(): NetworkPolicyState {
-    return this._policy;
-  }
-
-  /**
-   * Запустить мониторинг сети
-   */
-  start(): void {
-    if (this.unsubscribe) return;
-    this.unsubscribe = NetInfo.addEventListener((state) => {
-      this._updateOfflineState(state);
-    });
-    this.checkConnection();
-  }
-
-  /**
-   * Остановить мониторинг
-   */
-  stop(): void {
-    if (this.unsubscribe) {
-      this.unsubscribe();
-      this.unsubscribe = null;
-    }
+    return this.isBackendOk;
   }
 }
 

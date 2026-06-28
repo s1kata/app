@@ -54,8 +54,14 @@ export default function BonusScreen({ navigation }: any) {
       return;
     }
     setError(null);
+    const LOAD_TIMEOUT_MS = 20_000;
     try {
-      const res = await bonusService.getBonusBalanceAndHistory({ email, phone });
+      const res = await Promise.race([
+        bonusService.getBonusBalanceAndHistory({ email, phone }),
+        new Promise<{ success: false; error: string }>((resolve) =>
+          setTimeout(() => resolve({ success: false, error: i18n.t('bonus.unavailable') }), LOAD_TIMEOUT_MS)
+        ),
+      ]);
       if (res.success && res.data) {
         setBalance(res.data.balance);
         setTransactions(

@@ -28,6 +28,7 @@ function getDocId(type: string, params?: Record<string, unknown>): string {
 export async function getDeparturesFromFirestore(departureCountryId?: number): Promise<Departure[] | null> {
   if (!isAvailable()) return null;
   const tryDoc = async (docId: string) => {
+    if (!db) return null;
     const snap = await getDoc(doc(db, COLLECTION, docId));
     if (!snap.exists()) return null;
     const d = snap.data();
@@ -48,7 +49,7 @@ export async function getDeparturesFromFirestore(departureCountryId?: number): P
 }
 
 export async function setDeparturesToFirestore(data: Departure[], departureCountryId?: number): Promise<void> {
-  if (!isAvailable() || !data?.length) return;
+  if (!isAvailable() || !data?.length || !db) return;
   try {
     const docId = getDocId('departures', { departureCountryId });
     await setDoc(doc(db, COLLECTION, docId), {
@@ -63,6 +64,7 @@ export async function setDeparturesToFirestore(data: Departure[], departureCount
 export async function getCountriesFromFirestore(departureId?: number, onlyCharter?: boolean): Promise<Country[] | null> {
   if (!isAvailable()) return null;
   const tryDoc = async (docId: string) => {
+    if (!db) return null;
     const snap = await getDoc(doc(db, COLLECTION, docId));
     if (!snap.exists()) return null;
     const d = snap.data();
@@ -86,7 +88,7 @@ export async function getCountriesFromFirestore(departureId?: number, onlyCharte
 }
 
 export async function setCountriesToFirestore(data: Country[], departureId?: number, onlyCharter?: boolean): Promise<void> {
-  if (!isAvailable() || !data?.length) return;
+  if (!isAvailable() || !data?.length || !db) return;
   try {
     const docId = getDocId('countries', { departureId, onlyCharter });
     await setDoc(doc(db, COLLECTION, docId), {
@@ -100,7 +102,7 @@ export async function setCountriesToFirestore(data: Country[], departureId?: num
 
 /** Типы питания (meals). Документ: dictionaryCache/meals. */
 export async function getMealsFromFirestore(): Promise<Meal[] | null> {
-  if (!isAvailable()) return null;
+  if (!isAvailable() || !db) return null;
   try {
     const snap = await getDoc(doc(db, COLLECTION, 'meals'));
     if (!snap.exists()) return null;
@@ -116,7 +118,7 @@ export async function getMealsFromFirestore(): Promise<Meal[] | null> {
 }
 
 export async function setMealsToFirestore(data: Meal[]): Promise<void> {
-  if (!isAvailable() || !data?.length) return;
+  if (!isAvailable() || !data?.length || !db) return;
   try {
     await setDoc(doc(db, COLLECTION, 'meals'), {
       data,

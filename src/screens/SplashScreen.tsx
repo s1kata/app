@@ -1,6 +1,5 @@
 /**
- * Splash Screen: премиальный минимализм, парящие формы, плавные анимации.
- * Цвета: глубокий синий #0A1A2F, акцент #FF6B35. Работает до готовности контекста.
+ * Splash Screen: VIP/Luxury стиль с тёмным градиентом и золотыми акцентами.
  */
 
 import React, { useEffect, useRef, useMemo } from 'react';
@@ -16,18 +15,20 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import * as NativeSplash from 'expo-splash-screen';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useAppContext } from '../contexts/AppContext';
-import { BRAND } from '../config/designSystem';
 import { logger } from '../utils/logger';
 import { useLifecycleLog } from '../hooks/useLifecycleLog';
 import { logIosTestStep, IosTestStep } from '../utils/iosTestFlows';
 
-// Фиксированная палитра сплэша (не зависим от темы при первом кадре)
-const SPLASH_BG = BRAND.blue;           // синий фон — travel-стиль
-const SPLASH_TEXT = BRAND.white;
-const SPLASH_SUB = 'rgba(255,255,255,0.85)';
-const SPLASH_ACCENT = BRAND.orange;     // оранжевый акцент на синем фоне
-const SHAPE_COLOR = 'rgba(255,255,255,0.12)';
+const VIP_BG_START = '#0a0a0f';
+const VIP_BG_END = '#1a1a2e';
+const VIP_GOLD = '#d4af37';
+const VIP_GOLD_LIGHT = '#f4e4bc';
+const SHAPE_FILL = 'rgba(255,255,255,0.03)';
+const SHAPE_BORDER = 'rgba(212,175,55,0.10)';
+const SUBTITLE_COLOR = 'rgba(244,228,188,0.72)';
+const PARTICLE_COUNT = 4;
 
 export default function SplashScreen({ navigation }: { navigation: any }) {
   const { isAuthenticated } = useAppContext();
@@ -50,11 +51,22 @@ export default function SplashScreen({ navigation }: { navigation: any }) {
   const shape1Y = useRef(new Animated.Value(0)).current;
   const shape2Y = useRef(new Animated.Value(0)).current;
   const shape3Y = useRef(new Animated.Value(0)).current;
+  const glowPulse = useRef(new Animated.Value(0.35)).current;
+
+  const particleOpacity = useMemo(
+    () => Array.from({ length: PARTICLE_COUNT }, () => new Animated.Value(0)),
+    [],
+  );
+  const particleY = useMemo(
+    () => Array.from({ length: PARTICLE_COUNT }, () => new Animated.Value(0)),
+    [],
+  );
 
   useEffect(() => {
     let alive = true;
     let navTimer: ReturnType<typeof setTimeout> | undefined;
     let hideSplashTimer: ReturnType<typeof setTimeout> | undefined;
+    let hardHideTimer: ReturnType<typeof setTimeout> | undefined;
 
     const easing = Easing.out(Easing.cubic);
 
@@ -100,12 +112,65 @@ export default function SplashScreen({ navigation }: { navigation: any }) {
     // 5) Подзаголовок
     Animated.timing(subOpacity, { toValue: 1, duration: 350, delay: 750, easing, useNativeDriver: true }).start();
 
+    // 6) Пульсация glow
+    const glowLoop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(glowPulse, { toValue: 0.62, duration: 1300, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+        Animated.timing(glowPulse, { toValue: 0.32, duration: 1300, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+      ]),
+    );
+    glowLoop.start();
+
+    // 7) Частицы на фоне
+    const particleLoops = particleOpacity.map((op, i) => {
+      const y = particleY[i];
+      return Animated.loop(
+        Animated.sequence([
+          Animated.parallel([
+            Animated.timing(op, {
+              toValue: 0.7,
+              duration: 700 + i * 120,
+              easing: Easing.out(Easing.quad),
+              useNativeDriver: true,
+            }),
+            Animated.timing(y, {
+              toValue: -10 - i * 1.5,
+              duration: 2200 + i * 220,
+              easing: Easing.inOut(Easing.ease),
+              useNativeDriver: true,
+            }),
+          ]),
+          Animated.parallel([
+            Animated.timing(op, {
+              toValue: 0.2,
+              duration: 900 + i * 100,
+              easing: Easing.inOut(Easing.ease),
+              useNativeDriver: true,
+            }),
+            Animated.timing(y, {
+              toValue: 0,
+              duration: 2200 + i * 180,
+              easing: Easing.inOut(Easing.ease),
+              useNativeDriver: true,
+            }),
+          ]),
+        ]),
+      );
+    });
+    particleLoops.forEach((loop, i) => {
+      setTimeout(() => {
+        if (alive) loop.start();
+      }, 120 * i);
+    });
+
     const doNavigate = () => {
       if (!alive || hasNavigated.current) return;
       hasNavigated.current = true;
       const target = isAuthenticated ? 'MainTabs' : 'Login';
       logIosTestStep(IosTestStep.LAUNCH, { isAuthenticated, target });
       logger.info('[Splash] navigate', { target, isAuthenticated });
+      // Fail-safe: сначала снимаем native splash, затем навигация.
+      NativeSplash.hideAsync().catch(() => {});
       if (isAuthenticated) {
         navigation.replace('MainTabs');
       } else {
@@ -119,45 +184,74 @@ export default function SplashScreen({ navigation }: { navigation: any }) {
     const elapsed = Date.now() - mountTime;
     const waitMs = Math.max(0, minDelay - elapsed);
     navTimer = setTimeout(doNavigate, waitMs);
+    // Жёсткий таймер против "чёрного экрана", если навигация задержалась.
+    hardHideTimer = setTimeout(() => {
+      NativeSplash.hideAsync().catch(() => {});
+    }, 1200);
 
     return () => {
       alive = false;
       floatLoop.stop();
+      glowLoop.stop();
+      particleLoops.forEach((loop) => loop.stop());
       if (navTimer) clearTimeout(navTimer);
       if (hideSplashTimer) clearTimeout(hideSplashTimer);
+      if (hardHideTimer) clearTimeout(hardHideTimer);
     };
-  }, [isAuthenticated, navigation, mountTime]);
+  }, [isAuthenticated, navigation, mountTime, glowPulse, particleOpacity, particleY, shape1Op, shape2Op, shape3Op, waveOp, logoOpacity, logoScale, titleOpacity, titleY, subOpacity, shape1Y, shape2Y, shape3Y]);
 
   return (
-    <SafeAreaView edges={['top', 'bottom']} style={[styles.safeArea, { backgroundColor: SPLASH_BG }]}>
+    <SafeAreaView edges={['top', 'bottom']} style={styles.safeArea}>
       <StatusBar style="light" />
+      <LinearGradient
+        colors={[VIP_BG_START, VIP_BG_END]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={StyleSheet.absoluteFill}
+      />
+
+      {particleOpacity.map((op, i) => (
+        <Animated.View
+          key={`particle-${i}`}
+          style={[
+            styles.particle,
+            {
+              left: W * (0.12 + (i * 0.14)),
+              top: H * (0.22 + ((i % 2) * 0.24)),
+              opacity: op,
+              transform: [{ translateY: particleY[i] }],
+            },
+          ]}
+        />
+      ))}
+
       {/* Декоративные круги (горы/острова) */}
       <Animated.View
         style={[
           styles.shape,
           styles.shape1,
-          { backgroundColor: SHAPE_COLOR, opacity: shape1Op, transform: [{ translateY: shape1Y }] },
+          { opacity: shape1Op, transform: [{ translateY: shape1Y }] },
         ]}
       />
       <Animated.View
         style={[
           styles.shape,
           styles.shape2,
-          { backgroundColor: SHAPE_COLOR, opacity: shape2Op, transform: [{ translateY: shape2Y }] },
+          { opacity: shape2Op, transform: [{ translateY: shape2Y }] },
         ]}
       />
       <Animated.View
         style={[
           styles.shape,
           styles.shape3,
-          { backgroundColor: SHAPE_COLOR, opacity: shape3Op, transform: [{ translateY: shape3Y }] },
+          { opacity: shape3Op, transform: [{ translateY: shape3Y }] },
         ]}
       />
       {/* Волна внизу */}
       <Animated.View
         style={[
           styles.wave,
-          { borderColor: SHAPE_COLOR, opacity: waveOp },
+          { opacity: waveOp },
         ]}
       />
       {/* Лого */}
@@ -170,7 +264,8 @@ export default function SplashScreen({ navigation }: { navigation: any }) {
           },
         ]}
       >
-        <View style={[styles.logoCircle, { borderColor: SPLASH_ACCENT }]}>
+        <Animated.View style={[styles.logoGlow, { opacity: glowPulse }]} />
+        <View style={styles.logoCircle}>
           <Image
             source={require('../../assets/icons/1024x1024.png')}
             style={styles.logoImage}
@@ -188,10 +283,10 @@ export default function SplashScreen({ navigation }: { navigation: any }) {
           },
         ]}
       >
-        <Text style={[styles.title, { color: SPLASH_TEXT }]}>TravelHub</Text>
+        <Text style={styles.title}>TravelHub</Text>
       </Animated.View>
       <Animated.View style={[styles.subtitleWrap, { opacity: subOpacity }]}>
-        <Text style={[styles.subtitle, { color: SPLASH_SUB }]}>Откройте мир путешествий</Text>
+        <Text style={styles.subtitle}>PREMIUM TRAVEL SERVICE</Text>
       </Animated.View>
     </SafeAreaView>
   );
@@ -215,6 +310,9 @@ const getStyles = (W: number, H: number) => {
   shape: {
     position: 'absolute',
     borderRadius: 999,
+    backgroundColor: SHAPE_FILL,
+    borderWidth: 1,
+    borderColor: SHAPE_BORDER,
   },
   shape1: {
     width: 140,
@@ -229,10 +327,10 @@ const getStyles = (W: number, H: number) => {
     bottom: H * 0.25,
   },
   shape3: {
-    width: 70,
-    height: 70,
-    left: W * 0.45,
-    bottom: H * 0.15,
+    width: 56,
+    height: 56,
+    left: W * 0.47,
+    bottom: H * 0.16,
   },
   wave: {
     position: 'absolute',
@@ -240,6 +338,7 @@ const getStyles = (W: number, H: number) => {
     height: W * 0.7,
     borderRadius: (W * 1.4) / 2,
     borderWidth: 2,
+    borderColor: SHAPE_BORDER,
     bottom: -W * 0.35,
     left: -W * 0.2,
   },
@@ -254,9 +353,23 @@ const getStyles = (W: number, H: number) => {
     height: 100,
     borderRadius: 50,
     borderWidth: 3,
+    borderColor: VIP_GOLD,
     overflow: 'hidden',
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.02)',
+  },
+  logoGlow: {
+    position: 'absolute',
+    width: 118,
+    height: 118,
+    borderRadius: 59,
+    backgroundColor: 'rgba(212,175,55,0.15)',
+    shadowColor: VIP_GOLD,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.55,
+    shadowRadius: 20,
+    elevation: 22,
   },
   logoImage: {
     width: 92,
@@ -271,9 +384,10 @@ const getStyles = (W: number, H: number) => {
     alignItems: 'center',
   },
   title: {
-    fontSize: 32,
-    fontWeight: '700',
-    letterSpacing: 0.5,
+    fontSize: 31,
+    fontWeight: '300',
+    letterSpacing: 3.2,
+    color: VIP_GOLD_LIGHT,
   },
   subtitleWrap: {
     position: 'absolute',
@@ -283,9 +397,22 @@ const getStyles = (W: number, H: number) => {
     alignItems: 'center',
   },
   subtitle: {
-    fontSize: 15,
+    fontSize: 12,
     fontWeight: '400',
-    letterSpacing: 0.3,
+    letterSpacing: 1.8,
+    textTransform: 'uppercase',
+    color: SUBTITLE_COLOR,
+  },
+  particle: {
+    position: 'absolute',
+    width: 2,
+    height: 2,
+    borderRadius: 2,
+    backgroundColor: VIP_GOLD_LIGHT,
+    shadowColor: VIP_GOLD_LIGHT,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.35,
+    shadowRadius: 4,
   },
   });
 };

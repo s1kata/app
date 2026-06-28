@@ -40,6 +40,7 @@ interface ReviewsScreenProps {
       tourId?: string;
       hotelId?: string;
       title?: string;
+      openAdd?: boolean;
     };
   };
 }
@@ -88,7 +89,11 @@ export default function ReviewsScreen({ navigation, route }: ReviewsScreenProps)
     };
   });
 
-  const { tourId, hotelId, title } = route.params || {};
+  const { tourId, hotelId, title, openAdd } = route.params || {};
+
+  useEffect(() => {
+    if (openAdd) setShowAddReviewModal(true);
+  }, [openAdd]);
 
   // Скрываем навигационный таб на этом экране
   useLayoutEffect(() => {

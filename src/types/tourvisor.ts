@@ -49,6 +49,10 @@ export interface Operator {
   fullName: string;
 }
 
+/** Допустимые mealId для GET /tours/search (Tourvisor API). */
+export const VALID_TOUR_MEAL_IDS = [2, 3, 4, 5, 7, 9] as const;
+export type TourMealId = (typeof VALID_TOUR_MEAL_IDS)[number];
+
 export interface Meal {
   id: number;
   name: string;

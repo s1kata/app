@@ -62,17 +62,12 @@ export default function ProfileIcon({ navigation, size = 40, showName = false }:
 
 
   const handlePress = () => {
-    // Навигация к Profile через главный стек навигатора
-    if (navigation.getParent) {
-      const parent = navigation.getParent();
-      if (parent) {
-        parent.navigate('Profile', { screen: 'ProfileMain' });
-      } else {
-        navigation.navigate('Profile', { screen: 'ProfileMain' });
-      }
-    } else {
-      navigation.navigate('Profile', { screen: 'ProfileMain' });
+    const tabNav = navigation.getParent?.();
+    if (tabNav?.navigate) {
+      tabNav.navigate('Profile', { screen: 'ProfileMain' });
+      return;
     }
+    navigation.navigate('Profile', { screen: 'ProfileMain' });
   };
 
   return (

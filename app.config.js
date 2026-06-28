@@ -8,7 +8,10 @@ require('dotenv').config({ path: path.join(__dirname, '.env.local'), override: t
  */
 const runtimeEnv = (process.env.EAS_BUILD_PROFILE || process.env.APP_ENV || '').toLowerCase();
 const isProductionLike = runtimeEnv === 'production' || runtimeEnv === 'preview';
+const updateChannel = (process.env.EAS_BUILD_PROFILE || process.env.APP_ENV || 'development').toLowerCase();
 const websiteBaseUrl = (process.env.WEBSITE_BASE_URL || process.env.EXPO_PUBLIC_WEBSITE_BASE_URL || "https://travelhub63.ru").replace(/\/+$/, "");
+// VIP app icon source vector: ./assets/icons/icon-vip.svg (экспортируйте в PNG 1024x1024 для stores).
+const appIconPng = "./assets/icons/1024x1024.png";
 /** Все запросы Tourvisor из приложения только через PHP-прокси на сайте (токен только на сервере). */
 const tourvisorPassthroughUrl = `${websiteBaseUrl}/api/tourvisor-mobile`;
 const hasSentryUploadCreds =
@@ -40,15 +43,15 @@ module.exports = {
     name: "TravelHub",
     slug: "travelhub",
     owner: (process.env.EXPO_OWNER || "s1kata12").trim(),
-    version: "1.0.0",
+    version: "1.0.1",
     scheme: "travelhub",
     orientation: "portrait",
     userInterfaceStyle: "automatic",
-    icon: "./assets/icons/1024x1024.png",
+    icon: appIconPng,
     splash: {
-      image: "./assets/icons/1024x1024.png",
+      image: appIconPng,
       resizeMode: "contain",
-      backgroundColor: "#0066CC"
+      backgroundColor: "#0a0a0f"
     },
     assetBundlePatterns: [
       "**/*"
@@ -56,8 +59,8 @@ module.exports = {
     ios: {
       supportsTablet: true,
       bundleIdentifier: "com.travelhub.app",
-      icon: "./assets/icons/1024x1024.png",
-      buildNumber: "3",
+      icon: appIconPng,
+      buildNumber: "4",
       infoPlist: {
         // RU + EN в одной строке — ревью App Store / TestFlight и пользователи EN-системы
         NSLocationWhenInUseUsageDescription:
@@ -70,13 +73,13 @@ module.exports = {
     },
     android: {
       package: "com.travelhub.app",
-      versionCode: 3,
+      versionCode: 4,
       usesCleartextTraffic: !isProductionLike,
       adaptiveIcon: {
         foregroundImage: "./assets/icons/1024x1024.png",
-        backgroundColor: "#0066CC"
+        backgroundColor: "#0a0a0f"
       },
-      icon: "./assets/icons/1024x1024.png",
+      icon: appIconPng,
       /** Только то, что использует код (expo-location). Камера/галерея не подключены — не запрашиваем лишние разрешения. */
       permissions: ["ACCESS_FINE_LOCATION", "ACCESS_COARSE_LOCATION"]
     },
@@ -85,7 +88,7 @@ module.exports = {
       [
         "expo-notifications",
         {
-          icon: "./assets/icons/1024x1024.png",
+          icon: appIconPng,
           color: "#0066CC",
           sounds: []
         }
@@ -104,7 +107,11 @@ module.exports = {
     ...(easProjectId
       ? {
           updates: {
-            url: `https://u.expo.dev/${easProjectId}`
+            url: `https://u.expo.dev/${easProjectId}`,
+            // Убираем 400 "channel-name required" в standalone/release билдах
+            requestHeaders: {
+              "expo-channel-name": updateChannel,
+            },
           }
         }
       : {}),
