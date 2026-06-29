@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import * as SplashScreen from 'expo-splash-screen';
 import { db } from '../config/firebase';
 import { firestoreSyncService } from '../services/FirestoreSyncService';
 import { networkService } from '../services/NetworkService';
@@ -10,7 +9,6 @@ import { logger } from '../utils/logger';
 import { useLifecycleLog } from './useLifecycleLog';
 
 const NOTIFY_DELAY_MS = 2000;
-const SPLASH_FALLBACK_MS = 5000;
 
 /**
  * Разносит тяжёлую инициализацию приложения из App.tsx: сеть, CRM-очередь, фоновая синхронизация, уведомления.
@@ -32,10 +30,6 @@ export function useAppInit() {
       messageService.initialize().catch((e) => logger.warn('message init:', e));
     }, NOTIFY_DELAY_MS);
 
-    const splashFallback = setTimeout(() => {
-      SplashScreen.hideAsync().catch(() => {});
-    }, SPLASH_FALLBACK_MS);
-
     if (db) {
       firestoreSyncService.start();
     }
@@ -44,7 +38,6 @@ export function useAppInit() {
 
     return () => {
       clearTimeout(timer);
-      clearTimeout(splashFallback);
       notificationService.cleanup();
       if (db) {
         firestoreSyncService.stop();
@@ -54,14 +47,6 @@ export function useAppInit() {
   }, []);
 
   const [hasCheckedPermission, setHasCheckedPermission] = useState(false);
-
-  useEffect(() => {
-    if (!hasCheckedPermission) return;
-    const t = setTimeout(() => {
-      SplashScreen.hideAsync().catch(() => {});
-    }, 100);
-    return () => clearTimeout(t);
-  }, [hasCheckedPermission]);
 
   const markPermissionChecked = useCallback(() => {
     setHasCheckedPermission(true);

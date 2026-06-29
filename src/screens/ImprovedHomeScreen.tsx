@@ -18,6 +18,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import ScreenContainer from '../config/ScreenContainer';
 import { spacing, radius, shadows } from '../config/designSystem';
+import AppLogo from '../components/AppLogo';
 import { AuthService } from '../services/AuthService';
 import { i18n } from '../config/i18n';
 import { RELEASE_HIDE_NEXT_PATCH_UI } from '../config/releaseUiFlags';
@@ -25,11 +26,9 @@ import { useAppContext } from '../contexts/AppContext';
 import { adaptive, BREAKPOINTS } from '../utils/adaptive';
 import { platform } from '../utils/platform';
 import ApiTourHotelSearch from '../components/ApiTourHotelSearch';
-import ProfileIcon from '../components/ProfileIcon';
 import WeatherWidget from '../components/WeatherWidget';
 import { locationService, LocationData } from '../services/LocationService';
 import { logger } from '../utils/logger';
-import * as SplashScreen from 'expo-splash-screen';
 
 export default function ImprovedHomeScreen({ navigation }: any) {
   const { isAuthenticated, user, theme, themeMode, updateCounter } = useAppContext();
@@ -48,11 +47,6 @@ export default function ImprovedHomeScreen({ navigation }: any) {
     return () => {
       homeScreenMountedRef.current = false;
     };
-  }, []);
-
-  // Скрываем нативный сплэш при монтировании (защита от белого экрана)
-  useEffect(() => {
-    SplashScreen.hideAsync().catch(() => {});
   }, []);
 
   // Адаптивные размеры (useWindowDimensions для реакции на поворот экрана)
@@ -306,24 +300,16 @@ export default function ImprovedHomeScreen({ navigation }: any) {
                   </View>
                 </TouchableOpacity>
               )}
+              {isAuthenticated && (
+                <View style={dynamicStyles.brandMark}>
+                  <AppLogo size={44} bordered borderColor={theme.primary} backgroundColor={theme.surface} />
+                </View>
+              )}
             </View>
-            <View style={[dynamicStyles.headerRight, { backgroundColor: theme.card }]}>
-              <ProfileIcon navigation={navigation} size={44} showName={true} />
+            <View style={dynamicStyles.headerRight}>
+              <WeatherWidget location={userLocation} onRefresh={loadUserLocation} />
             </View>
           </View>
-        </View>
-
-        {/* Weather Widget - positioned on the left top side, semicircular */}
-        <View style={{
-          position: 'absolute',
-          top: 0,
-          left: 0,
-          zIndex: 10,
-        }}>
-          <WeatherWidget 
-            location={userLocation}
-            onRefresh={loadUserLocation}
-          />
         </View>
 
         {/* API Tour & Hotel Search */}
@@ -416,7 +402,12 @@ export default function ImprovedHomeScreen({ navigation }: any) {
               </Text>
             </View>
             <TouchableOpacity onPress={() => navigation.navigate('Reviews')}>
-              <Text style={[dynamicStyles.seeAll, { color: theme.primary, fontSize: 16, fontWeight: '600' }]}>{i18n.t('home.seeAll')} →</Text>
+              <View style={dynamicStyles.seeAllWrap}>
+                <Text style={[dynamicStyles.seeAll, { color: theme.primary, fontSize: 16, fontWeight: '600' }]}>
+                  {i18n.t('home.seeAll')}
+                </Text>
+                <Ionicons name="chevron-forward" size={16} color={theme.primary} />
+              </View>
             </TouchableOpacity>
           </View>
           <ScrollView
@@ -598,7 +589,7 @@ export default function ImprovedHomeScreen({ navigation }: any) {
                 ]}
               >
                 <View style={dynamicStyles.welcomeIconGradient}>
-                  <Ionicons name="airplane" size={48} color={theme.surface} />
+                  <AppLogo size={78} bordered borderColor={theme.primary} backgroundColor={theme.surface} />
                 </View>
               </Animated.View>
               
@@ -609,7 +600,7 @@ export default function ImprovedHomeScreen({ navigation }: any) {
                   {userName === i18n.t('profile.guest') || userName === 'Guest' || userName === 'Гость'
                     ? i18n.t('profile.guest')
                     : userName}
-                  ! 👋
+                  !
                 </Text>
                 <Text style={[dynamicStyles.welcomeTitle, { color: theme.text }]}>
                   {i18n.t('welcome.readyAdventures')}
@@ -645,6 +636,9 @@ const getStyles = (SCREEN_WIDTH: number, isMediumScreen: boolean) => StyleSheet.
   },
   headerLeft: {
     flex: 1,
+  },
+  brandMark: {
+    alignSelf: 'flex-start',
   },
   headerRight: {
     marginLeft: 16,
@@ -939,6 +933,11 @@ const getStyles = (SCREEN_WIDTH: number, isMediumScreen: boolean) => StyleSheet.
     fontSize: 15,
     fontWeight: '600',
     // Цвет применяется динамически через theme
+  },
+  seeAllWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
   },
   promoBanner: {
     borderRadius: radius.xl,

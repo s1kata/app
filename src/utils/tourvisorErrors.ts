@@ -12,6 +12,9 @@ export function mapTourvisorHttpError(status: number, body: string): string {
     return 'Сервис временно недоступен. Попробуйте позже.';
   }
   if (status === 404) {
+    if (lower.includes('search not found')) {
+      return 'Сессия поиска устарела. Повторите поиск.';
+    }
     return 'Туры не найдены. Попробуйте другие параметры.';
   }
   if (status >= 500) {

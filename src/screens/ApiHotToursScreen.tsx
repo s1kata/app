@@ -637,7 +637,7 @@ export default function ApiHotToursScreen({ navigation, route }: ApiHotToursScre
 
     return (
       <TouchableOpacity
-        style={[styles.tourCard, { backgroundColor: '#FFFFFF', borderColor: 'rgba(255, 255, 255, 0.18)' }]}
+        style={[styles.tourCard, { backgroundColor: theme.card, borderColor: theme.border }]}
         onPress={() => {
           cacheTourFromSearchResult(item, firstTour, firstTour.currency || 'RUB').catch(() => {});
           navigation.navigate('ApiTourDetails', {
@@ -678,30 +678,30 @@ export default function ApiHotToursScreen({ navigation, route }: ApiHotToursScre
 
         <View style={styles.tourDetails}>
           <View style={styles.detailRow}>
-            <Ionicons name="location" size={16} color={'#6E6E73'} />
-            <Text style={[styles.detailText, { color: '#6E6E73' }]}>
+            <Ionicons name="location" size={16} color={theme.secondaryText} />
+            <Text style={[styles.detailText, { color: theme.secondaryText }]}>
               {item.country.name}
             </Text>
           </View>
 
           <View style={styles.detailRow}>
-            <Ionicons name="calendar" size={16} color={'#6E6E73'} />
-            <Text style={[styles.detailText, { color: '#6E6E73' }]}>
+            <Ionicons name="calendar" size={16} color={theme.secondaryText} />
+            <Text style={[styles.detailText, { color: theme.secondaryText }]}>
               {formatDate(firstTour.date)} • {firstTour.nights} {i18n.t('search.nights')}
             </Text>
           </View>
 
           <View style={styles.detailRow}>
-            <Ionicons name="restaurant" size={16} color={'#6E6E73'} />
-            <Text style={[styles.detailText, { color: '#6E6E73' }]}>
+            <Ionicons name="restaurant" size={16} color={theme.secondaryText} />
+            <Text style={[styles.detailText, { color: theme.secondaryText }]}>
               {firstTour.meal.russianName}
             </Text>
           </View>
         
         {item.tours.length > 1 && (
           <View style={styles.detailRow}>
-            <Ionicons name="options" size={16} color={'#0066CC'} />
-            <Text style={[styles.detailText, { color: '#0066CC' }]}>
+            <Ionicons name="options" size={16} color={theme.primary} />
+            <Text style={[styles.detailText, { color: theme.primary }]}>
               {i18n.t('hotTours.moreTours')} {item.tours.length - 1} {item.tours.length - 1 === 1 ? i18n.t('hotTours.moreToursOne') : i18n.t('hotTours.moreToursMany')}
             </Text>
           </View>
@@ -710,7 +710,7 @@ export default function ApiHotToursScreen({ navigation, route }: ApiHotToursScre
 
       <View style={styles.priceSection}>
         <View style={styles.priceContainer}>
-          <Text style={[styles.currentPrice, { color: '#0066CC' }]}>
+          <Text style={[styles.currentPrice, { color: theme.primary }]}>
             {i18n.t('hotTours.from')} {formatPrice(minPrice, firstTour.currency || 'RUB')}
           </Text>
         </View>
@@ -730,11 +730,11 @@ export default function ApiHotToursScreen({ navigation, route }: ApiHotToursScre
   ]);
 
   const renderFilters = () => (
-    <View style={[styles.filtersContainer, { backgroundColor: '#FFFFFF' }]}>
+    <View style={[styles.filtersContainer, { backgroundColor: theme.card }]}>
       <View style={styles.filterHeader}>
-        <Text style={[styles.filterTitle, { color: '#1D1D1F' }]}>{i18n.t('hotTours.filters')}</Text>
+        <Text style={[styles.filterTitle, { color: theme.text }]}>{i18n.t('hotTours.filters')}</Text>
         <TouchableOpacity onPress={clearFilters} activeOpacity={0.7}>
-          <Text style={[styles.clearFiltersText, { color: '#0066CC' }]}>{i18n.t('hotTours.resetFilters')}</Text>
+          <Text style={[styles.clearFiltersText, { color: theme.primary }]}>{i18n.t('hotTours.resetFilters')}</Text>
         </TouchableOpacity>
       </View>
 
@@ -747,8 +747,8 @@ export default function ApiHotToursScreen({ navigation, route }: ApiHotToursScre
               style={[
                 styles.countryChip,
                 {
-                  backgroundColor: isSelected ? '#0066CC' : '#3399FF',
-                  borderColor: 'rgba(255, 255, 255, 0.18)'
+                  backgroundColor: isSelected ? theme.primary : theme.secondaryBackground,
+                  borderColor: theme.border
                 }
               ]}
               onPress={() => toggleCountryFilter(country)}
@@ -756,7 +756,7 @@ export default function ApiHotToursScreen({ navigation, route }: ApiHotToursScre
             >
               <Text style={[
                 styles.countryChipText,
-                { color: isSelected ? '#fff' : '#1D1D1F' }
+                { color: isSelected ? theme.surface : theme.text }
               ]}>
                 {country.name}
               </Text>
@@ -792,14 +792,14 @@ export default function ApiHotToursScreen({ navigation, route }: ApiHotToursScre
       />
 
       {/* Header */}
-      <View style={[styles.header, { backgroundColor: '#FFFFFF', borderBottomColor: 'rgba(255, 255, 255, 0.18)' }]}>
+      <View style={[styles.header, { backgroundColor: theme.card, borderBottomColor: theme.border }]}>
         <TouchableOpacity
           onPress={() => navigation.goBack()}
           style={styles.backButton}
         >
-          <Ionicons name="arrow-back" size={24} color={'#1D1D1F'} />
+          <Ionicons name="arrow-back" size={24} color={theme.text} />
         </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: '#1D1D1F' }]}>
+        <Text style={[styles.headerTitle, { color: theme.text }]} numberOfLines={1}>
           {route?.params?.countryName ? `${i18n.t('hotTours.titleCountry')} ${route.params.countryName}` : i18n.t('hotTours.title')}
         </Text>
         <View style={styles.headerRight}>
@@ -809,7 +809,7 @@ export default function ApiHotToursScreen({ navigation, route }: ApiHotToursScre
               onPress={openHotToursMap}
               activeOpacity={0.7}
             >
-              <Ionicons name="map" size={22} color={'#0066CC'} />
+              <Ionicons name="map" size={22} color={theme.primary} />
             </TouchableOpacity>
           )}
           <TouchableOpacity
@@ -820,27 +820,27 @@ export default function ApiHotToursScreen({ navigation, route }: ApiHotToursScre
             <Ionicons
               name="filter"
               size={22}
-              color={showFilters ? '#0066CC' : '#1D1D1F'}
+              color={showFilters ? theme.primary : theme.text}
             />
           </TouchableOpacity>
         </View>
       </View>
 
       {/* Departure Selector */}
-      <View style={[styles.departureSelector, { backgroundColor: '#FFFFFF' }]}>
-        <Text style={[styles.selectorLabel, { color: '#6E6E73' }]}>Город вылета</Text>
+      <View style={[styles.departureSelector, { backgroundColor: theme.card }]}>
+        <Text style={[styles.selectorLabel, { color: theme.secondaryText }]}>Город вылета</Text>
         <TouchableOpacity
-          style={[styles.selector, { borderColor: 'rgba(255, 255, 255, 0.18)' }]}
+          style={[styles.selector, { borderColor: theme.border }]}
           onPress={() => {
             // Could implement departure selection modal here
             Alert.alert(i18n.t('info.departureMoscow'), i18n.t('info.departureMoscowDesc'));
           }}
           activeOpacity={0.7}
         >
-          <Text style={[styles.selectorText, { color: '#1D1D1F' }]}>
+          <Text style={[styles.selectorText, { color: theme.text }]}>
             {selectedDeparture?.name || i18n.t('hotTours.selectCity')}
           </Text>
-          <Ionicons name="chevron-down" size={20} color={'#6E6E73'} />
+          <Ionicons name="chevron-down" size={20} color={theme.secondaryText} />
         </TouchableOpacity>
       </View>
 
@@ -848,8 +848,8 @@ export default function ApiHotToursScreen({ navigation, route }: ApiHotToursScre
       {showFilters && renderFilters()}
 
       {/* Results Count */}
-      <View style={[styles.resultsHeader, { backgroundColor: '#F0F2F5' }]}>
-        <Text style={[styles.resultsText, { color: '#6E6E73' }]}>
+      <View style={[styles.resultsHeader, { backgroundColor: theme.secondaryBackground }]}>
+        <Text style={[styles.resultsText, { color: theme.secondaryText }]}>
           {i18n.t('hotTours.foundLine')}: {hotTours.length}
         </Text>
         {hotTours.length > 0 && (
@@ -858,8 +858,8 @@ export default function ApiHotToursScreen({ navigation, route }: ApiHotToursScre
             onPress={openHotToursMap}
             activeOpacity={0.7}
           >
-            <Ionicons name="map" size={18} color={'#0066CC'} />
-            <Text style={[styles.mapButtonText, { color: '#0066CC' }]}>{i18n.t('hotTours.onMap')}</Text>
+            <Ionicons name="map" size={18} color={theme.primary} />
+            <Text style={[styles.mapButtonText, { color: theme.primary }]}>{i18n.t('hotTours.onMap')}</Text>
           </TouchableOpacity>
         )}
       </View>
@@ -867,8 +867,8 @@ export default function ApiHotToursScreen({ navigation, route }: ApiHotToursScre
       {/* Tours List */}
       {isLoading ? (
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={'#0066CC'} />
-          <Text style={[styles.loadingText, { color: '#1D1D1F' }]}>
+          <ActivityIndicator size="large" color={theme.primary} />
+          <Text style={[styles.loadingText, { color: theme.text }]}>
             {i18n.t('search.loading')}
           </Text>
         </View>
@@ -887,13 +887,13 @@ export default function ApiHotToursScreen({ navigation, route }: ApiHotToursScre
           windowSize={6}
           ListEmptyComponent={
             <View style={styles.emptyContainer}>
-              <Ionicons name="airplane-outline" size={48} color={'#6E6E73'} />
-              <Text style={[styles.emptyText, { color: '#6E6E73' }]}>
+              <Ionicons name="airplane-outline" size={48} color={theme.secondaryText} />
+              <Text style={[styles.emptyText, { color: theme.secondaryText }]}>
                 {hasFailedOnce && route?.params?.countryId 
                   ? i18n.t('search.errorLoad') 
                   : i18n.t('tours.notFoundShort')}
               </Text>
-              <Text style={[styles.emptySubtext, { color: '#6E6E73' }]}>
+              <Text style={[styles.emptySubtext, { color: theme.secondaryText }]}>
                 {hasFailedOnce && route?.params?.countryId
                   ? i18n.t('errors.checkApiToken')
                   : i18n.t('errors.tryChangeFilters')}

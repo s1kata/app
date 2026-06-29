@@ -25,6 +25,7 @@ import { Booking } from '../types/index';
 import { logger } from '../utils/logger';
 import { logIosTestStep, IosTestStep } from '../utils/iosTestFlows';
 import { registerBookingsReloadHandler } from '../utils/paymentBookingsReload';
+import { shadows, typography, surfaces } from '../config/designSystem';
 
 export default function BookingsScreen({ navigation }: any) {
   const { user, theme } = useAppContext();
@@ -522,6 +523,7 @@ export default function BookingsScreen({ navigation }: any) {
 
       <ScrollView
         showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.scrollContent}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }
@@ -644,7 +646,9 @@ export default function BookingsScreen({ navigation }: any) {
                       <View style={[styles.priceRow, { borderTopColor: theme.border }]}>
                         <View>
                           <Text style={[styles.priceLabel, { color: theme.secondaryText }]}>{i18n.t('bookings.cost')}</Text>
-                          <Text style={[styles.price]}>{formatPrice(booking.totalPrice)} {booking.currency}</Text>
+                          <Text style={[styles.price, { color: theme.primary }]}>
+                            {formatPrice(booking.totalPrice)} {booking.currency}
+                          </Text>
                         </View>
                         {snap?.operatorName && (
                           <View style={[styles.operatorBadge, { backgroundColor: theme.primary + '15' }]}>
@@ -655,7 +659,7 @@ export default function BookingsScreen({ navigation }: any) {
 
                       {booking.paymentStatus !== 'paid' && booking.status !== 'cancelled' && (
                         <TouchableOpacity
-                          style={styles.payButton}
+                          style={[styles.payButton, { backgroundColor: theme.accent }]}
                           onPress={() => handlePayBooking(booking)}
                           disabled={!!payingBookingId}
                           activeOpacity={0.8}
@@ -753,6 +757,9 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
+  scrollContent: {
+    paddingBottom: 112,
+  },
   header: {
     paddingHorizontal: 20,
     paddingVertical: 16,
@@ -769,11 +776,7 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
   },
-  headerTitle: {
-    fontSize: 24,
-    fontWeight: '800',
-    letterSpacing: -0.5,
-  },
+  headerTitle: typography.h1,
   headerSubtitle: {
     fontSize: 14,
     marginTop: 4,
@@ -827,13 +830,9 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   bookingCard: {
-    borderRadius: 16,
+    borderRadius: surfaces.cardRadius,
     overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.07,
-    shadowRadius: 10,
-    elevation: 3,
+    ...shadows.cardRaised,
   },
   imageContainer: {
     height: 180,
@@ -854,8 +853,7 @@ const styles = StyleSheet.create({
     padding: 14,
   },
   hotelName: {
-    fontSize: 17,
-    fontWeight: '700',
+    ...typography.h3,
     marginBottom: 8,
   },
   legStatusBlock: {
@@ -927,11 +925,7 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginBottom: 2,
   },
-  price: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#0066CC',
-  },
+  price: typography.h2,
   operatorBadge: {
     paddingHorizontal: 10,
     paddingVertical: 5,
@@ -949,7 +943,7 @@ const styles = StyleSheet.create({
     marginTop: 12,
     height: 44,
     borderRadius: 12,
-    backgroundColor: '#0066CC',
+    ...shadows.buttonCta,
   },
   payButtonText: {
     fontSize: 15,

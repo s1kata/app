@@ -8,14 +8,11 @@ import {
   Alert,
   KeyboardAvoidingView,
   ScrollView,
-  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
-import * as SplashScreen from 'expo-splash-screen';
 import { platform } from '../utils/platform';
 import { Ionicons } from '@expo/vector-icons';
-import { AuthService } from '../services/AuthService';
 import { useAppContext } from '../contexts/AppContext';
 import { i18n } from '../config/i18n';
 import { validateEmail, validatePassword } from '../utils/validation';
@@ -25,10 +22,7 @@ import { runAuthDiagnostics } from '../utils/authDiagnostics';
 import PercentageLoader from '../components/PercentageLoader';
 import { adaptive } from '../utils/adaptive';
 import { radius, shadows } from '../config/designSystem';
-
-interface LoginScreenProps {
-  navigation: any;
-}
+import { PrimaryButton } from '../components/ui';
 
 export default function LoginScreen({ navigation, route }: any) {
   const { login, loginAsGuest, theme, isDark } = useAppContext();
@@ -38,11 +32,6 @@ export default function LoginScreen({ navigation, route }: any) {
   const [showLoader, setShowLoader] = useState(false);
   const [loaderProgress, setLoaderProgress] = useState(0);
   const progressInterval = useRef<ReturnType<typeof setInterval> | null>(null);
-  
-  // Скрываем нативный сплэш при монтировании (защита от белого экрана)
-  useEffect(() => {
-    SplashScreen.hideAsync().catch(() => {});
-  }, []);
 
   // Диагностика входа в dev-сборке (сеть, Firebase, опционально тестовый login)
   useEffect(() => {
@@ -165,21 +154,10 @@ export default function LoginScreen({ navigation, route }: any) {
           keyboardDismissMode="on-drag"
         >
           <View style={styles.content}>
-          {/* Logo Section */}
-          <View style={styles.logoSection}>
-            <View style={styles.logoContainer}>
-              <View
-                style={[styles.logoCircle, { shadowColor: theme.primary, backgroundColor: theme.primary }]}
-              >
-                <Ionicons name="airplane" size={40} color={theme.surface} />
-              </View>
-            </View>
+          {/* Form Section */}
+          <View style={[styles.form, { backgroundColor: theme.card, borderColor: theme.border }]}>
             <Text style={[styles.title, { color: theme.text }]}>TravelHub</Text>
             <Text style={[styles.subtitle, { color: theme.secondaryText }]}>{i18n.t('auth.welcome')}</Text>
-          </View>
-
-          {/* Form Section */}
-          <View style={styles.form}>
             <View style={[styles.inputContainer, { backgroundColor: theme.card, borderColor: theme.border }]}>
               <Ionicons name="mail-outline" size={20} color={theme.secondaryText} style={styles.inputIcon} />
               <TextInput
@@ -206,23 +184,14 @@ export default function LoginScreen({ navigation, route }: any) {
               />
             </View>
 
-            <TouchableOpacity
-              style={[styles.primaryButton, { shadowColor: theme.primary }, loading && styles.buttonDisabled]}
+            <PrimaryButton
+              title={i18n.t('auth.login')}
               onPress={handleLogin}
-              disabled={loading}
-              activeOpacity={0.8}
-            >
-              <View style={[styles.buttonGradient, { backgroundColor: theme.primary }]}>
-                {loading ? (
-                  <ActivityIndicator color={theme.surface} />
-                ) : (
-                  <>
-                    <Text style={[styles.buttonText, { color: theme.surface }]}>{i18n.t('auth.login')}</Text>
-                    <Ionicons name="arrow-forward" size={20} color={theme.surface} />
-                  </>
-                )}
-              </View>
-            </TouchableOpacity>
+              loading={loading}
+              variant="cta"
+              iconLeft={<Ionicons name="arrow-forward" size={20} color={theme.surface} />}
+              style={styles.primaryButton}
+            />
 
             <TouchableOpacity
               style={styles.forgotPasswordButton}
@@ -247,7 +216,13 @@ export default function LoginScreen({ navigation, route }: any) {
                   activeOpacity={0.8}
                 >
                   <Ionicons name="person-outline" size={20} color={theme.primary} />
-                  <Text style={[styles.secondaryButtonText, { color: theme.primary }]}>{i18n.t('login.guestLogin')}</Text>
+                  <Text
+                    style={[styles.secondaryButtonText, { color: theme.primary }]}
+                    numberOfLines={1}
+                    ellipsizeMode="tail"
+                  >
+                    {i18n.t('login.guestLogin')}
+                  </Text>
                 </TouchableOpacity>
               </>
             )}
@@ -291,35 +266,23 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingTop: 60,
   },
-  logoSection: {
-    alignItems: 'center',
-    marginBottom: 48,
-  },
-  logoContainer: {
-    marginBottom: 24,
-  },
-  logoCircle: {
-    width: adaptive.image.small,
-    height: adaptive.image.small,
-    borderRadius: adaptive.image.small / 2,
-    justifyContent: 'center',
-    alignItems: 'center',
-    ...shadows.card,
-  },
   title: {
-    fontSize: adaptive.fontSize.display(),
+    fontSize: adaptive.fontSize.subtitle(),
     fontWeight: '700',
-    textAlign: 'center',
-    marginBottom: 8,
+    marginBottom: 6,
     letterSpacing: -0.5,
   },
   subtitle: {
-    fontSize: adaptive.fontSize.body(),
-    textAlign: 'center',
+    fontSize: adaptive.fontSize.caption(),
     fontWeight: '400',
+    marginBottom: 16,
   },
   form: {
     width: '100%',
+    borderRadius: radius.xl,
+    borderWidth: 1,
+    padding: 18,
+    ...shadows.cardRaised,
   },
   inputContainer: {
     flexDirection: 'row',
@@ -343,25 +306,7 @@ const styles = StyleSheet.create({
     fontSize: adaptive.fontSize.body(),
   },
   primaryButton: {
-    borderRadius: adaptive.borderRadius.large,
     marginTop: 8,
-    overflow: 'hidden',
-    ...shadows.button,
-  },
-  buttonGradient: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 18,
-    gap: 8,
-  },
-  buttonDisabled: {
-    opacity: 0.6,
-  },
-  buttonText: {
-    fontSize: adaptive.fontSize.subtitle(),
-    fontWeight: '600',
-    letterSpacing: 0.3,
   },
   forgotPasswordButton: {
     marginTop: 20,
@@ -394,10 +339,12 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     paddingVertical: 16,
     gap: 8,
+    paddingHorizontal: 14,
   },
   secondaryButtonText: {
     fontSize: adaptive.fontSize.body(),
     fontWeight: '600',
+    flexShrink: 1,
   },
   linkButton: {
     marginTop: 24,

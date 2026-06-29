@@ -68,7 +68,7 @@ export default function WeatherWidget({ location, onRefresh }: WeatherWidgetProp
   };
 
   const getWeatherIcon = (iconCode: string): string => {
-    // Маппинг иконок OpenWeatherMap на Ionicons
+    // Иконки для кодов Open-Meteo/WMO (бесплатный API, без токена)
     if (iconCode.includes('01')) return 'sunny'; // ясно
     if (iconCode.includes('02')) return 'partly-sunny'; // переменная облачность
     if (iconCode.includes('03') || iconCode.includes('04')) return 'cloudy'; // облачно

@@ -8,7 +8,6 @@ import {
   Alert,
   KeyboardAvoidingView,
   ScrollView,
-  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
@@ -16,6 +15,9 @@ import { platform } from '../utils/platform';
 import { Ionicons } from '@expo/vector-icons';
 import { AuthService } from '../services/AuthService';
 import { useAppContext } from '../contexts/AppContext';
+import AppLogo from '../components/AppLogo';
+import { PrimaryButton } from '../components/ui';
+import { radius, shadows } from '../config/designSystem';
 
 interface ForgotPasswordScreenProps {
   navigation: any;
@@ -88,19 +90,16 @@ export default function ForgotPasswordScreen({ navigation }: ForgotPasswordScree
             <Ionicons name="arrow-back" size={24} color={theme.primary} />
           </TouchableOpacity>
 
-          {/* Иконка */}
-          <View style={[styles.iconContainer, { backgroundColor: theme.card }]}>
-            <Ionicons name="lock-closed-outline" size={60} color={theme.primary} />
+          <View style={[styles.iconContainer, { backgroundColor: theme.secondaryBackground, borderColor: theme.border }]}>
+            <AppLogo size={72} bordered borderColor={theme.primary} backgroundColor={theme.surface} />
           </View>
 
-          {/* Заголовок */}
-          <Text style={[styles.title, { color: theme.text }]}>Забыли пароль?</Text>
-          <Text style={[styles.subtitle, { color: theme.secondaryText }]}>
-            Введите ваш email, и мы отправим вам код для сброса пароля
-          </Text>
-
-          {/* Форма */}
-          <View style={styles.form}>
+          <View style={[styles.formCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+            <Text style={[styles.title, { color: theme.text }]}>Забыли пароль?</Text>
+            <Text style={[styles.subtitle, { color: theme.secondaryText }]}>
+              Введите ваш email, и мы отправим вам код для сброса пароля
+            </Text>
+            <View style={styles.form}>
             <Text style={[styles.label, { color: theme.text }]}>Email</Text>
             <TextInput
               style={[
@@ -121,24 +120,14 @@ export default function ForgotPasswordScreen({ navigation }: ForgotPasswordScree
               editable={!loading}
             />
 
-            <TouchableOpacity
-              style={[
-                styles.button,
-                { backgroundColor: theme.primary },
-                loading && styles.buttonDisabled,
-              ]}
+            <PrimaryButton
+              title="Отправить код"
               onPress={handleSendResetLink}
-              disabled={loading}
-            >
-              {loading ? (
-                <ActivityIndicator color={theme.surface} />
-              ) : (
-                <>
-                  <Ionicons name="mail-outline" size={20} color={theme.surface} style={styles.buttonIcon} />
-                  <Text style={[styles.buttonText, { color: theme.surface }]}>Отправить код</Text>
-                </>
-              )}
-            </TouchableOpacity>
+              loading={loading}
+              variant="cta"
+              iconLeft={<Ionicons name="mail-outline" size={20} color={theme.surface} />}
+              style={styles.button}
+            />
 
             {/* Ссылка на вход */}
             <TouchableOpacity
@@ -150,6 +139,7 @@ export default function ForgotPasswordScreen({ navigation }: ForgotPasswordScree
                 <Text style={[styles.linkTextBold, { color: theme.primary }]}>Войти</Text>
               </Text>
             </TouchableOpacity>
+          </View>
           </View>
 
           {/* Информация */}
@@ -175,11 +165,15 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     flexGrow: 1,
+    paddingBottom: 36,
   },
   content: {
     flex: 1,
     padding: 24,
     paddingTop: 60,
+    width: '100%',
+    maxWidth: 560,
+    alignSelf: 'center',
   },
   backButton: {
     position: 'absolute',
@@ -196,6 +190,13 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignSelf: 'center',
     marginBottom: 24,
+    borderWidth: 1,
+  },
+  formCard: {
+    borderRadius: radius.xl,
+    borderWidth: 1,
+    padding: 20,
+    ...shadows.cardRaised,
   },
   title: {
     fontSize: 28,
@@ -206,8 +207,7 @@ const styles = StyleSheet.create({
   subtitle: {
     fontSize: 16,
     textAlign: 'center',
-    marginBottom: 32,
-    paddingHorizontal: 16,
+    marginBottom: 24,
     lineHeight: 24,
   },
   form: {
@@ -227,22 +227,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   button: {
-    borderRadius: 12,
-    padding: 16,
-    alignItems: 'center',
-    flexDirection: 'row',
-    justifyContent: 'center',
-  },
-  buttonDisabled: {
-    opacity: 0.6,
-  },
-  buttonIcon: {
-    marginRight: 8,
-  },
-  buttonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
+    marginTop: 2,
   },
   linkButton: {
     marginTop: 24,

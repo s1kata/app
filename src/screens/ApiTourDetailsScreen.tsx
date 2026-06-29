@@ -295,16 +295,16 @@ export default function ApiTourDetailsScreen({ navigation, route }: ApiTourDetai
     const chipTextColor = theme.primary;
 
     const infoChips = [
-      tour.date ? { icon: '📅', label: formatDate(tour.date) } : null,
-      tour.nights ? { icon: '🌙', label: `${tour.nights} ${i18n.t('tours.nightsShort')}` } : null,
+      tour.date ? { icon: 'calendar-outline', label: formatDate(tour.date) } : null,
+      tour.nights ? { icon: 'moon-outline', label: `${tour.nights} ${i18n.t('tours.nightsShort')}` } : null,
       (tour.adults > 0) ? {
-        icon: '👥',
+        icon: 'people-outline',
         label: `${tour.adults} ${i18n.t('tours.adultsShort')}${tour.childs > 0 ? ` + ${tour.childs} ${i18n.t('tours.childrenShort')}` : ''}`,
       } : null,
-      tour.meal?.name ? { icon: '🍽', label: tour.meal.name } : null,
-      tour.roomType ? { icon: '🏨', label: tour.roomType } : null,
-      tour.departure?.name ? { icon: '✈', label: tour.departure.name } : null,
-    ].filter(Boolean) as { icon: string; label: string }[];
+      tour.meal?.name ? { icon: 'restaurant-outline', label: tour.meal.name } : null,
+      tour.roomType ? { icon: 'bed-outline', label: tour.roomType } : null,
+      tour.departure?.name ? { icon: 'airplane-outline', label: tour.departure.name } : null,
+    ].filter(Boolean) as { icon: keyof typeof Ionicons.glyphMap; label: string }[];
 
     return (
       <View style={[styles.section, { backgroundColor: theme.card }]}>
@@ -342,7 +342,7 @@ export default function ApiTourDetailsScreen({ navigation, route }: ApiTourDetai
           >
             {infoChips.map((chip, i) => (
               <View key={i} style={[styles.infoChip, { backgroundColor: chipBg }]}>
-                <Text style={styles.chipIcon}>{chip.icon}</Text>
+                <Ionicons name={chip.icon} size={14} color={chipTextColor} />
                 <Text style={[styles.chipLabel, { color: chipTextColor }]}>{chip.label}</Text>
               </View>
             ))}

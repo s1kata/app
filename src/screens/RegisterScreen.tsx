@@ -8,7 +8,6 @@ import {
   Alert,
   KeyboardAvoidingView,
   ScrollView,
-  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { platform } from '../utils/platform';
@@ -17,6 +16,7 @@ import { useAppContext } from '../contexts/AppContext';
 import { i18n } from '../config/i18n';
 import { validateEmail, validatePassword, validateName } from '../utils/validation';
 import { logger } from '../utils/logger';
+import { PrimaryButton } from '../components/ui';
 
 interface RegisterScreenProps {
   navigation: any;
@@ -102,18 +102,18 @@ export default function RegisterScreen({ navigation, route }: RegisterScreenProp
           keyboardDismissMode="on-drag"
         >
           <View style={styles.content}>
-          <Text style={[styles.title, { color: theme.primary }]}>{i18n.t('auth.registration')}</Text>
-          <Text style={[styles.subtitle, { color: theme.secondaryText }]}>{i18n.t('auth.createAccount')}</Text>
+            <Text style={[styles.title, { color: theme.primary }]}>{i18n.t('auth.registration')}</Text>
+            <Text style={[styles.subtitle, { color: theme.secondaryText }]}>{i18n.t('auth.createAccount')}</Text>
 
-          <View style={styles.form}>
-            <TextInput
-              style={[styles.input, { backgroundColor: theme.card, borderColor: theme.border, color: theme.text }]}
-              placeholder={i18n.t('auth.name')}
-              placeholderTextColor={theme.secondaryText}
-              value={name}
-              onChangeText={setName}
-              autoCapitalize="words"
-            />
+            <View style={styles.form}>
+              <TextInput
+                style={[styles.input, { backgroundColor: theme.card, borderColor: theme.border, color: theme.text }]}
+                placeholder={i18n.t('auth.name')}
+                placeholderTextColor={theme.secondaryText}
+                value={name}
+                onChangeText={setName}
+                autoCapitalize="words"
+              />
 
             <TextInput
               style={[styles.input, { backgroundColor: theme.card, borderColor: theme.border, color: theme.text }]}
@@ -145,27 +145,23 @@ export default function RegisterScreen({ navigation, route }: RegisterScreenProp
               autoCapitalize="none"
             />
 
-            <TouchableOpacity
-              style={[styles.button, { backgroundColor: theme.primary }, loading && styles.buttonDisabled]}
-              onPress={handleRegister}
-              disabled={loading}
-            >
-              {loading ? (
-                <ActivityIndicator color={theme.surface} />
-              ) : (
-                <Text style={[styles.buttonText, { color: theme.surface }]}>{i18n.t('auth.register')}</Text>
-              )}
-            </TouchableOpacity>
+              <PrimaryButton
+                title={i18n.t('auth.register')}
+                onPress={handleRegister}
+                loading={loading}
+                variant="cta"
+                style={styles.button}
+              />
 
-            <TouchableOpacity
-              style={styles.linkButton}
-              onPress={() => navigation.navigate('Login')}
-            >
-              <Text style={[styles.linkText, { color: theme.secondaryText }]}>
-                {i18n.t('auth.haveAccount')} <Text style={[styles.linkTextBold, { color: theme.primary }]}>{i18n.t('auth.login')}</Text>
-              </Text>
-            </TouchableOpacity>
-          </View>
+              <TouchableOpacity
+                style={styles.linkButton}
+                onPress={() => navigation.navigate('Login')}
+              >
+                <Text style={[styles.linkText, { color: theme.secondaryText }]}>
+                  {i18n.t('auth.haveAccount')} <Text style={[styles.linkTextBold, { color: theme.primary }]}>{i18n.t('auth.login')}</Text>
+                </Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -182,11 +178,15 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     flexGrow: 1,
+    paddingBottom: 36,
   },
   content: {
     flex: 1,
     padding: 24,
     justifyContent: 'center',
+    width: '100%',
+    maxWidth: 560,
+    alignSelf: 'center',
   },
   title: {
     fontSize: 32,
@@ -197,7 +197,7 @@ const styles = StyleSheet.create({
   subtitle: {
     fontSize: 18,
     textAlign: 'center',
-    marginBottom: 48,
+    marginBottom: 28,
   },
   form: {
     width: '100%',
@@ -210,18 +210,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   button: {
-    borderRadius: 12,
-    padding: 16,
-    alignItems: 'center',
     marginTop: 8,
-  },
-  buttonDisabled: {
-    opacity: 0.6,
-  },
-  buttonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
   },
   linkButton: {
     marginTop: 24,

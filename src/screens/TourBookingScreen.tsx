@@ -801,7 +801,10 @@ export default function TourBookingScreen({ navigation, route }: TourBookingScre
                 <Ionicons name="information-circle" size={22} color={theme.warning} />
                 <Text style={[styles.passportWarningText, { color: theme.text }]}>{i18n.t('booking.requirePersonalDataDesc')}</Text>
                 <TouchableOpacity onPress={() => navigation.navigate('Profile', { screen: 'PersonalData' })} style={styles.passportWarningLink}>
-                  <Text style={{ color: theme.primary, fontWeight: '600' }}>{i18n.t('profile.personalData')} →</Text>
+                  <View style={styles.personalDataLinkRow}>
+                    <Text style={{ color: theme.primary, fontWeight: '600' }}>{i18n.t('profile.personalData')}</Text>
+                    <Ionicons name="chevron-forward" size={16} color={theme.primary} />
+                  </View>
                 </TouchableOpacity>
               </View>
             )}
@@ -1172,6 +1175,11 @@ const styles = StyleSheet.create({
   },
   passportWarningLink: {
     paddingVertical: 4,
+  },
+  personalDataLinkRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
   },
   participantsRow: {
     flexDirection: 'row',

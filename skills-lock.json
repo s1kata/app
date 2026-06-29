@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "skills": {
+    "abusing-dpapi-for-credential-access": {
+      "source": "mukul975/Anthropic-Cybersecurity-Skills",
+      "sourceType": "github",
+      "skillPath": "skills/abusing-dpapi-for-credential-access/SKILL.md",
+      "computedHash": "b3eb595ec2d6b08d80156a72ba72a9f993d66933dac64eeb649eacaad77a4c7f"
+    }
+  }
+}

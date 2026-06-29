@@ -7,29 +7,26 @@ import {
   ScrollView,
   Alert,
   Modal,
-  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import { AuthService } from '../services/AuthService';
-import { pointsService } from '../services/PointsService';
 import { bonusService } from '../services/BonusService';
 import { bookingService } from '../services/BookingService';
 import { UserProfile } from '../types/firestore';
 import { useAppContext } from '../contexts/AppContext';
 import { i18n } from '../config/i18n';
 import { logger } from '../utils/logger';
-import { radius, shadows } from '../config/designSystem';
+import { radius, shadows, spacing, typography, surfaces } from '../config/designSystem';
 import { RELEASE_HIDE_PURCHASE_HISTORY } from '../config/releaseUiFlags';
 import { PrimaryButton } from '../components/ui';
+import AppLogo from '../components/AppLogo';
 
 export default function ProfileScreen({ navigation }: any) {
   const { logout, user, theme, isDark } = useAppContext();
   const [profile, setProfile] = useState<UserProfile | null>(null);
-  const [points, setPoints] = useState(0);
   const [bonusBalance, setBonusBalance] = useState(0);
-  const [tripCount, setTripCount] = useState(0);
   const [purchaseCount, setPurchaseCount] = useState(0);
   const [showLoginModal, setShowLoginModal] = useState(false);
   
@@ -61,9 +58,7 @@ export default function ProfileScreen({ navigation }: any) {
             lastLoginAt: new Date().toISOString(),
           };
           setProfile(guestProfile);
-          setPoints(0);
           setBonusBalance(0);
-          setTripCount(0);
           setPurchaseCount(0);
           return;
         }
@@ -93,7 +88,6 @@ export default function ProfileScreen({ navigation }: any) {
               lastLoginAt: new Date().toISOString(),
             };
         setProfile(basicProfile);
-        setPoints(0);
         setBonusBalance(0);
         setPurchaseCount(0);
         try {
@@ -101,13 +95,6 @@ export default function ProfileScreen({ navigation }: any) {
           setBonusBalance(balance);
         } catch {
           setBonusBalance(0);
-        }
-        try {
-          const bookings = await bookingService.getUserBookings(user.uid);
-          const confirmed = bookings.filter(b => b.status === 'confirmed' || b.status === 'completed');
-          setTripCount(confirmed.length);
-        } catch {
-          setTripCount(0);
         }
         try {
           const bookings = await bookingService.getUserBookings(user.uid);
@@ -132,9 +119,7 @@ export default function ProfileScreen({ navigation }: any) {
           lastLoginAt: new Date().toISOString(),
         };
         setProfile(basicProfile);
-        setPoints(0);
         setBonusBalance(0);
-        setTripCount(0);
         setPurchaseCount(0);
       }
     }
@@ -180,11 +165,11 @@ export default function ProfileScreen({ navigation }: any) {
       style={[styles.safeArea, { backgroundColor: theme.background }]}
     >
       <StatusBar style={isDark ? 'light' : 'dark'} />
-      <ScrollView style={[styles.scrollView, { backgroundColor: theme.background }]} showsVerticalScrollIndicator={false}>
-        <View style={[styles.header, { backgroundColor: theme.card }]}>
+      <ScrollView style={[styles.scrollView, { backgroundColor: theme.background }]} showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
+        <View style={[styles.header, { backgroundColor: theme.card, borderColor: theme.border }]}>
         <View style={styles.avatarContainer}>
           <View style={[styles.avatar, { backgroundColor: theme.secondaryBackground, borderColor: theme.primary }]}>
-            <Ionicons name="person" size={48} color={theme.primary} />
+            <AppLogo size={86} bordered borderColor={theme.primary} backgroundColor={theme.surface} />
           </View>
         </View>
 
@@ -227,7 +212,7 @@ export default function ProfileScreen({ navigation }: any) {
         )}
       </View>
 
-      <View style={[styles.section, { backgroundColor: theme.card, borderRadius: 16, overflow: 'hidden' }]}>
+      <View style={[styles.section, { backgroundColor: theme.card, borderRadius: surfaces.sectionRadius, overflow: 'hidden', borderColor: theme.border }]}>
         <Text style={[styles.sectionTitle, { color: theme.text }]}>{i18n.t('nav.profile')}</Text>
 
         {menuItems.map((item) => (
@@ -247,7 +232,7 @@ export default function ProfileScreen({ navigation }: any) {
         ))}
       </View>
 
-      <View style={[styles.section, { backgroundColor: theme.card, borderRadius: 16 }]}>
+      <View style={[styles.section, { backgroundColor: theme.card, borderRadius: surfaces.sectionRadius, borderColor: theme.border }]}>
         {isGuest ? (
           <PrimaryButton
             title={i18n.t('auth.login')}
@@ -327,11 +312,19 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollView: {
-    flexGrow: 1,
+    flex: 1,
+  },
+  scrollContent: {
+    paddingBottom: 120,
   },
   header: {
     alignItems: 'center',
     paddingVertical: 32,
+    marginHorizontal: 20,
+    marginTop: 12,
+    borderRadius: surfaces.sectionRadius,
+    borderWidth: 1,
+    ...shadows.cardRaised,
   },
   avatarContainer: {
     marginBottom: 16,
@@ -343,21 +336,21 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 3,
+    overflow: 'hidden',
   },
   name: {
-    fontSize: 24,
-    fontWeight: 'bold',
+    ...typography.h1,
     marginBottom: 4,
   },
   email: {
-    fontSize: 14,
+    ...typography.caption,
     marginBottom: 24,
   },
   statsContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    borderRadius: 16,
-    padding: 20,
+    borderRadius: surfaces.cardRadius,
+    padding: surfaces.cardPadding,
     marginHorizontal: 24,
   },
   statItem: {
@@ -365,24 +358,25 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   statValue: {
-    fontSize: 20,
-    fontWeight: 'bold',
+    ...typography.h2,
     marginBottom: 4,
   },
   statLabel: {
-    fontSize: 12,
+    ...typography.small,
   },
   statDivider: {
     width: 1,
     height: 40,
   },
   section: {
-    marginTop: 24,
-    paddingHorizontal: 24,
+    marginTop: spacing.lg,
+    marginHorizontal: spacing.lg,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    borderWidth: 1,
   },
   sectionTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
+    ...typography.h3,
     marginBottom: 16,
   },
   menuItem: {
@@ -418,6 +412,7 @@ const styles = StyleSheet.create({
   },
   actionButton: {
     marginBottom: 8,
+    width: '100%',
   },
   modalOverlay: {
     flex: 1,

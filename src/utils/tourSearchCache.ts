@@ -205,7 +205,11 @@ export function sanitizeTourHotelsFromCache(raw: unknown): TourHotel[] {
     if (typeof hotel.id !== 'number' || !hotel.name || !hotel.region?.name) continue;
     if (!Array.isArray(hotel.tours)) continue;
     const tours = hotel.tours.filter((t) => {
-      if (!t || typeof t.id !== 'number') return false;
+      if (!t) return false;
+      const hasTourId =
+        typeof t.id === 'number' ||
+        (typeof t.id === 'string' && t.id.trim().length > 0);
+      if (!hasTourId) return false;
       if (!t.operator?.name || !t.meal?.name) return false;
       if (typeof t.price !== 'number' || !t.date) return false;
       return true;

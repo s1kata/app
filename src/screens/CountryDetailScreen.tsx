@@ -17,6 +17,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { getCountryBySlug, CountryData } from '../data/countriesData';
 import { WebsiteTourService, WebsiteTour } from '../services/WebsiteTourService';
 import { logger } from '../utils/logger';
+import { useAppContext } from '../contexts/AppContext';
 
 interface CountryDetailScreenProps {
   navigation: any;
@@ -29,8 +30,9 @@ interface CountryDetailScreenProps {
 }
 
 export default function CountryDetailScreen({ navigation, route }: CountryDetailScreenProps) {
-    const { countrySlug, countryName } = route.params;
+  const { countrySlug } = route.params;
   const { width, height } = useWindowDimensions();
+  const { theme, isDark } = useAppContext();
   
   const [country, setCountry] = useState<CountryData | null>(null);
   const [tours, setTours] = useState<WebsiteTour[]>([]);
@@ -79,30 +81,30 @@ export default function CountryDetailScreen({ navigation, route }: CountryDetail
 
   if (!country) {
     return (
-      <SafeAreaView edges={['top', 'bottom']} style={[styles.safeArea, { backgroundColor: '#F0F2F5' }]}>
+      <SafeAreaView edges={['top', 'bottom']} style={[styles.safeArea, { backgroundColor: theme.background }]}>
         <View style={[styles.container, styles.centerContent]}>
-          <ActivityIndicator size="large" color={'#0066CC'} />
+          <ActivityIndicator size="large" color={theme.primary} />
         </View>
       </SafeAreaView>
     );
   }
 
   const renderInfoCard = (icon: string, title: string, value: string) => (
-    <View style={[styles.infoCard, { backgroundColor: '#FFFFFF' }]}>
-      <Ionicons name={icon as any} size={20} color={'#0066CC'} />
+    <View style={[styles.infoCard, { backgroundColor: theme.card }]}>
+      <Ionicons name={icon as any} size={20} color={theme.primary} />
       <View style={styles.infoCardContent}>
-        <Text style={[styles.infoCardLabel, { color: '#6E6E73' }]}>{title}</Text>
-        <Text style={[styles.infoCardValue, { color: '#1D1D1F' }]}>{value}</Text>
+        <Text style={[styles.infoCardLabel, { color: theme.secondaryText }]}>{title}</Text>
+        <Text style={[styles.infoCardValue, { color: theme.text }]}>{value}</Text>
       </View>
     </View>
   );
 
   const renderHighlight = (text: string, index: number) => (
     <View key={index} style={styles.highlightItem}>
-      <View style={[styles.highlightCheck, { backgroundColor: '#0066CC' }]}>
+      <View style={[styles.highlightCheck, { backgroundColor: theme.primary }]}>
         <Ionicons name="checkmark" size={14} color="#fff" />
       </View>
-      <Text style={[styles.highlightText, { color: '#1D1D1F' }]}>{text}</Text>
+      <Text style={[styles.highlightText, { color: theme.text }]}>{text}</Text>
     </View>
   );
 
@@ -115,21 +117,21 @@ export default function CountryDetailScreen({ navigation, route }: CountryDetail
     const isExpanded = expandedSection === key;
     return (
       <TouchableOpacity
-        style={[styles.detailSection, { backgroundColor: '#FFFFFF' }]}
+        style={[styles.detailSection, { backgroundColor: theme.card }]}
         onPress={() => setExpandedSection(isExpanded ? null : key)}
         activeOpacity={0.8}
       >
         <View style={styles.detailHeader}>
-          <Ionicons name={icon as any} size={20} color={'#0066CC'} />
-          <Text style={[styles.detailTitle, { color: '#1D1D1F' }]}>{title}</Text>
+          <Ionicons name={icon as any} size={20} color={theme.primary} />
+          <Text style={[styles.detailTitle, { color: theme.text }]}>{title}</Text>
           <Ionicons
             name={isExpanded ? 'chevron-up' : 'chevron-down'}
             size={20}
-            color={'#6E6E73'}
+            color={theme.secondaryText}
           />
         </View>
         {isExpanded && (
-          <Text style={[styles.detailContent, { color: '#6E6E73' }]}>
+          <Text style={[styles.detailContent, { color: theme.secondaryText }]}>
             {content}
           </Text>
         )}
@@ -140,7 +142,7 @@ export default function CountryDetailScreen({ navigation, route }: CountryDetail
   const renderTourCard = (tour: WebsiteTour) => (
     <TouchableOpacity
       key={tour.id}
-      style={[styles.tourCard, { backgroundColor: '#FFFFFF' }]}
+      style={[styles.tourCard, { backgroundColor: theme.card }]}
       onPress={() => handleTourPress(tour)}
       activeOpacity={0.8}
     >
@@ -150,26 +152,26 @@ export default function CountryDetailScreen({ navigation, route }: CountryDetail
         resizeMode="cover"
       />
       {tour.badge && (
-        <View style={[styles.tourBadge, { backgroundColor: '#0066CC' }]}>
+        <View style={[styles.tourBadge, { backgroundColor: theme.primary }]}>
           <Text style={styles.tourBadgeText}>{tour.badge}</Text>
         </View>
       )}
       <View style={styles.tourInfo}>
-        <Text style={[styles.tourTitle, { color: '#1D1D1F' }]} numberOfLines={2}>
+        <Text style={[styles.tourTitle, { color: theme.text }]} numberOfLines={2}>
           {tour.title}
         </Text>
         {tour.rating && (
           <View style={styles.tourRating}>
             <Ionicons name="star" size={12} color="#FFD700" />
-            <Text style={[styles.tourRatingText, { color: '#1D1D1F' }]}>
+            <Text style={[styles.tourRatingText, { color: theme.text }]}>
               {tour.rating.toFixed(1)}
             </Text>
-            <Text style={[styles.tourReviews, { color: '#6E6E73' }]}>
+            <Text style={[styles.tourReviews, { color: theme.secondaryText }]}>
               ({tour.reviews || 0})
             </Text>
           </View>
         )}
-        <Text style={[styles.tourPrice, { color: '#0066CC' }]}>
+        <Text style={[styles.tourPrice, { color: theme.primary }]}>
           от {formatPrice(tour.price)}
         </Text>
       </View>
@@ -177,7 +179,7 @@ export default function CountryDetailScreen({ navigation, route }: CountryDetail
   );
 
   return (
-    <SafeAreaView edges={['top', 'bottom']} style={[styles.safeArea, { backgroundColor: '#F0F2F5' }]}>
+    <SafeAreaView edges={['top', 'bottom']} style={[styles.safeArea, { backgroundColor: theme.background }]}>
       <ScrollView showsVerticalScrollIndicator={false}>
         {/* Hero Section */}
         <View style={styles.heroSection}>
@@ -186,7 +188,7 @@ export default function CountryDetailScreen({ navigation, route }: CountryDetail
             style={styles.heroImage}
             resizeMode="cover"
           />
-          <View style={[styles.heroGradient, { backgroundColor: 'rgba(0,0,0,0.35)' }]} />
+          <View style={[styles.heroGradient, { backgroundColor: isDark ? 'rgba(0,0,0,0.46)' : 'rgba(0,0,0,0.32)' }]} />
           <TouchableOpacity
             style={styles.backButton}
             onPress={() => navigation.goBack()}
@@ -194,7 +196,9 @@ export default function CountryDetailScreen({ navigation, route }: CountryDetail
             <Ionicons name="arrow-back" size={24} color="#fff" />
           </TouchableOpacity>
           <View style={styles.heroContent}>
-            <Text style={styles.heroFlag}>{country.flag}</Text>
+            <View style={styles.heroFlagCircle}>
+              <Ionicons name="earth-outline" size={28} color="#fff" />
+            </View>
             <Text style={styles.heroTitle}>{country.name}</Text>
             <Text style={styles.heroSubtitle}>{country.description}</Text>
           </View>
@@ -203,8 +207,8 @@ export default function CountryDetailScreen({ navigation, route }: CountryDetail
         {/* Photo Gallery Strip */}
         {country.images.length > 1 && (
           <View style={styles.gallerySection}>
-            <Text style={[styles.sectionTitle, { color: '#1D1D1F' }]}>
-              <Ionicons name="images" size={20} color={'#0066CC'} /> Фотогалерея
+            <Text style={[styles.sectionTitle, { color: theme.text }]}>
+              <Ionicons name="images" size={20} color={theme.primary} /> Фотогалерея
             </Text>
             <ScrollView
               horizontal
@@ -468,9 +472,14 @@ const styles = StyleSheet.create({
     right: 0,
     padding: 20,
   },
-  heroFlag: {
-    fontSize: 48,
-    marginBottom: 8,
+  heroFlagCircle: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    marginBottom: 10,
+    backgroundColor: 'rgba(255,255,255,0.22)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   heroTitle: {
     fontSize: 32,

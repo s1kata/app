@@ -71,13 +71,13 @@ export default function PrimaryButton({
         borderColor: danger ? theme.error : bg,
         height,
         paddingHorizontal: small ? spacing.md : spacing.xl,
-        borderRadius: radius.md,
+        borderRadius: radius.lg,
       }
     : {
         backgroundColor: disabled ? theme.disabled : bg,
         height,
         paddingHorizontal: small ? spacing.md : spacing.xl,
-        borderRadius: radius.md,
+        borderRadius: radius.lg,
         ...(disabled ? {} : shadowStyle),
       };
 

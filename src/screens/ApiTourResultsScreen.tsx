@@ -264,10 +264,10 @@ export default function ApiTourResultsScreen({ navigation, route }: ApiTourResul
   );
 
   /** Кэш только при полном совпадении параметров и свежести до 2 недель (Firestore + localStorage). */
-  const loadFromCache = useCallback(async () => {
+  const loadFromCache = useCallback(async (): Promise<boolean> => {
     if (!searchParams) {
       setIsLoading(false);
-      return;
+      return false;
     }
     const key = getTourSearchCacheKey(searchParams, TOUR_SEARCH_LIMIT);
     try {
@@ -282,13 +282,15 @@ export default function ApiTourResultsScreen({ navigation, route }: ApiTourResul
         await cacheService.remove(CacheType.SEARCH_RESULTS, key).catch(() => {});
         setTours([]);
         setLoadError(i18n.t('search.cacheCorrupted'));
-        return;
+        return false;
       }
       setTours(valid);
       setHasMore(false);
       if (valid.length) schedulePreCache(valid, searchParams.currency || 'RUB');
+      return valid.length > 0;
     } catch {
       if (mountedRef.current) setTours([]);
+      return false;
     } finally {
       if (mountedRef.current) setIsLoading(false);
     }
@@ -385,7 +387,11 @@ export default function ApiTourResultsScreen({ navigation, route }: ApiTourResul
       setLoaderProgress(p);
     }, 150);
     try {
-      const list = await searchTours(searchParams, TOUR_SEARCH_LIMIT, false);
+      let list = await searchTours(searchParams, TOUR_SEARCH_LIMIT, false);
+      if (!list.length) {
+        logger.warn('[ApiTourResults] cache returned empty, forcing live Tourvisor search');
+        list = await searchTours(searchParams, TOUR_SEARCH_LIMIT, true);
+      }
       if (progressIntervalRef.current) {
         clearInterval(progressIntervalRef.current);
         progressIntervalRef.current = null;
@@ -440,7 +446,12 @@ export default function ApiTourResultsScreen({ navigation, route }: ApiTourResul
     }
 
     if (searchId === -1) {
-      loadFromCache();
+      void (async () => {
+        const hasCachedResults = await loadFromCache();
+        if (!hasCachedResults && mountedRef.current) {
+          await runSearchAndPopulate();
+        }
+      })();
       return;
     }
 

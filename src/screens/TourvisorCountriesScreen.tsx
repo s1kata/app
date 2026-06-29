@@ -205,31 +205,17 @@ export default function TourvisorCountriesScreen({ navigation, route }: Tourviso
     return descriptions[countryName] || i18n.t('countries.defaultDescription');
   };
 
-  // Получение флага страны
-  const getCountryFlag = (countryName: string) => {
-    const flagMap: { [key: string]: string } = {
-      'Турция': '🇹🇷',
-      'Египет': '🇪🇬',
-      'ОАЭ': '🇦🇪',
-      'Таиланд': '🇹🇭',
-      'Россия': '🇷🇺',
-      'Мальдивы': '🇲🇻',
-      'Греция': '🇬🇷',
-      'Испания': '🇪🇸',
-      'Италия': '🇮🇹',
-      'Франция': '🇫🇷',
-      'Германия': '🇩🇪',
-      'Великобритания': '🇬🇧',
-      'США': '🇺🇸',
-      'Китай': '🇨🇳',
-      'Япония': '🇯🇵',
-      'Индия': '🇮🇳',
-      'Бразилия': '🇧🇷',
-      'Мексика': '🇲🇽',
-      'Канада': '🇨🇦',
-      'Австралия': '🇦🇺',
-    };
-    return flagMap[countryName] || '🏳️';
+  const getCountryIcon = (countryName: string): keyof typeof Ionicons.glyphMap => {
+    if (countryName === 'Турция' || countryName === 'Египет' || countryName === 'ОАЭ') {
+      return 'sunny-outline';
+    }
+    if (countryName === 'Мальдивы' || countryName === 'Таиланд') {
+      return 'water-outline';
+    }
+    if (countryName === 'Россия') {
+      return 'location-outline';
+    }
+    return 'earth-outline';
   };
 
   // Рендер одной страны
@@ -247,7 +233,9 @@ export default function TourvisorCountriesScreen({ navigation, route }: Tourviso
       
       <View style={styles.countryContent}>
         <View style={styles.countryHeader}>
-          <Text style={styles.countryFlag}>{getCountryFlag(item.name)}</Text>
+          <View style={[styles.countryFlagCircle, { backgroundColor: theme.primary + '12' }]}>
+            <Ionicons name={getCountryIcon(item.name)} size={18} color={theme.primary} />
+          </View>
           <View style={styles.countryInfo}>
             <Text style={[styles.countryName, { color: theme.text }]} numberOfLines={1}>
               {item.name}
@@ -657,9 +645,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 12,
   },
-  countryFlag: {
-    fontSize: 28,
+  countryFlagCircle: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     marginRight: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   countryInfo: {
     flex: 1,

@@ -69,9 +69,9 @@ function CustomTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
   }, [state]);
   
   const tabBarHeight = React.useMemo(() => {
-    const baseHeight = 40;
+    const baseHeight = 48;
     const scaledHeight = baseHeight * Math.min(fontScale, 1.2);
-    return Math.round(scaledHeight) + safeBottom;
+    return Math.round(scaledHeight) + safeBottom + 6;
   }, [fontScale, safeBottom]);
 
   if (shouldHideTabBar) {
@@ -110,7 +110,7 @@ function CustomTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
         <Ionicons name="heart" size={20} color={theme.primary} />
       </TouchableOpacity>
 
-      <View style={[customTabBarStyles.container, { backgroundColor: theme.card, paddingBottom: safeBottom + 4 }]}>
+      <View style={[customTabBarStyles.container, { backgroundColor: theme.card, paddingBottom: safeBottom + 8 }]}>
         <View style={[customTabBarStyles.topLine, { backgroundColor: `${theme.primary}26` }]} />
 
       {state.routes.map((route, index) => {

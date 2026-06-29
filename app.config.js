@@ -10,8 +10,9 @@ const runtimeEnv = (process.env.EAS_BUILD_PROFILE || process.env.APP_ENV || '').
 const isProductionLike = runtimeEnv === 'production' || runtimeEnv === 'preview';
 const updateChannel = (process.env.EAS_BUILD_PROFILE || process.env.APP_ENV || 'development').toLowerCase();
 const websiteBaseUrl = (process.env.WEBSITE_BASE_URL || process.env.EXPO_PUBLIC_WEBSITE_BASE_URL || "https://travelhub63.ru").replace(/\/+$/, "");
-// VIP app icon source vector: ./assets/icons/icon-vip.svg (экспортируйте в PNG 1024x1024 для stores).
-const appIconPng = "./assets/icons/1024x1024.png";
+// VIP app icon source vector: ./assets/icons/icon-vip.svg
+// PNG for native icons is auto-generated from SVG to .generated/icon-vip-1024.png
+const appIconPng = "./.generated/icon-vip-1024.png";
 /** Все запросы Tourvisor из приложения только через PHP-прокси на сайте (токен только на сервере). */
 const tourvisorPassthroughUrl = `${websiteBaseUrl}/api/tourvisor-mobile`;
 const hasSentryUploadCreds =
@@ -51,7 +52,7 @@ module.exports = {
     splash: {
       image: appIconPng,
       resizeMode: "contain",
-      backgroundColor: "#0a0a0f"
+      backgroundColor: "#0A5BFF"
     },
     assetBundlePatterns: [
       "**/*"
@@ -76,8 +77,8 @@ module.exports = {
       versionCode: 4,
       usesCleartextTraffic: !isProductionLike,
       adaptiveIcon: {
-        foregroundImage: "./assets/icons/1024x1024.png",
-        backgroundColor: "#0a0a0f"
+        foregroundImage: appIconPng,
+        backgroundColor: "#F5F7FA"
       },
       icon: appIconPng,
       /** Только то, что использует код (expo-location). Камера/галерея не подключены — не запрашиваем лишние разрешения. */

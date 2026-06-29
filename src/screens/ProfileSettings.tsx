@@ -574,8 +574,8 @@ const ProfileSettings: React.FC =({ navigation }: any) => {
             
             <View style={styles.modalOptions}>
               {[
-                { code: 'ru' as const, name: i18n.t('lang.ru'), flag: '🇷🇺' },
-                { code: 'en' as const, name: i18n.t('lang.en'), flag: '🇬🇧' },
+                { code: 'ru' as const, name: i18n.t('lang.ru'), icon: 'language-outline' as const },
+                { code: 'en' as const, name: i18n.t('lang.en'), icon: 'globe-outline' as const },
               ].map((lang) => (
                 <TouchableOpacity
                   key={lang.code}
@@ -594,7 +594,11 @@ const ProfileSettings: React.FC =({ navigation }: any) => {
                     styles.modalIconCircle,
                     { backgroundColor: language === lang.code ? '#FFFFFF' : theme.primary + '15' }
                   ]}>
-                    <Text style={styles.flagEmoji}>{lang.flag}</Text>
+                    <Ionicons
+                      name={lang.icon}
+                      size={20}
+                      color={language === lang.code ? theme.primary : theme.primary}
+                    />
                   </View>
                   <View style={styles.modalTextContainer}>
                     <Text style={[

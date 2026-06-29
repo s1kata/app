@@ -43,6 +43,7 @@ export const radius = {
   md: 12,
   lg: 16,
   xl: 20,
+  xxl: 24,
   full: 9999,
 } as const;
 
@@ -54,22 +55,22 @@ export const typography = {
     return { fontSize: Math.round(28 * getFontScale()), fontWeight: '700' as const, letterSpacing: -0.5 };
   },
   get h1() {
-    return { fontSize: Math.round(24 * getFontScale()), fontWeight: '700' as const };
+    return { fontSize: Math.round(24 * getFontScale()), fontWeight: '700' as const, lineHeight: Math.round(30 * getFontScale()) };
   },
   get h2() {
-    return { fontSize: Math.round(20 * getFontScale()), fontWeight: '700' as const };
+    return { fontSize: Math.round(20 * getFontScale()), fontWeight: '700' as const, lineHeight: Math.round(26 * getFontScale()) };
   },
   get h3() {
-    return { fontSize: Math.round(18 * getFontScale()), fontWeight: '600' as const };
+    return { fontSize: Math.round(18 * getFontScale()), fontWeight: '600' as const, lineHeight: Math.round(24 * getFontScale()) };
   },
   get body() {
-    return { fontSize: Math.round(16 * getFontScale()), fontWeight: '400' as const };
+    return { fontSize: Math.round(16 * getFontScale()), fontWeight: '400' as const, lineHeight: Math.round(22 * getFontScale()) };
   },
   get bodyBold() {
     return { fontSize: Math.round(16 * getFontScale()), fontWeight: '600' as const };
   },
   get caption() {
-    return { fontSize: Math.round(14 * getFontScale()), fontWeight: '400' as const };
+    return { fontSize: Math.round(14 * getFontScale()), fontWeight: '400' as const, lineHeight: Math.round(19 * getFontScale()) };
   },
   get captionBold() {
     return { fontSize: Math.round(14 * getFontScale()), fontWeight: '600' as const };
@@ -86,6 +87,14 @@ export const typography = {
   get buttonSmall() {
     return { fontSize: Math.round(14 * getFontScale()), fontWeight: '600' as const };
   },
+} as const;
+
+/** Единый "дорогой" стиль поверхностей. */
+export const surfaces = {
+  cardBorderWidth: 1,
+  cardPadding: spacing.lg,
+  cardRadius: radius.xl,
+  sectionRadius: radius.xxl,
 } as const;
 
 /** Тени для карточек (iOS + Android) */

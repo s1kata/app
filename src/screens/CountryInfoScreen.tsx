@@ -30,7 +30,7 @@ interface CountryInfoScreenProps {
 
 export default function CountryInfoScreen({ navigation, route }: CountryInfoScreenProps) {
   const { countrySlug } = route.params;
-  const { user } = useAppContext();
+  const { user, theme, isDark } = useAppContext();
   const { width } = useWindowDimensions();
   const [country, setCountry] = useState<CountryData | null>(null);
   const [tourvisorCountry, setTourvisorCountry] = useState<Country | null>(null);
@@ -106,14 +106,14 @@ export default function CountryInfoScreen({ navigation, route }: CountryInfoScre
 
   if (loading || !country) {
     return (
-      <SafeAreaView style={[styles.container, styles.centerContent]}>
-        <ActivityIndicator size="large" color="#0066CC" />
+      <SafeAreaView style={[styles.container, styles.centerContent, { backgroundColor: theme.background }]}>
+        <ActivityIndicator size="large" color={theme.primary} />
       </SafeAreaView>
     );
   }
 
   return (
-    <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
+    <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]} edges={['top', 'bottom']}>
       <ScrollView showsVerticalScrollIndicator={false}>
         {/* Hero Image */}
         <View style={styles.heroContainer}>
@@ -122,7 +122,7 @@ export default function CountryInfoScreen({ navigation, route }: CountryInfoScre
             style={styles.heroImage}
             resizeMode="cover"
           />
-          <View style={[styles.heroGradient, { backgroundColor: 'rgba(0,0,0,0.35)' }]} />
+          <View style={[styles.heroGradient, { backgroundColor: isDark ? 'rgba(0,0,0,0.46)' : 'rgba(0,0,0,0.32)' }]} />
           
           {/* Header */}
           <View style={styles.header}>
@@ -136,7 +136,9 @@ export default function CountryInfoScreen({ navigation, route }: CountryInfoScre
 
           {/* Country Title */}
           <View style={styles.heroContent}>
-            <Text style={styles.countryFlag}>{country.flag}</Text>
+            <View style={styles.countryFlagCircle}>
+              <Ionicons name="earth-outline" size={30} color="#fff" />
+            </View>
             <Text style={styles.countryName}>{country.name}</Text>
             <Text style={styles.countryNameEn}>{country.nameEn}</Text>
           </View>
@@ -348,9 +350,14 @@ const styles = StyleSheet.create({
     padding: 24,
     zIndex: 10,
   },
-  countryFlag: {
-    fontSize: 64,
-    marginBottom: 8,
+  countryFlagCircle: {
+    width: 62,
+    height: 62,
+    borderRadius: 31,
+    marginBottom: 10,
+    backgroundColor: 'rgba(255,255,255,0.22)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   countryName: {
     fontSize: 32,

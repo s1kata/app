@@ -40,6 +40,11 @@ function isNetworkOrServerError(error: unknown): boolean {
   );
 }
 
+function isSearchSessionExpiredError(error: unknown): boolean {
+  const message = String((error as Error)?.message || '').toLowerCase();
+  return message.includes('search not found') || message.includes('сессия поиска устарела');
+}
+
 function showToursLoadErrorAlertOnce() {
   Alert.alert('Ошибка загрузки туров', 'Проверьте интернет-соединение и попробуйте снова.');
 }
@@ -163,22 +168,45 @@ async function fetchTourSearch(params: TourSearchParams, limit: number): Promise
     logger.warn('[useTourSearch] JWT token missing before direct Tourvisor request');
   }
 
-  logger.debug('[useTourSearch] direct Tourvisor startTourSearch request', { params: normalized, limit });
-  const { searchId } = await tourvisorApi.startTourSearch(normalized);
-  logger.debug('[useTourSearch] direct Tourvisor searchId received', { searchId });
-  await tourvisorApi.pollTourSearchUntilReady(searchId);
-  let results: TourHotel[] = [];
-  for (let attempt = 0; attempt < 3; attempt++) {
+  for (let cycleAttempt = 0; cycleAttempt < 2; cycleAttempt++) {
     try {
-      results = await tourvisorApi.getTourSearchResults(searchId, limit);
-      break;
+      logger.debug('[useTourSearch] direct Tourvisor startTourSearch request', {
+        params: normalized,
+        limit,
+        cycleAttempt,
+      });
+      const { searchId } = await tourvisorApi.startTourSearch(normalized);
+      logger.debug('[useTourSearch] direct Tourvisor searchId received', { searchId, cycleAttempt });
+
+      await tourvisorApi.pollTourSearchUntilReady(searchId);
+
+      let results: TourHotel[] = [];
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          results = await tourvisorApi.getTourSearchResults(searchId, limit);
+          break;
+        } catch (e) {
+          if (!isTransientTourvisorError(e) || attempt >= 2) throw e;
+          await new Promise((r) => setTimeout(r, 2000 * (attempt + 1)));
+        }
+      }
+
+      logger.debug('[useTourSearch] direct Tourvisor results received', {
+        searchId,
+        count: results.length,
+        cycleAttempt,
+      });
+      return Array.isArray(results) ? results : [];
     } catch (e) {
-      if (!isTransientTourvisorError(e) || attempt >= 2) throw e;
-      await new Promise((r) => setTimeout(r, 2000 * (attempt + 1)));
+      if (!isSearchSessionExpiredError(e) || cycleAttempt >= 1) {
+        throw e;
+      }
+      logger.warn('[useTourSearch] search session expired, retrying full search cycle once');
+      await new Promise((r) => setTimeout(r, 500));
     }
   }
-  logger.debug('[useTourSearch] direct Tourvisor results received', { searchId, count: results.length });
-  return Array.isArray(results) ? results : [];
+
+  return [];
 }
 
 /**

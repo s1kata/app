@@ -5,9 +5,10 @@
   "description": "TravelHub - Your Ultimate Travel Companion",
   "author": "TravelHub Team",
   "scripts": {
+    "icon:sync": "node scripts/generateBrandIcon.js",
     "start": "expo start",
-    "android": "expo run:android",
-    "ios": "expo run:ios",
+    "android": "npm run icon:sync && expo run:android",
+    "ios": "npm run icon:sync && expo run:ios",
     "web": "expo start --web",
     "eas:env-push": "eas env:push production --path .env",
     "build:development": "eas build --profile development",
@@ -49,6 +50,7 @@
     "react-native-gesture-handler": "~2.28.0",
     "react-native-safe-area-context": "~5.6.0",
     "react-native-screens": "~4.16.0",
+    "react-native-svg": "15.12.1",
     "react-native-webview": "^13.8.6"
   },
   "devDependencies": {
@@ -60,6 +62,7 @@
     "eslint": "^8.56.0",
     "express": "^4.21.0",
     "firebase-admin": "^13.7.0",
+    "sharp": "^0.35.2",
     "ts-node": "^10.9.2",
     "typescript": "~5.6.0"
   },
