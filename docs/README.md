@@ -2,7 +2,10 @@
 
 | Документ | Описание |
 |----------|----------|
+| [**ENV_MAP.md**](./ENV_MAP.md) | **Карта env и API**: auth, CRM, оплата, Tourvisor — что в EAS, что на сервере |
+| [**TESTFLIGHT.md**](./TESTFLIGHT.md) | **Загрузка iOS в TestFlight**: EAS build, submit, тестеры, чеклист |
 | [**PRODUCTION.md**](./PRODUCTION.md) | **Главный документ для продакшена**: переменные окружения, EAS, оплата, CRM, OTA, чеклист |
+| [**DEPLOY_SPACEWEB.md**](./DEPLOY_SPACEWEB.md) | **SpaceWeb пошагово**: `public_html`, FTP, legal-страницы, API |
 | [DEPLOY_SITE.md](./DEPLOY_SITE.md) | Деплой PHP/SQL на travelhub63.ru (auth, CRM, Tourvisor proxy, оплата) |
 | [RELEASE_CHECKLIST.md](./RELEASE_CHECKLIST.md) | Ручные проверки на устройстве перед/после релиза |
 | [IOS_TEST_CHECKLIST.md](./IOS_TEST_CHECKLIST.md) | Чеклист iOS / TestFlight |

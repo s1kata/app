@@ -3,6 +3,9 @@
 Приложение TravelHub ходит на сайт за **авторизацией**, **поиском туров**, **CRM** и **оплатой**.  
 Секреты (MySQL, JWT, Tourvisor, Tinkoff, U-ON) — **только на сервере**, не в приложении.
 
+> **Пошагово для панели SpaceWeb** (куда заливать `privacy.html`, FTP, `public_html`):  
+> **[DEPLOY_SPACEWEB.md](./DEPLOY_SPACEWEB.md)**
+
 ---
 
 ## 1. MySQL (phpMyAdmin на SpaceWeb)
@@ -27,6 +30,16 @@ sql/auth_schema.sql
 
 из того же `sql/auth_schema.sql`.
 
+### Отзывы (reviews)
+
+Выполнить:
+
+```
+sql/reviews_schema.sql
+```
+
+Создаёт таблицы `reviews`, `review_helpful`.
+
 В `auth-mobile.config.php` прописать реальные имена таблиц и колонок (см. `auth-mobile.config.example.php`).
 
 **Пароли:** `auth-mobile.php` использует `password_hash()` / `password_verify()`. Если на сайте другой алгоритм — нужен адаптер в `handle_login` / `handle_register`.
@@ -42,6 +55,9 @@ sql/auth_schema.sql
 | `auth-mobile.php` | `/api/auth-mobile.php` |
 | `auth-mobile.config.example.php` → копия | `/api/auth-mobile.config.php` |
 | `api/lib/auth-jwt.php` | `/api/lib/auth-jwt.php` |
+| `api/lib/reviews-helpers.php` | `/api/lib/reviews-helpers.php` |
+| `api/crm/reviews.php` | `/api/crm/reviews.php` |
+| `api/crm/review-helpful.php` | `/api/crm/review-helpful.php` |
 
 `auth-mobile.config.php` **не коммитить** в git (пароли БД и `jwt_secret`).
 
@@ -49,10 +65,13 @@ sql/auth_schema.sql
 
 ```php
 'jwt_secret' => 'случайная_строка_минимум_32_символа',
+'health_check_token' => 'случайная_строка_минимум_32_символа',
 'db' => [ /* host, name, user, pass из SpaceWeb */ ],
 'site_url' => 'https://travelhub63.ru',
-'allow_cors' => true,
+'allowed_origins' => ['https://travelhub63.ru'],
 ```
+
+`health_check_token` должен совпадать с `HEALTH_CHECK_TOKEN` в EAS (`eas-secrets.production.env`).
 
 ### Уже должны быть на сайте (настраивались ранее)
 
@@ -65,6 +84,8 @@ sql/auth_schema.sql
 | `/api/crm/submit-booking` | Заявка в U-ON |
 | `/api/crm/client-bookings` | Список броней (опционально) |
 | `/api/crm/user-departure-documents` | Документы на вылет |
+| `/api/crm/reviews.php` | Отзывы (GET/POST/PUT/DELETE) |
+| `/api/crm/review-helpful.php` | «Полезно» на отзыве |
 
 ---
 
@@ -104,11 +125,25 @@ curl -X POST https://travelhub63.ru/api/auth-mobile.php \
 
 Ожидание: `"success":true`, `accessToken`, `user`.
 
+### Health (для CRM-очереди в приложении)
+
+```bash
+curl -X POST https://travelhub63.ru/api/auth-mobile.php \
+  -H "Content-Type: application/json" \
+  -H "X-Health-Token: ВАШ_health_check_token" \
+  -d '{"action":"health"}'
+```
+
+Ожидание: HTTP 200. Без заголовка — 403.
+
 ### Приложение (.env / EAS)
 
 ```env
-WEBSITE_BASE_URL=https://travelhub63.ru
-PAYMENT_PAGE_URL=https://travelhub63.ru
+SITE_BASE_URL=https://travelhub63.ru
+AUTH_API_BASE_URL=https://travelhub63.ru
+HEALTH_CHECK_TOKEN=тот_же_что_health_check_token_на_сервере
+CRM_API_BASE_URL=https://travelhub63.ru
+PAYMENT_API_BASE_URL=https://travelhub63.ru
 ```
 
 **Не задавать** в production store:
@@ -118,24 +153,52 @@ PAYMENT_PAGE_URL=https://travelhub63.ru
 - `EXPO_PUBLIC_UON_API_KEY`
 
 ```bash
-npx eas env:push preview --path .env
-npx eas env:push production --path .env
+npm run eas:env-push:production
 ```
 
 Пересобрать приложение после смены env.
 
 ---
 
+## 4.1. Юридические страницы (App Store)
+
+Залить из репозитория в **корень** `public_html/`:
+
+| Файл в репозитории | URL на сайте |
+|--------------------|--------------|
+| `web/legal/privacy.html` | https://travelhub63.ru/privacy.html |
+| `web/legal/terms.html` | https://travelhub63.ru/terms.html |
+| `web/legal/security.html` | https://travelhub63.ru/security.html |
+
+В App Store Connect → Privacy Policy URL: `https://travelhub63.ru/privacy.html`
+
+---
+
+## 4.2. Долгая сессия (до выхода из профиля)
+
+В `auth-mobile.config.php` на сервере:
+
+```php
+'refresh_ttl' => 31536000,  // 365 дней (рекомендуется)
+```
+
+Приложение не сбрасывает сессию при сетевых ошибках; выход — только кнопка «Выйти» в профиле. Срок жизни refresh-токена задаётся на сервере.
+
+---
+
 ## 5. Чеклист
 
 - [ ] SQL: users (+ токены) в phpMyAdmin
-- [ ] `/api/auth-mobile.php` + `auth-mobile.config.php`
-- [ ] `/api/lib/auth-jwt.php`
+- [ ] SQL: `reviews_schema.sql`
+- [ ] `/api/auth-mobile.php` + `auth-mobile.config.php` (`refresh_ttl` 365 дней)
+- [ ] `/api/lib/auth-jwt.php`, `/api/lib/reviews-helpers.php`
+- [ ] `/api/crm/reviews.php`, `/api/crm/review-helpful.php`
 - [ ] curl login/register OK
-- [ ] create-payment / CRM принимают JWT (не Firebase)
+- [ ] `web/legal/*.html` → privacy.html, terms.html, security.html на сайте
+- [ ] create-payment / CRM принимают JWT (auth-mobile)
 - [ ] tourvisor-mobile отвечает (поиск в приложении)
-- [ ] EAS: `WEBSITE_BASE_URL`, без `FIREBASE_*`
-- [ ] Тест на iPhone: вход → поиск → бронь → оплата
+- [ ] EAS: `SITE_BASE_URL`, `IOS_ENABLE_PUSH=1`, без `FIREBASE_*`
+- [ ] Тест на iPhone: вход → поиск → бронь → оплата → отзыв
 
 ---
 
@@ -144,7 +207,8 @@ npx eas env:push production --path .env
 ```bash
 npm install
 cp .env.example .env   # если есть
-# WEBSITE_BASE_URL=https://travelhub63.ru
+# SITE_BASE_URL=https://travelhub63.ru
+# HEALTH_CHECK_TOKEN=как на сервере
 npm start
 ```
 

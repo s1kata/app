@@ -1,19 +1,13 @@
 /**
  * Прокси чтения CRM (U-ON) — несколько GET-эндпоинтов.
  */
-const admin = require('../lib/firebaseAdmin').getAdmin();
 const {
   getUserDepartureDocuments,
   getBookingsByClient,
   getClientIdFromEmailPhone,
   getBonusTransactionsByUser,
 } = require('../sota/readApi');
-
-function getBearerToken(req) {
-  const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith('Bearer ')) return null;
-  return authHeader.slice(7).trim();
-}
+const { resolveAuthFromRequest } = require('../lib/resolveAuthUser');
 
 function normalizePhone(p) {
   return String(p || '').replace(/\D/g, '');
@@ -33,16 +27,14 @@ function assertEmailPhoneAllowed(decoded, email, phone) {
 
 function makeHandler(kind) {
   return async function handler(req, res) {
-    const token = getBearerToken(req);
-    if (!token) {
+    const auth = await resolveAuthFromRequest(req);
+    if (!auth) {
       return res.status(401).json({ error: 'Unauthorized: Bearer token required' });
     }
-    let decoded;
-    try {
-      decoded = await admin.auth().verifyIdToken(token, true);
-    } catch (e) {
-      return res.status(401).json({ error: 'Invalid or expired auth token' });
-    }
+    const decoded = {
+      email: auth.email,
+      phone_number: auth.phone_number,
+    };
 
     if (!process.env.UON_API_KEY && !process.env.SOTA_API_KEY) {
       return res.status(503).json({ error: 'CRM backend is not configured (UON_API_KEY)' });

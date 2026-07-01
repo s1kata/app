@@ -42,7 +42,7 @@ export const bookingLocalStore = {
       tourOperator?: string | null;
       contactInfo: Booking['contactInfo'];
       specialRequests?: string | null;
-      tourSnapshot?: Booking['tourSnapshot'];
+      tourSnapshot?: Booking['tourSnapshot'] | null;
     },
     crmRequestId: string,
     idempotencyKey: string,
@@ -69,7 +69,7 @@ export const bookingLocalStore = {
       tourOperator: payload.tourOperator || undefined,
       contactInfo: payload.contactInfo,
       specialRequests: payload.specialRequests || undefined,
-      tourSnapshot: payload.tourSnapshot,
+      tourSnapshot: payload.tourSnapshot || undefined,
       paymentStatus: 'pending',
       sotaBookingId: crmRequestId,
       idempotencyKey,

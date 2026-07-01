@@ -560,7 +560,7 @@ class NotificationService {
    */
   private handleDeepLink(deepLink: string, navigation: any): void {
     // Формат: travelhub://screen/params
-    const match = deepLink.match(/travelhub:\/\/([^\/]+)(?:\/(.+))?/);
+    const match = deepLink.match(/travelhub:\/\/([^/]+)(?:\/(.+))?/);
     if (!match) return;
 
     const [, screen, paramsStr] = match;

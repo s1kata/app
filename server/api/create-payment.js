@@ -7,6 +7,7 @@
 const crypto = require('crypto');
 const admin = require('../lib/firebaseAdmin').getAdmin();
 const { FieldValue } = require('firebase-admin/firestore');
+const { resolveAuthFromRequest } = require('../lib/resolveAuthUser');
 
 const TINKOFF_INIT_URL = 'https://securepay.tinkoff.ru/v2/Init';
 const IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000;
@@ -16,12 +17,6 @@ function buildTinkoffToken(params, password) {
   const keys = Object.keys(data).sort();
   const concat = keys.map((k) => String(data[k])).join('');
   return crypto.createHash('sha256').update(concat).digest('hex');
-}
-
-function getBearerToken(req) {
-  const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith('Bearer ')) return null;
-  return authHeader.slice(7).trim();
 }
 
 function getBookingAmountKopecks(booking) {
@@ -62,19 +57,14 @@ async function handler(req, res) {
       return res.status(400).json({ error: 'Invalid userId format' });
     }
 
-    const token = getBearerToken(req);
-    if (!token) {
-      return res.status(401).json({ error: 'Unauthorized: Bearer token required' });
-    }
-    let decoded;
-    try {
-      decoded = await admin.auth().verifyIdToken(token, true);
-    } catch (e) {
+    const auth = await resolveAuthFromRequest(req);
+    if (!auth) {
       return res.status(401).json({ error: 'Invalid or expired auth token' });
     }
-    if (!decoded || decoded.uid !== String(userId)) {
+    if (auth.userId !== String(userId)) {
       return res.status(403).json({ error: 'Forbidden: userId mismatch' });
     }
+    const decoded = { uid: auth.userId };
 
     const db = admin.firestore();
     const bookingRef = db.collection('bookings').doc(normalizedOrderId);

@@ -17,6 +17,7 @@ import { AuthService } from '../services/AuthService';
 import { useAppContext } from '../contexts/AppContext';
 import AppLogo from '../components/AppLogo';
 import { PrimaryButton } from '../components/ui';
+import { getPasswordValidationMessage } from '../utils/validation';
 import { radius, shadows } from '../config/designSystem';
 
 interface ResetPasswordScreenProps {
@@ -33,10 +34,7 @@ export default function ResetPasswordScreen({ navigation, route: _route }: Reset
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
-  const validatePassword = (password: string): boolean => {
-    // Минимум 6 символов
-    return password.length >= 6;
-  };
+  const validatePassword = (password: string): boolean => !getPasswordValidationMessage(password);
 
   const handleResetPassword = async () => {
     if (!resetToken) {
@@ -50,7 +48,7 @@ export default function ResetPasswordScreen({ navigation, route: _route }: Reset
     }
 
     if (!validatePassword(newPassword)) {
-      Alert.alert('Ошибка', 'Пароль должен содержать минимум 6 символов');
+      Alert.alert('Ошибка', getPasswordValidationMessage(newPassword) || 'Пароль слишком слабый');
       return;
     }
 
@@ -153,7 +151,7 @@ export default function ResetPasswordScreen({ navigation, route: _route }: Reset
                     color: theme.text,
                   },
                 ]}
-                placeholder="Минимум 6 символов"
+                placeholder="Минимум 8 символов и цифра"
                 placeholderTextColor={theme.secondaryText}
                 value={newPassword}
                 onChangeText={setNewPassword}
@@ -233,7 +231,7 @@ export default function ResetPasswordScreen({ navigation, route: _route }: Reset
           <View style={[styles.infoBox, { backgroundColor: theme.secondaryBackground }]}>
             <Ionicons name="shield-checkmark-outline" size={20} color={theme.primary} />
             <Text style={[styles.infoText, { color: theme.secondaryText }]}>
-              Пароль должен содержать минимум 6 символов. Используйте комбинацию букв, цифр и символов для большей безопасности.
+              Пароль должен содержать минимум 8 символов и хотя бы одну цифру.
             </Text>
           </View>
         </View>

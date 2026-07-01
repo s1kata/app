@@ -174,7 +174,7 @@ export default function TourBookingScreen({ navigation, route }: TourBookingScre
     } catch (error) {
       logger.error('[TourBookingScreen] Error loading profile:', error);
       setProfilePassportError('Не удалось проверить паспортные данные');
-      // В случае ошибки используем данные из Firebase Auth
+      // При ошибке используем данные из локальной сессии
       setFormData(prev => ({
         ...prev,
         name: user?.displayName || prev.name,
@@ -346,7 +346,7 @@ export default function TourBookingScreen({ navigation, route }: TourBookingScre
     if (!bookingAuth.ok) {
       const body =
         bookingAuth.reason === 'auth_desync'
-          ? 'Сессия в приложении не совпадает с аккаунтом Firebase. Выйдите и войдите снова, затем повторите бронирование.'
+          ? 'Сессия устарела. Выйдите из профиля и войдите снова, затем повторите бронирование.'
           : i18n.t('booking.authRequiredDesc');
       Alert.alert(i18n.t('favorites.authRequired'), body, [
         { text: i18n.t('common.cancel'), style: 'cancel' },

@@ -1,6 +1,7 @@
 /**
  * Проверка доступности интернета и бэкенда TravelHub (auth-mobile health → HTTP 200).
  */
+import Constants from 'expo-constants';
 import { getAuthApiUrl } from '../api/apiClient';
 import { logger } from './logger';
 
@@ -8,12 +9,23 @@ const FETCH_TIMEOUT_MS = 8000;
 const BACKEND_TIMEOUT_MS = 10000;
 
 const GENERAL_INTERNET_URLS = [
-  // 1) Проверяем свой домен в первую очередь (самый релевантный для приложения)
-  getAuthApiUrl(),
-  // 2) Нейтральные fallback URL (на iOS обычно резолвятся стабильнее, чем gstatic/exp.host)
   'https://www.apple.com/library/test/success.html',
   'https://www.cloudflare.com/cdn-cgi/trace',
 ];
+
+function getHealthCheckToken(): string {
+  const extra = Constants.expoConfig?.extra as { healthCheckToken?: string } | undefined;
+  return String(extra?.healthCheckToken || '').trim();
+}
+
+function healthRequestHeaders(): Record<string, string> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  const token = getHealthCheckToken();
+  if (token) {
+    headers['X-Health-Token'] = token;
+  }
+  return headers;
+}
 
 async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: number): Promise<Response> {
   const ctrl = new AbortController();
@@ -29,16 +41,7 @@ async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: numbe
 export async function pingGeneralInternet(): Promise<boolean> {
   for (const url of GENERAL_INTERNET_URLS) {
     try {
-      const method = url === getAuthApiUrl() ? 'POST' : 'GET';
-      const init: RequestInit =
-        method === 'POST'
-          ? {
-              method,
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ action: 'health' }),
-            }
-          : { method };
-      const res = await fetchWithTimeout(url, init, FETCH_TIMEOUT_MS);
+      const res = await fetchWithTimeout(url, { method: 'GET' }, FETCH_TIMEOUT_MS);
       if (res && (res.status === 204 || res.status === 200 || res.ok)) return true;
     } catch (e) {
       logger.debug('[backendHealth] general ping failed:', url, (e as Error)?.message || e);
@@ -55,7 +58,7 @@ export async function pingBackendHealth(): Promise<boolean> {
       url,
       {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: healthRequestHeaders(),
         body: JSON.stringify({ action: 'health' }),
       },
       BACKEND_TIMEOUT_MS,

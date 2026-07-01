@@ -1,5 +1,5 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
-import { useColorScheme, PixelRatio, Dimensions } from 'react-native';
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
+import { useColorScheme, PixelRatio, Dimensions, AppState, type AppStateStatus } from 'react-native';
 import Constants from 'expo-constants';
 import { i18n, Language } from '../config/i18n';
 import { themeManager, ThemeMode, Theme } from '../config/theme';
@@ -402,17 +402,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const restoreAuthSession = async () => {
     try {
-      const token = await authSession.getAccessToken();
-      if (token) {
+      const refreshToken = await authSession.getRefreshToken();
+      const accessToken = await authSession.getAccessToken();
+
+      if (refreshToken || accessToken) {
         const expired = await authSession.isAccessTokenExpired();
-        if (expired) {
-          const ok = await authApiClient.refresh();
-          if (!ok) {
+        if (expired && refreshToken) {
+          const outcome = await authApiClient.refreshWithOutcome();
+          if (outcome === 'auth_failed') {
             await authSession.clear();
           }
         }
         const appUser = await AuthService.getAppUserFromSession();
-        if (appUser) {
+        const stillHasSession =
+          appUser && ((await authSession.getRefreshToken()) || (await authSession.getAccessToken()));
+        if (stillHasSession && appUser) {
           logger.debug('Auth session restored, uid:', appUser.uid);
           setUser(appUser);
           await AsyncStorage.removeItem(CURRENT_USER_STORAGE_KEY);
@@ -664,6 +668,37 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const t = setTimeout(() => setNetworkRecoveredFlash(false), 3500);
     return () => clearTimeout(t);
   }, [networkRecoveredFlash]);
+
+  /** Продление сессии при возврате в приложение (без выхода из профиля). */
+  const sessionRefreshInFlight = useRef(false);
+  useEffect(() => {
+    const onAppState = (next: AppStateStatus) => {
+      if (next !== 'active' || sessionRefreshInFlight.current) return;
+      void (async () => {
+        const refreshToken = await authSession.getRefreshToken();
+        if (!refreshToken) return;
+        const expired = await authSession.isAccessTokenExpired();
+        if (!expired) return;
+        sessionRefreshInFlight.current = true;
+        try {
+          const outcome = await authApiClient.refreshWithOutcome();
+          if (outcome === 'auth_failed') {
+            await authSession.clear();
+            setUser(null);
+            return;
+          }
+          if (outcome === 'ok') {
+            const appUser = await AuthService.getAppUserFromSession();
+            if (appUser) setUser(appUser);
+          }
+        } finally {
+          sessionRefreshInFlight.current = false;
+        }
+      })();
+    };
+    const sub = AppState.addEventListener('change', onAppState);
+    return () => sub.remove();
+  }, []);
 
   const contextValue: AppContextType = {
     theme: theme || defaultTheme,

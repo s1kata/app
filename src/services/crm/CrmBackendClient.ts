@@ -3,9 +3,9 @@
  * Базовый URL — **корень сайта** (тот же хост, что и оплата), без суффикса `/api/crm`:
  * запросы идут на `${base}/api/crm/submit-booking` и т.д. (например `https://travelhub63.ru`).
  */
-import Constants from 'expo-constants';
 import { authApiClient, getValidAccessToken } from '../AuthApiClient';
 import { navigateToLoginAfterSessionExpired } from '../../auth/authNavigation';
+import { getBonusApiBaseUrl, getCrmApiBaseUrl } from '../../config/apiEndpoints';
 import type { CrmBookingQueuePayload } from '../../types/crmQueue';
 import { logger } from '../../utils/logger';
 
@@ -31,25 +31,14 @@ const CRM_BCARD_BONUS_CREATE_PATHS = [
   '/api/crm/bcard-bonus-create',
 ] as const;
 
-/**
- * База для CRM-прокси: `${base}/api/crm/*` на сайте (U-ON ключ только на сервере).
- * Приоритет: `SOTA_CRM_BASE_URL` / `extra.sotaCrmBaseUrl` — корень URL (например `https://travelhub63.ru`);
- * иначе `paymentPageUrl` (в production обычно тот же `https://travelhub63.ru`).
- * В заголовках уходит JWT Bearer (auth-mobile.php), не ключ U-ON.
- */
+/** CRM: заявки, документы, история — `${CRM_API_BASE_URL}/api/crm/*` */
 export function getCrmBackendBaseUrl(): string {
-  const crmFromEnv =
-    Constants.expoConfig?.extra?.sotaCrmBaseUrl ||
-    (typeof process !== 'undefined' && (process as any).env?.SOTA_CRM_BASE_URL) ||
-    '';
-  const crm = String(crmFromEnv || '').replace(/\/+$/, '');
-  if (crm) return crm;
+  return getCrmApiBaseUrl();
+}
 
-  const url =
-    Constants.expoConfig?.extra?.paymentPageUrl ||
-    (typeof process !== 'undefined' && (process as any).env?.PAYMENT_PAGE_URL) ||
-    '';
-  return String(url).replace(/\/+$/, '');
+/** Бонусы: balance, bcard — `${BONUS_API_BASE_URL}/api/crm/*` */
+export function getBonusBackendBaseUrl(): string {
+  return getBonusApiBaseUrl();
 }
 
 async function getBearer(): Promise<string | null> {
@@ -113,15 +102,17 @@ export async function submitBookingToBackend(
       let attempt = await postCrmSubmit(base, path, bearer, idempotencyKey, payload);
 
       if (attempt.status === 401) {
-        const refreshed = await authApiClient.refresh();
-        if (refreshed) {
+        const outcome = await authApiClient.refreshWithOutcome();
+        if (outcome === 'ok') {
           bearer = (await getBearer()) || bearer;
           attempt = await postCrmSubmit(base, path, bearer, idempotencyKey, payload);
           if (attempt.status === 401) {
             return handleCrmSessionExpired();
           }
-        } else {
+        } else if (outcome === 'auth_failed') {
           return handleCrmSessionExpired();
+        } else {
+          return { success: false, error: 'Нет сети. Повторите отправку заявки позже.' };
         }
       }
 
@@ -197,7 +188,7 @@ export async function fetchBonusBalanceViaBackend(
   email?: string,
   phone?: string,
 ): Promise<{ success: boolean; data?: { balance: number; transactions: unknown[] }; error?: string }> {
-  const base = getCrmBackendBaseUrl();
+  const base = getBonusBackendBaseUrl();
   if (!base) return { success: false, error: 'no_backend' };
   const bearer = await getBearer();
   if (!bearer) return { success: false, error: 'unauthorized' };
@@ -233,8 +224,9 @@ export async function fetchBonusBalanceViaBackend(
 async function postCrmJson(
   paths: readonly string[],
   body: Record<string, unknown>,
+  resolveBase: () => string = getCrmBackendBaseUrl,
 ): Promise<{ success: boolean; data?: unknown; error?: string }> {
-  const base = getCrmBackendBaseUrl();
+  const base = resolveBase();
   if (!base) return { success: false, error: 'no_backend' };
   const bearer = await getBearer();
   if (!bearer) return { success: false, error: 'unauthorized' };
@@ -274,7 +266,7 @@ export async function activateBonusCardViaBackend(
 ): Promise<{ success: boolean; data?: unknown; error?: string }> {
   const payload: Record<string, unknown> = { bc_number: bcNumber.trim() };
   if (userId != null && userId > 0) payload.user_id = userId;
-  return postCrmJson(CRM_BCARD_ACTIVATE_PATHS, payload);
+  return postCrmJson(CRM_BCARD_ACTIVATE_PATHS, payload, getBonusBackendBaseUrl);
 }
 
 export async function createBonusOperationViaBackend(params: {
@@ -283,10 +275,14 @@ export async function createBonusOperationViaBackend(params: {
   bonuses: number;
   reason?: string;
 }): Promise<{ success: boolean; data?: unknown; error?: string }> {
-  return postCrmJson(CRM_BCARD_BONUS_CREATE_PATHS, {
-    bc_id: params.bc_id,
-    type: params.type,
-    bonuses: params.bonuses,
-    ...(params.reason ? { reason: params.reason } : {}),
-  });
+  return postCrmJson(
+    CRM_BCARD_BONUS_CREATE_PATHS,
+    {
+      bc_id: params.bc_id,
+      type: params.type,
+      bonuses: params.bonuses,
+      ...(params.reason ? { reason: params.reason } : {}),
+    },
+    getBonusBackendBaseUrl,
+  );
 }

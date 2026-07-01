@@ -81,7 +81,7 @@ const TourCard = React.memo(function TourCard({ tour, onPress, formatPrice }: To
 
         <Text style={[styles.meta, { color: theme.tertiaryText }]} numberOfLines={1}>
           {[
-            tour.startDate ? tour.startDate : null,
+            tour.date ? tour.date : null,
             tour.nights ? `${tour.nights} ${i18n.t('tours.nightsShort')}` : null,
             tour.meal?.name || null,
           ].filter(Boolean).join(' · ')}

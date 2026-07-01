@@ -2,6 +2,9 @@ import React from 'react';
 import { StyleSheet, View } from 'react-native';
 import Svg, { Defs, LinearGradient, RadialGradient, Stop, Rect, Path } from 'react-native-svg';
 
+const PLANE_PATH =
+  'M16 35.4 L34.5 31.7 L45.8 20.4 C47.1 19.1 49.2 19.1 50.5 20.4 C51.8 21.7 51.8 23.8 50.5 25.1 L39.2 36.4 L35.5 54.9 L31.4 50.8 L32.7 40.3 L25.4 47.6 L20.4 46.3 L27.7 39 L17.2 40.3 Z';
+
 type AppLogoProps = {
   size?: number;
   bordered?: boolean;
@@ -64,16 +67,9 @@ export default function AppLogo({
           strokeLinecap="round"
           opacity="0.2"
         />
-        <Path
-          d="M16 35.4 L34.5 31.7 L45.8 20.4
-             C47.1 19.1 49.2 19.1 50.5 20.4
-             C51.8 21.7 51.8 23.8 50.5 25.1
-             L39.2 36.4 L35.5 54.9
-             L31.4 50.8 L32.7 40.3
-             L25.4 47.6 L20.4 46.3
-             L27.7 39 L17.2 40.3 Z"
-          fill="#FFFFFF"
-        />
+        {/* iOS-safe shadow: duplicate path (FeDropShadow crashes native renderer) */}
+        <Path d={PLANE_PATH} fill="#0044a8" opacity={0.22} transform="translate(0 1.4)" />
+        <Path d={PLANE_PATH} fill="#FFFFFF" />
       </Svg>
     </View>
   );
@@ -86,4 +82,3 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
 });
-

@@ -13,6 +13,9 @@ declare(strict_types=1);
 
 header('Content-Type: application/json; charset=utf-8');
 
+require_once __DIR__ . '/lib/auth-cors.php';
+require_once __DIR__ . '/lib/rate-limit.php';
+
 $configPath = __DIR__ . '/auth-mobile.config.php';
 if (!is_file($configPath)) {
     http_response_code(500);
@@ -23,11 +26,7 @@ if (!is_file($configPath)) {
 /** @var array<string, mixed> $CONFIG */
 $CONFIG = require $configPath;
 
-if (!empty($CONFIG['allow_cors'])) {
-    header('Access-Control-Allow-Origin: *');
-    header('Access-Control-Allow-Methods: POST, OPTIONS');
-    header('Access-Control-Allow-Headers: Content-Type, Authorization');
-}
+auth_apply_cors($CONFIG);
 
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     http_response_code(204);
@@ -49,7 +48,7 @@ if ($action === '') {
     json_error('Укажите action', 400);
 }
 
-// Диагностика без обязательного успешного login
+// Диагностика — только с секретным токеном, без раскрытия инфраструктуры
 if ($action === 'health') {
     handle_health($CONFIG);
 }
@@ -108,27 +107,20 @@ try {
 
 function handle_health(array $config): void
 {
+    $expected = trim((string) ($config['health_check_token'] ?? ''));
+    $provided = trim((string) ($_SERVER['HTTP_X_HEALTH_TOKEN'] ?? ''));
+    if ($expected === '' || $provided === '' || !hash_equals($expected, $provided)) {
+        json_error('Forbidden', 403, 'FORBIDDEN');
+    }
+
     $report = [
         'success' => true,
         'php' => PHP_VERSION,
-        'configPath' => __DIR__ . '/auth-mobile.config.php',
-        'configExists' => is_file(__DIR__ . '/auth-mobile.config.php'),
-        'db' => [],
+        'db' => ['connected' => false],
         'tables' => [],
     ];
 
     try {
-        $db = resolve_db_settings($config);
-        $report['db'] = [
-            'host' => $db['host'] ?? '(не задан)',
-            'port' => (int) ($db['port'] ?? 3306),
-            'name' => $db['name'] ?? '(не задан)',
-            'user' => $db['user'] ?? '(не задан)',
-            'hasPassword' => !empty($db['pass']),
-            'unix_socket' => $db['unix_socket'] ?? null,
-            'db_include' => $config['db_include'] ?? null,
-        ];
-
         $pdo = db_connect($config);
         $report['db']['connected'] = true;
 
@@ -143,7 +135,7 @@ function handle_health(array $config): void
         }
     } catch (Throwable $e) {
         $report['success'] = false;
-        $report['error'] = $e->getMessage();
+        $report['error'] = 'health_check_failed';
         if (!empty($config['debug'])) {
             $report['debug'] = $e->getMessage();
         }
@@ -161,8 +153,10 @@ function handle_login(PDO $pdo, array $config, array $body): void
         json_error('Укажите email и пароль', 400);
     }
 
+    rate_limit_enforce('login', $email, 5, 900);
+
     $user = find_user_by_email($pdo, $config, $email);
-    if (!$user || !verify_user_password($password, $user, $config)) {
+    if (!$user || !verify_user_password($pdo, $config, $password, $user)) {
         json_error('Неверный email или пароль', 401, 'INVALID_CREDENTIALS');
     }
     if (!(int) $user['is_active'] || !empty($user['deleted_at'])) {
@@ -183,8 +177,9 @@ function handle_register(PDO $pdo, array $config, array $body): void
     if ($email === '' || $password === '' || $fullName === '') {
         json_error('Заполните email, пароль и имя', 400);
     }
-    if (strlen($password) < 6) {
-        json_error('Пароль слишком слабый. Минимум 6 символов.', 400, 'WEAK_PASSWORD');
+    $passwordError = validate_password_strength($password);
+    if ($passwordError !== null) {
+        json_error($passwordError, 400, 'WEAK_PASSWORD');
     }
     if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
         json_error('Некорректный формат email', 400, 'INVALID_EMAIL');
@@ -227,6 +222,8 @@ function handle_refresh(PDO $pdo, array $config, array $body): void
         json_error('Укажите refreshToken', 400);
     }
 
+    rate_limit_enforce('refresh', substr(hash('sha256', $refreshToken), 0, 16), 30, 900);
+
     $hash = hash('sha256', $refreshToken);
     $table = $config['tables']['refresh_tokens'];
     $stmt = $pdo->prepare(
@@ -235,6 +232,16 @@ function handle_refresh(PDO $pdo, array $config, array $body): void
     $stmt->execute([$hash]);
     $row = $stmt->fetch(PDO::FETCH_ASSOC);
     if (!$row) {
+        $reuseStmt = $pdo->prepare(
+            "SELECT * FROM `{$table}` WHERE token_hash = ? AND revoked_at IS NOT NULL LIMIT 1"
+        );
+        $reuseStmt->execute([$hash]);
+        $reused = $reuseStmt->fetch(PDO::FETCH_ASSOC);
+        if ($reused) {
+            revoke_all_refresh_tokens_for_user($pdo, $config, (int) $reused['user_id']);
+            error_log('[auth-mobile] Refresh token reuse detected for user ' . (int) $reused['user_id']);
+            json_error('Недействительный refresh token', 401, 'REFRESH_REUSE');
+        }
         json_error('Недействительный refresh token', 401, 'INVALID_REFRESH');
     }
 
@@ -273,6 +280,7 @@ function handle_me(PDO $pdo, array $config): void
 function handle_forgot_password(PDO $pdo, array $config, array $body): void
 {
     $email = normalize_email($body['email'] ?? '');
+    rate_limit_enforce('forgot', $email !== '' ? $email : 'empty', 3, 3600);
     // Всегда 200 — не раскрываем наличие email
     if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
         json_ok(['success' => true]);
@@ -295,7 +303,7 @@ function handle_forgot_password(PDO $pdo, array $config, array $body): void
             $message = "Для сброса пароля перейдите по ссылке:\n{$resetUrl}\n\nСсылка действует 1 час.";
             @mail($email, $subject, $message, 'From: noreply@travelhub63.ru');
         } else {
-            error_log("[auth-mobile] Reset link for {$email}: {$resetUrl}");
+            error_log('[auth-mobile] Password reset issued for user_id=' . (int) $user['id']);
         }
     }
 
@@ -310,8 +318,10 @@ function handle_reset_password(PDO $pdo, array $config, array $body): void
     if ($token === '' || $newPassword === '') {
         json_error('Укажите token и newPassword', 400);
     }
-    if (strlen($newPassword) < 6) {
-        json_error('Пароль слишком слабый. Минимум 6 символов.', 400, 'WEAK_PASSWORD');
+    rate_limit_enforce('reset-password', substr(hash('sha256', $token), 0, 16), 5, 3600);
+    $passwordError = validate_password_strength($newPassword);
+    if ($passwordError !== null) {
+        json_error($passwordError, 400, 'WEAK_PASSWORD');
     }
 
     $hash = hash('sha256', $token);
@@ -422,7 +432,9 @@ function issue_tokens_and_respond(PDO $pdo, array $config, array $user): void
     $secret = (string) $config['jwt_secret'];
 
     $now = time();
+    $issuer = jwt_issuer($config);
     $accessToken = jwt_encode([
+        'iss' => $issuer,
         'sub' => (string) $user['id'],
         'email' => (string) $user['email'],
         'phone_number' => (string) ($user['phone'] ?? ''),
@@ -459,6 +471,13 @@ function revoke_refresh_token(PDO $pdo, array $config, int $id): void
     $pdo->prepare("UPDATE `{$table}` SET revoked_at = NOW() WHERE id = ?")->execute([$id]);
 }
 
+function revoke_all_refresh_tokens_for_user(PDO $pdo, array $config, int $userId): void
+{
+    $table = $config['tables']['refresh_tokens'];
+    $pdo->prepare("UPDATE `{$table}` SET revoked_at = NOW() WHERE user_id = ? AND revoked_at IS NULL")
+        ->execute([$userId]);
+}
+
 function require_auth(array $config): array
 {
     $header = $_SERVER['HTTP_AUTHORIZATION'] ?? $_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? '';
@@ -466,7 +485,7 @@ function require_auth(array $config): array
         json_error('Unauthorized: Bearer token required', 401, 'NO_TOKEN');
     }
     $token = trim($m[1]);
-    $claims = jwt_decode($token, (string) $config['jwt_secret']);
+    $claims = jwt_decode($token, (string) $config['jwt_secret'], jwt_issuer($config));
     if (!$claims || empty($claims['sub'])) {
         json_error('Invalid or expired auth token', 401, 'INVALID_TOKEN');
     }
@@ -485,7 +504,13 @@ function jwt_encode(array $payload, string $secret): string
     return "{$header}.{$body}.{$sig}";
 }
 
-function jwt_decode(string $token, string $secret): ?array
+function jwt_issuer(array $config): string
+{
+    $iss = trim((string) ($config['jwt_issuer'] ?? 'travelhub-auth'));
+    return $iss !== '' ? $iss : 'travelhub-auth';
+}
+
+function jwt_decode(string $token, string $secret, ?string $expectedIssuer = null): ?array
 {
     $parts = explode('.', $token);
     if (count($parts) !== 3) {
@@ -502,6 +527,12 @@ function jwt_decode(string $token, string $secret): ?array
     }
     if (isset($payload['exp']) && time() >= (int) $payload['exp']) {
         return null;
+    }
+    if ($expectedIssuer !== null && $expectedIssuer !== '') {
+        $iss = isset($payload['iss']) ? (string) $payload['iss'] : '';
+        if ($iss === '' || !hash_equals($expectedIssuer, $iss)) {
+            return null;
+        }
     }
     return $payload;
 }
@@ -626,22 +657,57 @@ function db_connect(array $config): PDO
     ]);
 }
 
-/** password_hash (новые) или md5 (старые сайты) — см. password_algo в конфиге */
-function verify_user_password(string $password, array $user, array $config): bool
+/** bcrypt; legacy md5-хеши автоматически обновляются при успешном входе */
+function verify_user_password(PDO $pdo, array $config, string $password, array $user): bool
 {
     $cols = $config['columns'];
     $hash = (string) ($user[$cols['password']] ?? '');
     if ($hash === '') {
         return false;
     }
-    $algo = $config['password_algo'] ?? 'bcrypt';
-    if ($algo === 'md5') {
-        return hash_equals($hash, md5($password));
+
+    if (password_get_info($hash)['algo'] !== 0) {
+        if (!password_verify($password, $hash)) {
+            return false;
+        }
+        if (password_needs_rehash($hash, PASSWORD_DEFAULT)) {
+            upgrade_user_password_hash($pdo, $config, (int) $user['id'], $password);
+        }
+        return true;
     }
-    if ($algo === 'plain') {
-        return hash_equals($hash, $password);
+
+    if (preg_match('/^[a-f0-9]{32}$/i', $hash) && hash_equals(strtolower($hash), md5($password))) {
+        upgrade_user_password_hash($pdo, $config, (int) $user['id'], $password);
+        return true;
     }
-    return password_verify($password, $hash);
+
+    return false;
+}
+
+function upgrade_user_password_hash(PDO $pdo, array $config, int $userId, string $password): void
+{
+    $cols = $config['columns'];
+    $table = $config['tables']['users'];
+    $newHash = password_hash($password, PASSWORD_DEFAULT);
+    $sql = sprintf(
+        'UPDATE `%s` SET `%s` = ?, `%s` = NOW() WHERE `%s` = ?',
+        $table,
+        $cols['password'],
+        $cols['updated_at'],
+        $cols['id']
+    );
+    $pdo->prepare($sql)->execute([$newHash, $userId]);
+}
+
+function validate_password_strength(string $password): ?string
+{
+    if (strlen($password) < 8) {
+        return 'Пароль слишком слабый. Минимум 8 символов.';
+    }
+    if (!preg_match('/\d/', $password)) {
+        return 'Пароль должен содержать хотя бы одну цифру.';
+    }
+    return null;
 }
 
 function find_user_by_email(PDO $pdo, array $config, string $email): ?array

@@ -3,12 +3,7 @@
  * Только Firestore: intent + бронь (источник истины после webhook; без GetState — нельзя опросить чужой PaymentId).
  */
 const admin = require('../lib/firebaseAdmin').getAdmin();
-
-function getBearerToken(req) {
-  const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith('Bearer ')) return null;
-  return authHeader.slice(7).trim();
-}
+const { resolveAuthFromRequest } = require('../lib/resolveAuthUser');
 
 function mapBookingPaymentToStatus(paymentStatus) {
   if (paymentStatus === 'paid') return 'success';
@@ -26,16 +21,11 @@ async function handler(req, res) {
     return res.status(400).json({ error: 'Invalid transactionId format' });
   }
 
-  const bearer = getBearerToken(req);
-  if (!bearer) {
-    return res.status(401).json({ error: 'Unauthorized: Bearer token required' });
-  }
-  let decoded;
-  try {
-    decoded = await admin.auth().verifyIdToken(bearer, true);
-  } catch (e) {
+  const auth = await resolveAuthFromRequest(req);
+  if (!auth) {
     return res.status(401).json({ error: 'Invalid or expired auth token' });
   }
+  const decoded = { uid: auth.userId };
 
   const db = admin.firestore();
   const tid = String(transactionId);

@@ -33,7 +33,7 @@ require_once dirname(__DIR__) . '/lib/auth-jwt.php';
 require_once dirname(__DIR__) . '/lib/crm-read-helpers.php';
 crm_maybe_cors($CONFIG);
 
-auth_jwt_require_bearer($CONFIG);
+$claims = auth_jwt_require_bearer($CONFIG);
 
 $raw = file_get_contents('php://input') ?: '';
 $body = json_decode($raw, true);
@@ -47,6 +47,14 @@ $bonuses = (int) ($body['bonuses'] ?? 0);
 
 if ($bcId <= 0 || ($type !== 1 && $type !== 2) || $bonuses <= 0) {
     auth_jwt_json_error('Required: bc_id, type (1|2), bonuses > 0', 400);
+}
+
+if ($type === 1) {
+    auth_jwt_json_error('Forbidden: bonus credit not allowed via app API', 403);
+}
+
+if (!crm_user_owns_bcard($CONFIG, $claims, $bcId)) {
+    auth_jwt_json_error('Forbidden: bonus card does not belong to user', 403);
 }
 
 $key = trim((string) ($CONFIG['uon_api_key'] ?? getenv('UON_API_KEY') ?: getenv('SOTA_API_KEY') ?: ''));

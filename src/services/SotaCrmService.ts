@@ -164,6 +164,12 @@ class SotaCrmService {
     return `${this.baseUrl}/${key}/${path}`;
   }
 
+  /** URL для логов — без API-ключа в пути */
+  private getSafeLogUrl(endpoint: string): string {
+    const path = endpoint.startsWith('/') ? endpoint.slice(1) : endpoint;
+    return `${this.baseUrl}/***REDACTED***/${path}`;
+  }
+
   /**
    * Заголовки для запросов. По документации U-ON ключ передаётся только в URL, не в заголовках.
    */
@@ -195,6 +201,7 @@ class SotaCrmService {
     }
 
     const url = this.getApiUrl(endpoint);
+    const logUrl = this.getSafeLogUrl(endpoint);
     const method = options.method || 'GET';
     const config: RequestInit = {
       ...options,
@@ -207,7 +214,7 @@ class SotaCrmService {
     // Логируем отправку данных
     const isDataSending = ['POST', 'PUT', 'PATCH'].includes(method);
     if (isDataSending) {
-      logger.log(`[SOTA] 📤 Отправка данных в SOTA: ${method} ${url}`);
+      logger.log(`[SOTA] 📤 Отправка данных в SOTA: ${method} ${logUrl}`);
       if (options.body) {
         try {
           const bodyData = typeof options.body === 'string' 
@@ -221,7 +228,7 @@ class SotaCrmService {
         }
       }
     } else {
-      logger.debug(`[SOTA] Запрос: ${method} ${url}`);
+      logger.debug(`[SOTA] Запрос: ${method} ${logUrl}`);
     }
 
     try {

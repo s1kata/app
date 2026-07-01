@@ -35,6 +35,7 @@ import { getFromSharedCache } from '../services/TourvisorFirestoreCache';
 import { saveTourSearchToAllCaches, searchTours } from '../hooks/useTourSearch';
 import { preCacheTourDetailsFromSearchResults, cacheTourFromSearchResult, buildTourOutputFromSearchResult } from '../utils/tourDetailsCache';
 import { FavoritesService } from '../services/FavoritesService';
+import { logger } from '../utils/logger';
 import type { NavigationProp, RouteProp } from '@react-navigation/native';
 import type { ApiTourResultsRouteParams } from '../navigation/types';
 
@@ -275,7 +276,7 @@ export default function ApiTourResultsScreen({ navigation, route }: ApiTourResul
       if (!cached?.length) {
         cached = await cacheService.get<TourHotel[]>(CacheType.SEARCH_RESULTS, key, false);
       }
-      if (!mountedRef.current) return;
+      if (!mountedRef.current) return false;
       const raw = cached ?? [];
       const valid = sanitizeTourHotelsFromCache(raw);
       if (Array.isArray(raw) && raw.length > 0 && valid.length === 0) {

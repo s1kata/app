@@ -7,8 +7,7 @@
 | Компонент | Назначение |
 |-----------|------------|
 | **Приложение** (React Native / Expo) | Поиск туров (Tourvisor через прокси), бронирования, оплата через внешний сайт, CRM SOTA (U-ON) |
-| **Сайт** (`travelhub63.ru`) | JWT auth (`auth-mobile.php`), Tourvisor proxy (`/api/tourvisor-mobile`), CRM proxy, оплата |
-| **Firebase** | Опционально: Firestore-кэш поиска (Auth для входа не используется) |
+| **Сайт** (`travelhub63.ru`) | JWT auth (`auth-mobile.php`), Tourvisor proxy, CRM, оплата (Тинькофф) |
 | **EAS Build / Submit** | Сборка AAB/APK/IPA и отправка в Google Play / App Store |
 | **EAS Update** | OTA-обновления JS/ассетов (`expo-updates`, канал `production` в `eas.json`) |
 
@@ -24,9 +23,11 @@
 
 | Переменная | Назначение |
 |------------|------------|
-| `FIREBASE_*` | Опционально: Firestore-кэш. Вход — через `auth-mobile.php` на сайте, не Firebase Auth |
+| `FIREBASE_*` | **Не нужен** — вход через `auth-mobile.php`, брони в AsyncStorage. См. [ENV_MAP.md](./ENV_MAP.md) |
 | `TOURVISOR_TOKEN` | JWT Tourvisor — **только dev**. В production/preview — прокси `${WEBSITE_BASE_URL}/api/tourvisor-mobile` |
 | `EAS_PROJECT_ID` | UUID проекта в **текущем** аккаунте expo.dev (`eas project:info` или настройки проекта). Без него в конфиг не подставляются OTA `updates.url` и `extra.eas.projectId` |
+| `IOS_BUNDLE_ID` | iOS bundle ID (по умолчанию `com.iliastravelhub.app`). Должен совпадать с App ID в Apple Developer и EAS credentials |
+| `ANDROID_PACKAGE` | Android applicationId (по умолчанию = `IOS_BUNDLE_ID`) |
 
 ### Продакшен-сервисы
 
@@ -63,13 +64,20 @@
 
 ### Загрузка переменных в облако EAS
 
+Используйте **отдельный файл** только для мобильного приложения (без `JWT_SECRET`, `TINKOFF_*`, `UON_API_KEY`):
+
 ```bash
-# Production (магазины)
-npx eas env:push production --path .env
+# 1) Заполните eas-secrets.production.env (шаблон: eas-secrets.template.env)
+# 2) Залейте в EAS:
+npm run eas:env-push:production
 
 # Preview (внутреннее тестирование)
-npx eas env:push preview --path .env
+npm run eas:env-push:preview
 ```
+
+Обязательно для iOS-сборки: `IOS_BUNDLE_ID=com.iliastravelhub.app` и `ANDROID_PACKAGE=com.iliastravelhub.app` (должны совпадать с EAS credentials).
+
+Локальная разработка: `.env` (см. `.env.example`). **Не** пушьте весь `.env` в EAS — там серверные секреты.
 
 Отметьте чувствительные значения как **Sensitive**. Если EAS ругается на смену типа переменной — удалите переменную в [expo.dev](https://expo.dev) → Project → Environment variables и выполните push снова.
 
@@ -155,7 +163,7 @@ npx eas submit --platform ios
 
 1. **Секреты**: production `.env` / EAS без `localhost`, без тестовых ключей в репозитории.
 2. **Оплата**: `PAYMENT_PAGE_URL` указывает на боевой сайт; API отвечает; success-страница отдаёт deep link из `returnUrl` / `failReturnUrl`.
-3. **Firebase**: продакшен-проект, правила Firestore/Storage проверены.
+3. **Юридические страницы:** `web/legal/*.html` на travelhub63.ru; `IOS_ENABLE_PUSH=1` в EAS.
 4. **U-ON**: `UON_API_KEY` на сервере / в EAS для Node; тест создания заявки.
 5. **Сборка**: `production` AAB/IPA; версии `version` / `versionCode` / `buildNumber` увеличены.
 6. **UI релиза**: отельный флоу удалён (`RELEASE_HIDE_NEXT_PATCH_UI`); персональные рекомендации скрыты; поиск туров — `runSearch: true` на экране результатов.

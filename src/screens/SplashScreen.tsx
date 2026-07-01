@@ -22,7 +22,7 @@ export default function SplashScreen({ navigation }: { navigation: any }) {
   const subtitleOpacity = useRef(new Animated.Value(0)).current;
   const glowOpacity = useRef(new Animated.Value(0.25)).current;
 
-  const gradientColors = useMemo(() => {
+  const gradientColors = useMemo<readonly [string, string]>(() => {
     const [g1, g2] = theme.gradient.primary;
     return isDark ? [theme.background, g1] : [theme.background, g2];
   }, [isDark, theme]);

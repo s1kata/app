@@ -4,6 +4,7 @@
 import { getAuthApiUrl } from '../api/apiClient';
 import type { AuthTokenResponse, AuthUserProfile } from '../types/auth';
 import { authSession } from './AuthSession';
+import { classifyRefreshFailure, type RefreshOutcome } from '../utils/authRefresh';
 import { logger } from '../utils/logger';
 
 const LOG = '[AuthApiClient]';
@@ -97,9 +98,9 @@ export const authApiClient = {
     return data;
   },
 
-  async refresh(): Promise<boolean> {
+  async refreshWithOutcome(): Promise<RefreshOutcome> {
     const refreshToken = await authSession.getRefreshToken();
-    if (!refreshToken) return false;
+    if (!refreshToken) return 'auth_failed';
     logger.debug('[AuthApiClient] refresh start');
     try {
       const data = await postAuth<AuthTokenResponse>('refresh', { refreshToken });
@@ -111,13 +112,18 @@ export const authApiClient = {
           user: data.user,
         });
         logger.info('[AuthApiClient] refresh success');
-        return true;
+        return 'ok';
       }
       logger.warn('[AuthApiClient] refresh failed: invalid payload');
+      return 'network_error';
     } catch (e) {
       logger.warn('[AuthApiClient] refresh failed:', e);
+      return classifyRefreshFailure(e);
     }
-    return false;
+  },
+
+  async refresh(): Promise<boolean> {
+    return (await this.refreshWithOutcome()) === 'ok';
   },
 
   async logout(): Promise<void> {
@@ -187,10 +193,12 @@ export async function getValidAccessToken(): Promise<string | null> {
   const expired = await authSession.isAccessTokenExpired();
   if (!expired) return token;
 
-  const refreshed = await authApiClient.refresh();
-  if (!refreshed) {
-    await authSession.clear();
-    return null;
+  const outcome = await authApiClient.refreshWithOutcome();
+  if (outcome === 'ok') {
+    return authSession.getAccessToken();
   }
-  return authSession.getAccessToken();
+  if (outcome === 'auth_failed') {
+    await authSession.clear();
+  }
+  return null;
 }

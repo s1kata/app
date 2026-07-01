@@ -17,7 +17,7 @@ function mapAuthError(error: unknown, fallback: string): string {
   if (error instanceof AuthApiError) {
     if (error.code === 'INVALID_CREDENTIALS') return 'Неверный email или пароль';
     if (error.code === 'EMAIL_EXISTS') return 'Пользователь с таким email уже существует';
-    if (error.code === 'WEAK_PASSWORD') return 'Пароль слишком слабый. Минимум 6 символов.';
+    if (error.code === 'WEAK_PASSWORD') return 'Пароль слишком слабый. Минимум 8 символов и хотя бы одна цифра.';
     if (error.code === 'INVALID_EMAIL') return 'Некорректный формат email';
     if (error.code === 'ACCOUNT_DISABLED') return 'Аккаунт деактивирован';
     if (error.code === 'INVALID_TOKEN') return 'Неверный или просроченный код';
@@ -30,6 +30,13 @@ function mapAuthError(error: unknown, fallback: string): string {
 }
 
 function profileToUserProfile(p: AuthUserProfile): UserProfile {
+  const passport = p.passport ?? undefined;
+  const hasPassportCore =
+    !!passport?.series &&
+    !!passport?.number &&
+    !!passport?.issuedBy &&
+    !!passport?.issueDate;
+
   return {
     id: p.id,
     email: p.email,
@@ -37,14 +44,14 @@ function profileToUserProfile(p: AuthUserProfile): UserProfile {
     phone: p.phone,
     passwordHash: '',
     isActive: p.isActive,
-    passport: p.passport
+    passport: hasPassportCore
       ? {
-          series: p.passport.series,
-          number: p.passport.number,
-          issuedBy: p.passport.issuedBy,
-          issueDate: p.passport.issueDate,
-          birthDate: p.passport.birthDate,
-          birthPlace: p.passport.birthPlace,
+          series: passport!.series!,
+          number: passport!.number!,
+          issuedBy: passport!.issuedBy!,
+          issueDate: passport!.issueDate!,
+          birthDate: passport!.birthDate,
+          birthPlace: passport!.birthPlace,
         }
       : undefined,
     createdAt: p.createdAt || new Date().toISOString(),

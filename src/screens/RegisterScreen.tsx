@@ -14,7 +14,7 @@ import { platform } from '../utils/platform';
 import { StatusBar } from 'expo-status-bar';
 import { useAppContext } from '../contexts/AppContext';
 import { i18n } from '../config/i18n';
-import { validateEmail, validatePassword, validateName } from '../utils/validation';
+import { validateEmail, validatePassword, validateName, getPasswordValidationMessage } from '../utils/validation';
 import { logger } from '../utils/logger';
 import { PrimaryButton } from '../components/ui';
 
@@ -48,7 +48,7 @@ export default function RegisterScreen({ navigation, route }: RegisterScreenProp
     }
 
     if (!validatePassword(password)) {
-      Alert.alert('Ошибка', 'Пароль должен содержать минимум 6 символов');
+      Alert.alert('Ошибка', getPasswordValidationMessage(password) || 'Пароль слишком слабый');
       return;
     }
 

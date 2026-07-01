@@ -6,7 +6,7 @@ service firebase.storage {
     // AVATARS - Аватарки пользователей (только jpg, png, webp, макс 5MB)
     // ============================================
     match /avatars/{userId}.{ext} {
-      allow read: if true;
+      allow read: if request.auth != null && request.auth.uid == userId;
       allow create, update: if request.auth != null 
         && request.auth.uid == userId
         && request.auth.token.firebase.sign_in_provider != 'anonymous'
@@ -24,7 +24,7 @@ service firebase.storage {
     // Только jpg, png, webp, макс 5MB
     // ============================================
     match /users/{userId}/{allPaths=**} {
-      allow read: if true;
+      allow read: if request.auth != null && request.auth.uid == userId;
       allow create, update: if request.auth != null 
         && request.auth.uid == userId
         && request.auth.token.firebase.sign_in_provider != 'anonymous'

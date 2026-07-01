@@ -14,8 +14,14 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useAppContext } from '../contexts/AppContext';
-import { db } from '../config/firebase';
-import { collection, addDoc, query, where, getDocs, orderBy, Timestamp, updateDoc, deleteDoc, doc, increment } from 'firebase/firestore';
+import {
+  listReviews,
+  createReview,
+  updateReview,
+  deleteReview,
+  toggleReviewHelpful,
+  type ReviewDto,
+} from '../services/ReviewsApiClient';
 import { platform } from '../utils/platform';
 import { sanitizeString, MAX_LENGTHS } from '../utils/validation';
 import { logger } from '../utils/logger';
@@ -31,6 +37,7 @@ interface Review {
   photos?: string[];
   helpful: number;
   verified: boolean;
+  isOwn?: boolean;
 }
 
 interface ReviewsScreenProps {
@@ -114,7 +121,7 @@ export default function ReviewsScreen({ navigation, route }: ReviewsScreenProps)
     };
   }, [navigation]);
 
-  // Загрузка отзывов из Firestore
+  // Загрузка отзывов с CRM API (travelhub63.ru)
   useEffect(() => {
     loadReviews();
   }, [tourId, hotelId]);
@@ -122,77 +129,33 @@ export default function ReviewsScreen({ navigation, route }: ReviewsScreenProps)
   const loadReviews = async () => {
     try {
       setIsLoading(true);
-      if (!db) {
-        setReviews([]);
-        setIsLoading(false);
-        return;
-      }
-
-      const reviewsRef = collection(db, 'reviews');
-      let q = query(reviewsRef, orderBy('createdAt', 'desc'));
-      
-      if (tourId) {
-        q = query(reviewsRef, where('tourId', '==', tourId), orderBy('createdAt', 'desc'));
-      } else if (hotelId) {
-        q = query(reviewsRef, where('hotelId', '==', hotelId), orderBy('createdAt', 'desc'));
-      }
-
-      const querySnapshot = await getDocs(q);
-      const loadedReviews: Review[] = [];
-      
-      querySnapshot.forEach((doc) => {
-        const data = doc.data();
-        loadedReviews.push({
-          id: doc.id,
-          userName: data.userName || 'Пользователь',
-          userAvatar: data.userAvatar,
-          rating: data.rating || 5,
-          date: data.createdAt?.toDate?.()?.toISOString() || data.date || new Date().toISOString(),
-          text: data.text || '',
-          photos: data.photos || [],
-          helpful: data.helpful || 0,
-          verified: data.verified || false,
-        });
+      const items = await listReviews({
+        tourId: tourId || undefined,
+        hotelId: hotelId || undefined,
+        withAuth: isAuthenticated,
       });
-      
-      // Загружаем информацию о том, какие отзывы пользователь отметил как полезные
-      if (user && db) {
-        await loadHelpfulReviews();
-      }
-
+      const loadedReviews: Review[] = items.map((r: ReviewDto) => ({
+        id: r.id,
+        userName: r.userName || 'Пользователь',
+        rating: r.rating || 5,
+        date: r.date || new Date().toISOString(),
+        text: r.text || '',
+        photos: [],
+        helpful: r.helpful || 0,
+        verified: r.verified ?? true,
+        isOwn: r.isOwn,
+      }));
+      const helpfulSet = new Set<string>();
+      items.forEach((r) => {
+        if (r.userMarkedHelpful) helpfulSet.add(r.id);
+      });
+      setHelpfulReviews(helpfulSet);
       setReviews(loadedReviews);
     } catch (error) {
       logger.error('Error loading reviews:', error);
       setReviews([]);
     } finally {
       setIsLoading(false);
-    }
-  };
-
-  const loadHelpfulReviews = async () => {
-    try {
-      if (!user || !db || !isAuthenticated) {
-        setHelpfulReviews(new Set());
-        return;
-      }
-      
-      const helpfulRef = collection(db, 'reviewHelpful');
-      const q = query(helpfulRef, where('userId', '==', user.uid));
-      const querySnapshot = await getDocs(q);
-      
-      const helpfulSet = new Set<string>();
-      querySnapshot.forEach((doc) => {
-        const data = doc.data();
-        if (data.reviewId) {
-          helpfulSet.add(data.reviewId);
-        }
-      });
-      
-      setHelpfulReviews(helpfulSet);
-    } catch (error) {
-      logger.error('Error loading helpful reviews:', error);
-      // При ошибке просто очищаем список - это не критично
-      setHelpfulReviews(new Set());
     }
   };
 
@@ -232,57 +195,19 @@ export default function ReviewsScreen({ navigation, route }: ReviewsScreenProps)
 
     try {
       setIsSubmitting(true);
-      
-      if (!db) {
-        Alert.alert('Ошибка', 'Firebase недоступен. Отзыв не может быть сохранен.');
+
+      const result = await createReview({
+        tourId: tourId || undefined,
+        hotelId: hotelId || undefined,
+        rating: Math.min(5, Math.max(1, Math.round(Number(newReview.rating) || 5))),
+        text: sanitizeString(rawText, MAX_LENGTHS.text),
+      });
+
+      if (!result.success) {
+        Alert.alert('Ошибка', result.error || 'Не удалось сохранить отзыв. Попробуйте позже.');
         return;
       }
 
-      // Проверка: 1 отзыв на тур/отель от пользователя
-      if (tourId) {
-        const existingQ = query(
-          collection(db, 'reviews'),
-          where('userId', '==', user.uid),
-          where('tourId', '==', tourId)
-        );
-        const existingSnap = await getDocs(existingQ);
-        if (!existingSnap.empty) {
-          Alert.alert('Ошибка', 'Вы уже оставили отзыв на этот тур.');
-          setIsSubmitting(false);
-          return;
-        }
-      } else if (hotelId) {
-        const existingQ = query(
-          collection(db, 'reviews'),
-          where('userId', '==', user.uid),
-          where('hotelId', '==', hotelId)
-        );
-        const existingSnap = await getDocs(existingQ);
-        if (!existingSnap.empty) {
-          Alert.alert('Ошибка', 'Вы уже оставили отзыв на этот отель.');
-          setIsSubmitting(false);
-          return;
-        }
-      }
-
-      const reviewData = {
-        tourId: tourId || null,
-        hotelId: hotelId || null,
-        userId: user.uid,
-        userName: sanitizeString(user.displayName || user.email?.split('@')[0] || 'Пользователь', MAX_LENGTHS.name),
-        userAvatar: user.photoURL || null,
-        rating: Math.min(5, Math.max(1, Math.round(Number(newReview.rating) || 5))),
-        text: sanitizeString(rawText, MAX_LENGTHS.text),
-        photos: [] as string[],
-        helpful: 0,
-        verified: !user.uid.startsWith('guest_') && !user.isAnonymous,
-        createdAt: Timestamp.now(),
-        date: new Date().toISOString(),
-        updatedAt: Timestamp.now(),
-      };
-
-      await addDoc(collection(db, 'reviews'), reviewData);
-      
       await loadReviews();
       setNewReview({ rating: 5, text: '' });
       setShowAddReviewModal(false);
@@ -296,7 +221,7 @@ export default function ReviewsScreen({ navigation, route }: ReviewsScreenProps)
   };
 
   const handleEditReview = (review: Review) => {
-    if (review.userName !== (user?.displayName || user?.email?.split('@')[0] || 'Пользователь')) {
+    if (!review.isOwn) {
       Alert.alert('Ошибка', 'Вы можете редактировать только свои отзывы');
       return;
     }
@@ -307,7 +232,7 @@ export default function ReviewsScreen({ navigation, route }: ReviewsScreenProps)
   };
 
   const handleUpdateReview = async () => {
-    if (!editingReview || !db || !user) return;
+    if (!editingReview || !user) return;
 
     if (!newReview.text.trim()) {
       Alert.alert('Ошибка', 'Пожалуйста, напишите отзыв');
@@ -317,12 +242,15 @@ export default function ReviewsScreen({ navigation, route }: ReviewsScreenProps)
     try {
       setIsSubmitting(true);
 
-      const reviewRef = doc(db, 'reviews', editingReview.id);
-      await updateDoc(reviewRef, {
+      const result = await updateReview(editingReview.id, {
         rating: Math.min(5, Math.max(1, Math.round(Number(newReview.rating) || 5))),
         text: sanitizeString(newReview.text.trim(), MAX_LENGTHS.text),
-        updatedAt: Timestamp.now(),
       });
+
+      if (!result.success) {
+        Alert.alert('Ошибка', result.error || 'Не удалось обновить отзыв.');
+        return;
+      }
 
       await loadReviews();
       setEditingReview(null);
@@ -348,8 +276,11 @@ export default function ReviewsScreen({ navigation, route }: ReviewsScreenProps)
           style: 'destructive',
           onPress: async () => {
             try {
-              if (!db) return;
-              await deleteDoc(doc(db, 'reviews', reviewId));
+              const result = await deleteReview(reviewId);
+              if (!result.success) {
+                Alert.alert('Ошибка', result.error || 'Не удалось удалить отзыв');
+                return;
+              }
               await loadReviews();
               Alert.alert('Успешно', 'Отзыв удален');
             } catch (error) {
@@ -363,41 +294,24 @@ export default function ReviewsScreen({ navigation, route }: ReviewsScreenProps)
   };
 
   const handleToggleHelpful = async (reviewId: string) => {
-    if (!isAuthenticated || !user || !db) {
+    if (!isAuthenticated || !user) {
       Alert.alert('Ошибка', 'Необходимо войти в систему');
       return;
     }
 
     try {
       const isHelpful = helpfulReviews.has(reviewId);
-      const helpfulRef = collection(db, 'reviewHelpful');
-      const reviewRef = doc(db, 'reviews', reviewId);
-
-      if (isHelpful) {
-        // Убираем отметку "полезно"
-        const q = query(helpfulRef, where('reviewId', '==', reviewId), where('userId', '==', user.uid));
-        const querySnapshot = await getDocs(q);
-        querySnapshot.forEach(async (doc) => {
-          await deleteDoc(doc.ref);
-        });
-        await updateDoc(reviewRef, { helpful: increment(-1) });
-        setHelpfulReviews(prev => {
-          const newSet = new Set(prev);
-          newSet.delete(reviewId);
-          return newSet;
-        });
-      } else {
-        // Добавляем отметку "полезно"
-        await addDoc(helpfulRef, {
-          reviewId,
-          userId: user.uid,
-          createdAt: Timestamp.now(),
-        });
-        await updateDoc(reviewRef, { helpful: increment(1) });
-        setHelpfulReviews(prev => new Set(prev).add(reviewId));
+      const result = await toggleReviewHelpful(reviewId, !isHelpful);
+      if (!result.success) {
+        Alert.alert('Ошибка', result.error || 'Не удалось обновить оценку');
+        return;
       }
-
-      // Обновляем список отзывов для обновления счетчика
+      setHelpfulReviews((prev) => {
+        const next = new Set(prev);
+        if (!isHelpful) next.add(reviewId);
+        else next.delete(reviewId);
+        return next;
+      });
       await loadReviews();
     } catch (error) {
       logger.error('Error toggling helpful:', error);

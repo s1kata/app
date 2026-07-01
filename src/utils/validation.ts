@@ -72,17 +72,28 @@ export const validateEmail = (email: string): boolean => {
 };
 
 /**
- * Валидация пароля
- * @param password - Пароль для проверки
- * @param minLength - Минимальная длина (по умолчанию 6)
- * @returns true если пароль валиден
+ * Валидация пароля: минимум 8 символов и хотя бы одна цифра.
  */
-export const validatePassword = (password: string, minLength: number = 6): boolean => {
+export const validatePassword = (password: string, minLength: number = 8): boolean => {
   if (!password || typeof password !== 'string') {
     return false;
   }
-  return password.length >= minLength;
+  if (password.length < minLength) {
+    return false;
+  }
+  return /\d/.test(password);
 };
+
+/** Сообщение об ошибке пароля для UI */
+export function getPasswordValidationMessage(password: string): string | null {
+  if (!password || password.length < 8) {
+    return 'Пароль слишком слабый. Минимум 8 символов.';
+  }
+  if (!/\d/.test(password)) {
+    return 'Пароль должен содержать хотя бы одну цифру.';
+  }
+  return null;
+}
 
 /**
  * Валидация имени пользователя

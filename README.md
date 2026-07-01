@@ -23,9 +23,9 @@
 
 - **Expo** ~54, **React Native** 0.81, **React** 19
 - **TypeScript**
-- **Firebase** (Firestore — опциональный кэш; Auth не используется для входа)
 - **React Navigation**
-- **Tourvisor API** (серверный прокси с JWT)
+- **Tourvisor API** (серверный прокси на travelhub63.ru)
+- **Оплата:** Тинькофф через travelhub63.ru
 
 ## Быстрый старт
 
@@ -42,16 +42,16 @@ npm start
 
 Базовый набор для рабочего приложения:
 - `EAS_PROJECT_ID`
-- `WEBSITE_BASE_URL`, `PAYMENT_PAGE_URL` (сайт travelhub63.ru: auth, CRM, Tourvisor proxy, оплата)
+- `WEBSITE_BASE_URL`, `PAYMENT_PAGE_URL` (сайт travelhub63.ru: auth, CRM, Tourvisor proxy, оплата Тинькофф)
 - `TOURVISOR_TOKEN` — только dev; в store-билдах — прокси `/api/tourvisor-mobile` на сайте
-- `FIREBASE_*` — опционально (legacy Firestore-кэш)
+- `IOS_ENABLE_PUSH=1` — локальное напоминание в 12:00 (production)
 
 Деплой PHP/SQL на хостинг: **[docs/DEPLOY_SITE.md](docs/DEPLOY_SITE.md)**.  
 EAS Secrets: **[docs/PRODUCTION.md](docs/PRODUCTION.md)**.
 
 ## Поиск туров
 
-Форма `ApiTourHotelSearch` → экран результатов с `runSearch: true` → единый путь `searchTours()` (poll + fetch). Кэш AsyncStorage / Firestore, TTL **14 дней**; устаревшие записи не показываются.
+Форма `ApiTourHotelSearch` → экран результатов с `runSearch: true` → единый путь `searchTours()` (poll + fetch). Кэш AsyncStorage, TTL **14 дней**; устаревшие записи не показываются.
 
 ## Сборки EAS
 
@@ -67,7 +67,7 @@ npx eas build --profile production --platform android
 npx eas build --profile production --platform ios
 ```
 
-Подробности: [docs/PRODUCTION.md](docs/PRODUCTION.md), preview: [docs/PREVIEW_BUILD.md](docs/PREVIEW_BUILD.md), релизные проверки: [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md).
+Подробности: [docs/PRODUCTION.md](docs/PRODUCTION.md), TestFlight: [docs/TESTFLIGHT.md](docs/TESTFLIGHT.md), preview: [docs/PREVIEW_BUILD.md](docs/PREVIEW_BUILD.md), релизные проверки: [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md).
 
 ## Структура проекта
 
@@ -93,6 +93,7 @@ npx eas build --profile production --platform ios
 
 | Раздел | Файл |
 |--------|------|
+| **TestFlight (iOS)** | [docs/TESTFLIGHT.md](docs/TESTFLIGHT.md) |
 | **Продакшен (главный)** | [docs/PRODUCTION.md](docs/PRODUCTION.md) |
 | Указатель по всем doc | [docs/README.md](docs/README.md) |
 | Журнал правок / cleanup | [docs/AUDIT_POINT_FIXES.md](docs/AUDIT_POINT_FIXES.md) |

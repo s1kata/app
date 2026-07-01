@@ -9,7 +9,7 @@ import * as WebBrowser from 'expo-web-browser';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getValidAccessToken } from './AuthApiClient';
 import { authSession } from './AuthSession';
-import { getBackendBaseUrl } from '../api/apiClient';
+import { getPaymentApiBaseUrl } from '../config/apiEndpoints';
 import { logger } from '../utils/logger';
 const STORAGE_KEY_LAST_TRANSACTION = 'payment_last_transaction_id';
 const MAX_RETRIES = 3;
@@ -54,7 +54,7 @@ export interface PaymentStatusResult {
 export const PAYMENT_PENDING_LONG_MS = 45000;
 
 function getApiBase(): string {
-  return getBackendBaseUrl();
+  return getPaymentApiBaseUrl();
 }
 
 function generateIdempotencyKey(): string {
@@ -144,7 +144,7 @@ export async function createPaymentIntent(params: CreatePaymentParams): Promise<
             return {
               success: false,
               error:
-                'Сервер не принял токен сессии. Выйдите из аккаунта и войдите снова. Если повторится — проверьте, что в приложении и на сервере один и тот же проект Firebase.',
+                'Сервер не принял токен сессии. Выйдите из аккаунта и войдите снова. Если повторится — проверьте jwt_secret на сервере (auth и оплата).',
             };
           }
           return {
@@ -465,9 +465,9 @@ class PaymentService {
 
   getProviderName(provider: PaymentProvider): string {
     const names: Record<PaymentProvider, string> = {
-      sber: 'Сбер Пэй',
-      alpha: 'Альфа-Банк',
-      tbank: 'Т-Касса',
+      sber: 'Банковская карта',
+      alpha: 'Банковская карта',
+      tbank: 'Тинькофф',
     };
     return names[provider] || provider;
   }

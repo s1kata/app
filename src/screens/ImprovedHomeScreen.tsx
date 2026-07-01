@@ -90,42 +90,14 @@ export default function ImprovedHomeScreen({ navigation }: any) {
           return;
         }
 
-        // Для реальных пользователей загружаем профиль из Firestore
-        try {
-          const { doc, getDoc } = require('firebase/firestore');
-          const { db } = require('../config/firebase');
-          if (!db) {
-            if (homeScreenMountedRef.current) {
-              setUserName(user.displayName || user.email?.split('@')[0] || i18n.t('profile.user'));
-            }
-            return;
-          }
-          const userDocRef = doc(db, 'users', user.uid);
-          const userDocSnap = await getDoc(userDocRef);
-          if (!homeScreenMountedRef.current) return;
-
-          if (userDocSnap.exists()) {
-            const userData = userDocSnap.data();
-            if (userData.fullName) {
-              setUserName(userData.fullName);
-              return;
-            }
-          } else {
-            // Если профиль не найден в базе данных, показываем уведомление
-            Alert.alert(
-              'Аккаунт не зарегистрирован',
-              'Ваш аккаунт не найден в базе данных. Пожалуйста, завершите регистрацию в настройках профиля.',
-              [{ text: 'Понятно' }],
-              { cancelable: true }
-            );
-          }
-        } catch (firestoreError) {
-          logger.debug('Firestore error, using fallback:', firestoreError);
-        }
-
-        // Fallback на displayName или email
+        const authProfile = await AuthService.getCurrentUser();
         if (homeScreenMountedRef.current) {
-          setUserName(user.displayName || user.email?.split('@')[0] || i18n.t('profile.user'));
+          setUserName(
+            authProfile?.fullName ||
+              user.displayName ||
+              user.email?.split('@')[0] ||
+              i18n.t('profile.user'),
+          );
         }
       } catch (error) {
         logger.error('Error loading user data:', error);

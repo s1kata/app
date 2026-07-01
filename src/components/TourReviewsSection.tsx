@@ -8,9 +8,8 @@ import {
   Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { collection, getDocs, orderBy, query, where } from 'firebase/firestore';
 import { useAppContext } from '../contexts/AppContext';
-import { db } from '../config/firebase';
+import { listReviews, type ReviewDto } from '../services/ReviewsApiClient';
 import { i18n } from '../config/i18n';
 import { spacing, radius } from '../config/designSystem';
 import { logger } from '../utils/logger';
@@ -37,36 +36,26 @@ export default function TourReviewsSection({ tourId, hotelId, navigation }: Tour
   const loadReviews = useCallback(async () => {
     setLoading(true);
     try {
-      if (!db || !tourId) {
-        setReviews([]);
-        return;
-      }
-      const reviewsRef = collection(db, 'reviews');
-      const q = query(
-        reviewsRef,
-        where('tourId', '==', tourId),
-        orderBy('createdAt', 'desc'),
-      );
-      const snap = await getDocs(q);
-      const list: TourReview[] = [];
-      snap.forEach((docSnap) => {
-        const data = docSnap.data();
-        list.push({
-          id: docSnap.id,
-          userName: data.userName || i18n.t('reviews.anonymous'),
-          rating: data.rating || 5,
-          text: data.text || '',
-          date: data.createdAt?.toDate?.()?.toISOString() || data.date || '',
-        });
+      const items = await listReviews({
+        tourId,
+        hotelId: hotelId != null ? String(hotelId) : undefined,
+        withAuth: isAuthenticated,
       });
-      setReviews(list.slice(0, 3));
+      const list: TourReview[] = items.slice(0, 3).map((r: ReviewDto) => ({
+        id: r.id,
+        userName: r.userName || i18n.t('reviews.anonymous'),
+        rating: r.rating,
+        text: r.text,
+        date: r.date,
+      }));
+      setReviews(list);
     } catch (e) {
       logger.debug('[TourReviewsSection] load failed:', (e as Error)?.message || e);
       setReviews([]);
     } finally {
       setLoading(false);
     }
-  }, [tourId]);
+  }, [tourId, hotelId, isAuthenticated]);
 
   useEffect(() => {
     void loadReviews();
@@ -75,7 +64,7 @@ export default function TourReviewsSection({ tourId, hotelId, navigation }: Tour
   const openReviews = (openAdd?: boolean) => {
     navigation.navigate('Reviews', {
       tourId,
-      hotelId: hotelId ? String(hotelId) : undefined,
+      hotelId: hotelId != null ? String(hotelId) : undefined,
       title: i18n.t('tour.reviewsTitle'),
       openAdd,
     });
@@ -83,7 +72,7 @@ export default function TourReviewsSection({ tourId, hotelId, navigation }: Tour
 
   const handleAddReview = () => {
     const isGuest = user?.uid?.startsWith('guest_') || user?.isAnonymous === true;
-    if (!isAuthenticated || !user || isGuest) {
+    if (!isAuthenticated || isGuest) {
       Alert.alert(i18n.t('reviews.authRequiredTitle'), i18n.t('reviews.authRequiredBody'), [
         { text: i18n.t('common.cancel'), style: 'cancel' },
         { text: i18n.t('auth.login'), onPress: () => navigation.navigate('Login') },
@@ -94,8 +83,8 @@ export default function TourReviewsSection({ tourId, hotelId, navigation }: Tour
   };
 
   return (
-    <View style={[styles.wrap, { backgroundColor: theme.card, borderColor: theme.border }]}>
-      <View style={styles.headerRow}>
+    <View style={styles.wrap}>
+      <View style={styles.header}>
         <Text style={[styles.title, { color: theme.text }]}>{i18n.t('tour.reviewsTitle')}</Text>
         <TouchableOpacity onPress={() => openReviews()} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
           <Text style={[styles.link, { color: theme.primary }]}>{i18n.t('tour.allReviews')}</Text>
@@ -112,12 +101,12 @@ export default function TourReviewsSection({ tourId, hotelId, navigation }: Tour
             <View style={styles.reviewTop}>
               <Text style={[styles.userName, { color: theme.text }]}>{r.userName}</Text>
               <View style={styles.stars}>
-                {Array.from({ length: 5 }).map((_, i) => (
+                {[1, 2, 3, 4, 5].map((i) => (
                   <Ionicons
                     key={i}
-                    name={i < r.rating ? 'star' : 'star-outline'}
+                    name={i <= r.rating ? 'star' : 'star-outline'}
                     size={14}
-                    color={theme.warning}
+                    color="#FFB800"
                   />
                 ))}
               </View>
@@ -142,15 +131,8 @@ export default function TourReviewsSection({ tourId, hotelId, navigation }: Tour
 }
 
 const styles = StyleSheet.create({
-  wrap: {
-    marginHorizontal: spacing.md,
-    marginTop: spacing.md,
-    marginBottom: spacing.lg,
-    padding: spacing.md,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-  },
-  headerRow: {
+  wrap: { marginTop: spacing.lg },
+  header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
@@ -160,17 +142,18 @@ const styles = StyleSheet.create({
   link: { fontSize: 14, fontWeight: '600' },
   empty: { fontSize: 14, marginVertical: spacing.sm },
   reviewItem: {
-    borderTopWidth: 1,
-    paddingTop: spacing.sm,
-    marginTop: spacing.sm,
+    borderWidth: 1,
+    borderRadius: radius.md,
+    padding: spacing.md,
+    marginBottom: spacing.sm,
   },
   reviewTop: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 4,
+    marginBottom: 6,
   },
-  userName: { fontSize: 14, fontWeight: '600' },
+  userName: { fontSize: 14, fontWeight: '600', flex: 1 },
   stars: { flexDirection: 'row', gap: 2 },
   reviewText: { fontSize: 14, lineHeight: 20 },
   addBtn: {
@@ -178,9 +161,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
-    marginTop: spacing.md,
     paddingVertical: 12,
     borderRadius: radius.md,
+    marginTop: spacing.sm,
   },
-  addBtnText: { fontSize: 15, fontWeight: '700' },
+  addBtnText: { fontSize: 15, fontWeight: '600' },
 });

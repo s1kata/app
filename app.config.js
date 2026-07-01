@@ -9,12 +9,34 @@ require('dotenv').config({ path: path.join(__dirname, '.env.local'), override: t
 const runtimeEnv = (process.env.EAS_BUILD_PROFILE || process.env.APP_ENV || '').toLowerCase();
 const isProductionLike = runtimeEnv === 'production' || runtimeEnv === 'preview';
 const updateChannel = (process.env.EAS_BUILD_PROFILE || process.env.APP_ENV || 'development').toLowerCase();
-const websiteBaseUrl = (process.env.WEBSITE_BASE_URL || process.env.EXPO_PUBLIC_WEBSITE_BASE_URL || "https://travelhub63.ru").replace(/\/+$/, "");
+const paymentPageUrl = (process.env.PAYMENT_PAGE_URL || "https://travelhub63.ru").replace(/\/+$/, "");
+const siteBaseUrl = (
+  process.env.SITE_BASE_URL ||
+  process.env.WEBSITE_BASE_URL ||
+  process.env.EXPO_PUBLIC_WEBSITE_BASE_URL ||
+  paymentPageUrl
+).replace(/\/+$/, "");
+const authApiBaseUrl = (process.env.AUTH_API_BASE_URL || siteBaseUrl).replace(/\/+$/, "");
+const authApiPath = (process.env.AUTH_API_PATH || "/api/auth-mobile.php").trim();
+const crmApiBaseUrl = (process.env.CRM_API_BASE_URL || siteBaseUrl).replace(/\/+$/, "");
+const bonusApiBaseUrl = (process.env.BONUS_API_BASE_URL || crmApiBaseUrl).replace(/\/+$/, "");
+const paymentApiBaseUrl = (process.env.PAYMENT_API_BASE_URL || siteBaseUrl).replace(/\/+$/, "");
+/** @deprecated alias for siteBaseUrl */
+const websiteBaseUrl = siteBaseUrl;
+const enableIosPush = process.env.IOS_ENABLE_PUSH === "1";
+const iosBundleIdentifier = (process.env.IOS_BUNDLE_ID || "com.iliastravelhub.app").trim();
+const androidPackage = (
+  process.env.ANDROID_PACKAGE ||
+  process.env.ANDROID_PACKAGE_ID ||
+  iosBundleIdentifier
+).trim();
 // VIP app icon source vector: ./assets/icons/icon-vip.svg
 // PNG for native icons is auto-generated from SVG to .generated/icon-vip-1024.png
 const appIconPng = "./.generated/icon-vip-1024.png";
-/** Все запросы Tourvisor из приложения только через PHP-прокси на сайте (токен только на сервере). */
-const tourvisorPassthroughUrl = `${websiteBaseUrl}/api/tourvisor-mobile`;
+/** Tourvisor passthrough (production) или полный URL из TOURVISOR_API_URL */
+const tourvisorPassthroughUrl = (
+  process.env.TOURVISOR_API_URL || `${siteBaseUrl}/api/tourvisor-mobile`
+).replace(/\/+$/, "");
 const hasSentryUploadCreds =
   !!process.env.SENTRY_ORG &&
   !!process.env.SENTRY_PROJECT &&
@@ -22,6 +44,10 @@ const hasSentryUploadCreds =
 
 /** EAS / Expo project id: `EAS_PROJECT_ID` в .env / EAS Secrets перекрывает значение по умолчанию. */
 const easProjectId = (process.env.EAS_PROJECT_ID || "0f6984f9-e3d1-46f5-ae15-dd0e5b4deef2").trim();
+/** OTA только для preview/production — локальный Xcode без лишних expo-updates recovery */
+const enableOtaUpdates =
+  Boolean(easProjectId) &&
+  (isProductionLike || process.env.EXPO_UPDATES_ENABLED === "1");
 
 /**
  * EAS production / preview: задайте в Secrets или в UI (Environment variables), не в репозитории:
@@ -59,7 +85,7 @@ module.exports = {
     ],
     ios: {
       supportsTablet: true,
-      bundleIdentifier: "com.travelhub.app",
+      bundleIdentifier: iosBundleIdentifier,
       icon: appIconPng,
       buildNumber: "4",
       infoPlist: {
@@ -69,11 +95,11 @@ module.exports = {
         NSUserNotificationsUsageDescription:
           "Уведомления о бронированиях, горящих турах и персональных предложениях.\n\nNotifications about bookings, hot tours, and personal offers.",
         ITSAppUsesNonExemptEncryption: false,
-        UIBackgroundModes: ["remote-notification"]
+        ...(enableIosPush ? { UIBackgroundModes: ["remote-notification"] } : {})
       }
     },
     android: {
-      package: "com.travelhub.app",
+      package: androidPackage,
       versionCode: 4,
       usesCleartextTraffic: !isProductionLike,
       adaptiveIcon: {
@@ -85,15 +111,19 @@ module.exports = {
       permissions: ["ACCESS_FINE_LOCATION", "ACCESS_COARSE_LOCATION"]
     },
     plugins: [
+      "expo-font",
+      "expo-secure-store",
       "expo-web-browser",
-      [
-        "expo-notifications",
-        {
-          icon: appIconPng,
-          color: "#0066CC",
-          sounds: []
-        }
-      ],
+      ...(enableIosPush
+        ? [[
+            "expo-notifications",
+            {
+              icon: appIconPng,
+              color: "#0066CC",
+              sounds: []
+            }
+          ]]
+        : []),
       ...(hasSentryUploadCreds
         ? [[
             "@sentry/react-native/expo",
@@ -105,7 +135,7 @@ module.exports = {
           ]]
         : [])
     ],
-    ...(easProjectId
+    ...(enableOtaUpdates
       ? {
           updates: {
             url: `https://u.expo.dev/${easProjectId}`,
@@ -125,16 +155,21 @@ module.exports = {
         buildProfile: process.env.EAS_BUILD_PROFILE || process.env.APP_ENV || "unknown"
       },
       // Базовый URL сайта для оплаты. Важно: без слэша в конце, только хост (https://travelhub63.ru).
-      paymentPageUrl: process.env.PAYMENT_PAGE_URL || "https://travelhub63.ru",
-      // URL сайта для туров/отелей (dev/stage/prod)
-      websiteBaseUrl,
+      siteBaseUrl,
+      authApiBaseUrl,
+      authApiPath,
+      crmApiBaseUrl,
+      bonusApiBaseUrl,
+      paymentApiBaseUrl,
+      paymentPageUrl: paymentApiBaseUrl,
+      websiteBaseUrl: siteBaseUrl,
+      healthCheckToken: (process.env.HEALTH_CHECK_TOKEN || '').trim(),
       // Tourvisor: preview/production — только HTTPS passthrough на WEBSITE_BASE_URL (без прямого api.tourvisor.ru в клиенте).
       tourvisorToken: isProductionLike ? "" : (process.env.TOURVISOR_TOKEN || process.env.TOURVISOR_JWT_TOKEN || ""),
       tourvisorApiUrl: isProductionLike ? tourvisorPassthroughUrl : (process.env.TOURVISOR_API_URL || tourvisorPassthroughUrl),
       // Worker в store/preview отключаем — иначе ошибочный secret перебивает passthrough.
       tourvisorWorkerUrl: isProductionLike ? "" : (process.env.TOURVISOR_WORKER_URL || ""),
-      // U-ON: ключ на сервере — UON_API_KEY (Node / PHP). В бандл для dev — только EXPO_PUBLIC_UON_API_KEY.
-      sotaCrmBaseUrl: process.env.SOTA_CRM_BASE_URL || "",
+      sotaCrmBaseUrl: crmApiBaseUrl,
       // В store/preview ключ в клиент не кладём (CRM через прокси). Dev: EXPO_PUBLIC_UON_API_KEY (fallback: EXPO_PUBLIC_SOTA_API_KEY).
       uonApiKey: isProductionLike
         ? ""
