@@ -15,6 +15,7 @@ import { messageService } from './src/services/MessageService';
 import { setAuthNavigationRef } from './src/auth/authNavigation';
 import { locationService, LocationData } from './src/services/LocationService';
 import { useAppInit } from './src/hooks/useAppInit';
+import { useOtaUpdates } from './src/hooks/useOtaUpdates';
 import { usePaymentDeepLinks } from './src/hooks/usePaymentDeepLinks';
 import { logger } from './src/utils/logger';
 import { logNavigationStateChange } from './src/utils/navigationLogger';
@@ -26,6 +27,7 @@ export default function App() {
   const navigationRef = useRef<NavigationContainerRef<any>>(null);
   const [showLocationModal, setShowLocationModal] = useState(false);
   const { hasCheckedPermission, markPermissionChecked } = useAppInit();
+  useOtaUpdates();
   const appMountedRef = useRef(true);
 
   usePaymentDeepLinks(navigationRef);

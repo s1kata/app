@@ -7,6 +7,8 @@ CREATE TABLE IF NOT EXISTS reviews (
   user_name VARCHAR(255) NOT NULL DEFAULT '',
   tour_id VARCHAR(64) NULL,
   hotel_id VARCHAR(64) NULL,
+  hotel_name VARCHAR(255) NULL,
+  country_name VARCHAR(255) NULL,
   rating TINYINT UNSIGNED NOT NULL,
   review_text TEXT NOT NULL,
   helpful INT UNSIGNED NOT NULL DEFAULT 0,
@@ -17,6 +19,7 @@ CREATE TABLE IF NOT EXISTS reviews (
   KEY idx_reviews_tour (tour_id, created_at),
   KEY idx_reviews_hotel (hotel_id, created_at),
   KEY idx_reviews_user (user_id),
+  KEY idx_reviews_user_created (user_id, created_at),
   CONSTRAINT fk_reviews_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 

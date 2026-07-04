@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useLayoutEffect } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -6,12 +6,12 @@ import {
   ScrollView,
   TouchableOpacity,
   Image,
-  Modal,
-  TextInput,
   Alert,
   ActivityIndicator,
+  Keyboard,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAppContext } from '../contexts/AppContext';
 import {
@@ -22,22 +22,16 @@ import {
   toggleReviewHelpful,
   type ReviewDto,
 } from '../services/ReviewsApiClient';
-import { platform } from '../utils/platform';
 import { sanitizeString, MAX_LENGTHS } from '../utils/validation';
+import { validateReviewText } from '../utils/reviewProfanity';
+import { mapReviewDto, type ReviewListItem } from '../utils/reviewMappers';
+import { reviewsRefreshBus } from '../services/ReviewsRefreshBus';
+import ReviewFormModal from '../components/ReviewFormModal';
 import { logger } from '../utils/logger';
-import { radius } from '../config/designSystem';
 
-interface Review {
-  id: string;
-  userName: string;
+interface Review extends ReviewListItem {
   userAvatar?: string;
-  rating: number;
-  date: string;
-  text: string;
   photos?: string[];
-  helpful: number;
-  verified: boolean;
-  isOwn?: boolean;
 }
 
 interface ReviewsScreenProps {
@@ -46,6 +40,8 @@ interface ReviewsScreenProps {
     params?: {
       tourId?: string;
       hotelId?: string;
+      hotelName?: string;
+      countryName?: string;
       title?: string;
       openAdd?: boolean;
     };
@@ -53,7 +49,7 @@ interface ReviewsScreenProps {
 }
 
 export default function ReviewsScreen({ navigation, route }: ReviewsScreenProps) {
-  const { theme, user, isAuthenticated } = useAppContext();
+  const { theme, user, isAuthenticated, authReady } = useAppContext();
   const [reviews, setReviews] = useState<Review[]>([]);
   const [sortBy, setSortBy] = useState<'newest' | 'rating' | 'helpful'>('newest');
   const [filterRating, setFilterRating] = useState<number | null>(null);
@@ -61,6 +57,7 @@ export default function ReviewsScreen({ navigation, route }: ReviewsScreenProps)
   const [showEditReviewModal, setShowEditReviewModal] = useState(false);
   const [editingReview, setEditingReview] = useState<Review | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   
   // Форма для нового отзыва (фото не добавляем)
@@ -96,7 +93,37 @@ export default function ReviewsScreen({ navigation, route }: ReviewsScreenProps)
     };
   });
 
-  const { tourId, hotelId, title, openAdd } = route.params || {};
+  const { tourId, hotelId, hotelName, countryName, title, openAdd } = route.params || {};
+  const tourIdStr = tourId != null && tourId !== '' ? String(tourId) : undefined;
+  const hotelIdStr = hotelId != null && hotelId !== '' ? String(hotelId) : undefined;
+  const isTourContext = Boolean(tourIdStr);
+  const screenTitle = title || (isTourContext ? 'Отзывы о туре' : 'Отзывы');
+
+  const emitReviewsRefresh = useCallback(
+    (review?: ReviewDto) => {
+      reviewsRefreshBus.emit({
+        tourId: isTourContext ? tourIdStr ?? null : null,
+        review,
+        global: true,
+      });
+    },
+    [isTourContext, tourIdStr],
+  );
+
+  const resetReviewForm = useCallback(() => {
+    setNewReview({ rating: 5, text: '' });
+  }, []);
+
+  const closeAddModal = useCallback(() => {
+    setShowAddReviewModal(false);
+    resetReviewForm();
+  }, [resetReviewForm]);
+
+  const closeEditModal = useCallback(() => {
+    setShowEditReviewModal(false);
+    setEditingReview(null);
+    resetReviewForm();
+  }, [resetReviewForm]);
 
   useEffect(() => {
     if (openAdd) setShowAddReviewModal(true);
@@ -121,29 +148,21 @@ export default function ReviewsScreen({ navigation, route }: ReviewsScreenProps)
     };
   }, [navigation]);
 
-  // Загрузка отзывов с CRM API (travelhub63.ru)
-  useEffect(() => {
-    loadReviews();
-  }, [tourId, hotelId]);
-
-  const loadReviews = async () => {
+  const loadReviews = useCallback(async () => {
+    if (!authReady) {
+      return;
+    }
     try {
       setIsLoading(true);
+      setLoadError(null);
       const items = await listReviews({
-        tourId: tourId || undefined,
-        hotelId: hotelId || undefined,
+        tourId: tourIdStr,
+        scope: tourIdStr ? 'tour' : 'all',
         withAuth: isAuthenticated,
       });
       const loadedReviews: Review[] = items.map((r: ReviewDto) => ({
-        id: r.id,
-        userName: r.userName || 'Пользователь',
-        rating: r.rating || 5,
-        date: r.date || new Date().toISOString(),
-        text: r.text || '',
+        ...mapReviewDto(r),
         photos: [],
-        helpful: r.helpful || 0,
-        verified: r.verified ?? true,
-        isOwn: r.isOwn,
       }));
       const helpfulSet = new Set<string>();
       items.forEach((r) => {
@@ -153,11 +172,27 @@ export default function ReviewsScreen({ navigation, route }: ReviewsScreenProps)
       setReviews(loadedReviews);
     } catch (error) {
       logger.error('Error loading reviews:', error);
-      setReviews([]);
+      setLoadError((error as Error)?.message || 'Не удалось загрузить отзывы');
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [tourIdStr, isAuthenticated, authReady]);
+
+  useEffect(() => {
+    void loadReviews();
+  }, [loadReviews]);
+
+  useFocusEffect(
+    useCallback(() => {
+      void loadReviews();
+    }, [loadReviews]),
+  );
+
+  useEffect(() => {
+    return reviewsRefreshBus.subscribe(() => {
+      void loadReviews();
+    });
+  }, [loadReviews]);
 
   const handleSubmitReview = async () => {
     // Проверяем авторизацию с красивым уведомлением
@@ -188,19 +223,28 @@ export default function ReviewsScreen({ navigation, route }: ReviewsScreenProps)
     }
 
     const rawText = newReview.text.trim();
-    if (!rawText) {
-      Alert.alert('Ошибка', 'Пожалуйста, напишите отзыв');
+    const validationError = validateReviewText(rawText);
+    if (validationError) {
+      Alert.alert('Ошибка', validationError);
       return;
     }
 
     try {
       setIsSubmitting(true);
+      Keyboard.dismiss();
 
+      const sanitizedText = sanitizeString(rawText, MAX_LENGTHS.text);
       const result = await createReview({
-        tourId: tourId || undefined,
-        hotelId: hotelId || undefined,
+        ...(isTourContext
+          ? {
+              tourId: tourIdStr,
+              hotelId: hotelIdStr,
+              hotelName: hotelName || undefined,
+              countryName: countryName || undefined,
+            }
+          : {}),
         rating: Math.min(5, Math.max(1, Math.round(Number(newReview.rating) || 5))),
-        text: sanitizeString(rawText, MAX_LENGTHS.text),
+        text: sanitizedText,
       });
 
       if (!result.success) {
@@ -209,7 +253,9 @@ export default function ReviewsScreen({ navigation, route }: ReviewsScreenProps)
       }
 
       await loadReviews();
-      setNewReview({ rating: 5, text: '' });
+      emitReviewsRefresh(result.review);
+
+      resetReviewForm();
       setShowAddReviewModal(false);
       Alert.alert('Успешно', 'Ваш отзыв добавлен!');
     } catch (error: unknown) {
@@ -239,8 +285,15 @@ export default function ReviewsScreen({ navigation, route }: ReviewsScreenProps)
       return;
     }
 
+    const validationError = validateReviewText(newReview.text.trim());
+    if (validationError) {
+      Alert.alert('Ошибка', validationError);
+      return;
+    }
+
     try {
       setIsSubmitting(true);
+      Keyboard.dismiss();
 
       const result = await updateReview(editingReview.id, {
         rating: Math.min(5, Math.max(1, Math.round(Number(newReview.rating) || 5))),
@@ -253,9 +306,9 @@ export default function ReviewsScreen({ navigation, route }: ReviewsScreenProps)
       }
 
       await loadReviews();
-      setEditingReview(null);
-      setNewReview({ rating: 5, text: '' });
-      setShowEditReviewModal(false);
+      emitReviewsRefresh();
+
+      closeEditModal();
       Alert.alert('Успешно', 'Отзыв обновлен!');
     } catch (error: unknown) {
       if (__DEV__) logger.error('Error updating review:', error);
@@ -282,6 +335,7 @@ export default function ReviewsScreen({ navigation, route }: ReviewsScreenProps)
                 return;
               }
               await loadReviews();
+              emitReviewsRefresh();
               Alert.alert('Успешно', 'Отзыв удален');
             } catch (error) {
               if (__DEV__) logger.error('Error deleting review:', error);
@@ -338,15 +392,26 @@ export default function ReviewsScreen({ navigation, route }: ReviewsScreenProps)
           <Ionicons name="arrow-back" size={24} color={theme.text} />
         </TouchableOpacity>
         <Text style={[styles.headerTitle, { color: theme.text }]}>
-          Отзывы
+          {screenTitle}
         </Text>
         <View style={{ width: 24 }} />
       </View>
 
-      {isLoading ? (
+      {isLoading && reviews.length === 0 ? (
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={theme.primary} />
           <Text style={[styles.loadingText, { color: theme.secondaryText }]}>Загрузка отзывов...</Text>
+        </View>
+      ) : loadError && reviews.length === 0 ? (
+        <View style={styles.loadingContainer}>
+          <Ionicons name="cloud-offline-outline" size={48} color={theme.secondaryText} />
+          <Text style={[styles.loadingText, { color: theme.secondaryText }]}>{loadError}</Text>
+          <TouchableOpacity
+            style={[styles.retryButton, { backgroundColor: theme.primary }]}
+            onPress={() => void loadReviews()}
+          >
+            <Text style={styles.retryButtonText}>Повторить</Text>
+          </TouchableOpacity>
         </View>
       ) : (
       <ScrollView
@@ -500,6 +565,15 @@ export default function ReviewsScreen({ navigation, route }: ReviewsScreenProps)
               {review.text}
             </Text>
 
+            {(review.hotelName || review.countryName) ? (
+              <View style={[styles.tourMeta, { borderTopColor: theme.border }]}>
+                <Ionicons name="airplane" size={14} color={theme.secondaryText} />
+                <Text style={[styles.tourMetaText, { color: theme.secondaryText }]}>
+                  {[review.hotelName, review.countryName].filter(Boolean).join(' · ')}
+                </Text>
+              </View>
+            ) : null}
+
             {review.photos && review.photos.length > 0 && (
               <ScrollView
                 horizontal
@@ -534,7 +608,7 @@ export default function ReviewsScreen({ navigation, route }: ReviewsScreenProps)
                 </Text>
               </TouchableOpacity>
               
-              {user && review.userName === (user.displayName || user.email?.split('@')[0] || 'Пользователь') && (
+              {review.isOwn && (
                 <View style={styles.reviewActions}>
                   <TouchableOpacity
                     style={styles.actionButton}
@@ -605,188 +679,33 @@ export default function ReviewsScreen({ navigation, route }: ReviewsScreenProps)
       </ScrollView>
       )}
 
-      {/* Модальное окно для добавления отзыва */}
-      <Modal
+      <ReviewFormModal
         visible={showAddReviewModal}
-        animationType="slide"
-        transparent={true}
-        onRequestClose={() => setShowAddReviewModal(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, { backgroundColor: theme.card }]}>
-            <View style={styles.modalHeader}>
-              <Text style={[styles.modalTitle, { color: theme.text }]}>Оставить отзыв</Text>
-              <TouchableOpacity
-                onPress={() => setShowAddReviewModal(false)}
-                style={styles.modalCloseButton}
-              >
-                <Ionicons name="close" size={24} color={theme.text} />
-              </TouchableOpacity>
-            </View>
+        title="Оставить отзыв"
+        submitLabel="Отправить"
+        rating={newReview.rating}
+        text={newReview.text}
+        isSubmitting={isSubmitting}
+        onClose={closeAddModal}
+        onSubmit={handleSubmitReview}
+        onRatingChange={(rating) => setNewReview((prev) => ({ ...prev, rating }))}
+        onTextChange={(text) => setNewReview((prev) => ({ ...prev, text }))}
+        theme={theme}
+      />
 
-            <ScrollView style={styles.modalScroll} keyboardShouldPersistTaps="handled">
-              {/* Рейтинг */}
-              <View style={styles.modalSection}>
-                <Text style={[styles.modalLabel, { color: theme.text }]}>Оценка</Text>
-                <View style={styles.ratingSelector}>
-                  {[1, 2, 3, 4, 5].map((rating) => (
-                    <TouchableOpacity
-                      key={rating}
-                      onPress={() => setNewReview({ ...newReview, rating })}
-                      style={styles.ratingStarButton}
-                    >
-                      <Ionicons
-                        name={rating <= newReview.rating ? 'star' : 'star-outline'}
-                        size={32}
-                        color={rating <= newReview.rating ? '#FFD700' : '#CCCCCC'}
-                      />
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              </View>
-
-              {/* Текст отзыва */}
-              <View style={styles.modalSection}>
-                <Text style={[styles.modalLabel, { color: theme.text }]}>Ваш отзыв</Text>
-                <TextInput
-                  style={[styles.reviewTextInput, { 
-                    backgroundColor: theme.background,
-                    color: theme.text,
-                    borderColor: theme.border,
-                  }]}
-                  placeholder="Расскажите о вашем опыте..."
-                  placeholderTextColor={theme.secondaryText}
-                  multiline
-                  numberOfLines={6}
-                  value={newReview.text}
-                  onChangeText={(text) => setNewReview({ ...newReview, text })}
-                  textAlignVertical="top"
-                />
-              </View>
-            </ScrollView>
-
-            <View style={styles.modalActions}>
-              <TouchableOpacity
-                style={[styles.modalCancelButton, { borderColor: theme.border }]}
-                onPress={() => {
-                  setShowAddReviewModal(false);
-                  setNewReview({ rating: 5, text: '' });
-                }}
-              >
-                <Text style={[styles.modalCancelText, { color: theme.text }]}>Отмена</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.modalSubmitButton, { backgroundColor: theme.primary }]}
-                onPress={showEditReviewModal ? handleUpdateReview : handleSubmitReview}
-                disabled={isSubmitting || !newReview.text.trim()}
-              >
-                {isSubmitting ? (
-                  <ActivityIndicator color="#FFFFFF" />
-                ) : (
-                  <Text style={styles.modalSubmitText}>
-                    {showEditReviewModal ? 'Сохранить' : 'Отправить'}
-                  </Text>
-                )}
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
-
-      {/* Модальное окно для редактирования отзыва */}
-      <Modal
+      <ReviewFormModal
         visible={showEditReviewModal}
-        animationType="slide"
-        transparent={true}
-        onRequestClose={() => {
-          setShowEditReviewModal(false);
-          setEditingReview(null);
-          setNewReview({ rating: 5, text: '' });
-        }}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, { backgroundColor: theme.card }]}>
-            <View style={styles.modalHeader}>
-              <Text style={[styles.modalTitle, { color: theme.text }]}>Редактировать отзыв</Text>
-              <TouchableOpacity
-                onPress={() => {
-                  setShowEditReviewModal(false);
-                  setEditingReview(null);
-                  setNewReview({ rating: 5, text: '' });
-                }}
-                style={styles.modalCloseButton}
-              >
-                <Ionicons name="close" size={24} color={theme.text} />
-              </TouchableOpacity>
-            </View>
-
-            <ScrollView style={styles.modalScroll} keyboardShouldPersistTaps="handled">
-              {/* Рейтинг */}
-              <View style={styles.modalSection}>
-                <Text style={[styles.modalLabel, { color: theme.text }]}>Оценка</Text>
-                <View style={styles.ratingSelector}>
-                  {[1, 2, 3, 4, 5].map((rating) => (
-                    <TouchableOpacity
-                      key={rating}
-                      onPress={() => setNewReview({ ...newReview, rating })}
-                      style={styles.ratingStarButton}
-                    >
-                      <Ionicons
-                        name={rating <= newReview.rating ? 'star' : 'star-outline'}
-                        size={32}
-                        color={rating <= newReview.rating ? '#FFD700' : '#CCCCCC'}
-                      />
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              </View>
-
-              {/* Текст отзыва */}
-              <View style={styles.modalSection}>
-                <Text style={[styles.modalLabel, { color: theme.text }]}>Ваш отзыв</Text>
-                <TextInput
-                  style={[styles.reviewTextInput, { 
-                    backgroundColor: theme.background,
-                    color: theme.text,
-                    borderColor: theme.border,
-                  }]}
-                  placeholder="Расскажите о вашем опыте..."
-                  placeholderTextColor={theme.secondaryText}
-                  multiline
-                  numberOfLines={6}
-                  value={newReview.text}
-                  onChangeText={(text) => setNewReview({ ...newReview, text })}
-                  textAlignVertical="top"
-                />
-              </View>
-            </ScrollView>
-
-            <View style={styles.modalActions}>
-              <TouchableOpacity
-                style={[styles.modalCancelButton, { borderColor: theme.border }]}
-                onPress={() => {
-                  setShowEditReviewModal(false);
-                  setEditingReview(null);
-                  setNewReview({ rating: 5, text: '' });
-                }}
-              >
-                <Text style={[styles.modalCancelText, { color: theme.text }]}>Отмена</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.modalSubmitButton, { backgroundColor: theme.primary }]}
-                onPress={handleUpdateReview}
-                disabled={isSubmitting || !newReview.text.trim()}
-              >
-                {isSubmitting ? (
-                  <ActivityIndicator color="#FFFFFF" />
-                ) : (
-                  <Text style={styles.modalSubmitText}>Сохранить</Text>
-                )}
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
+        title="Редактировать отзыв"
+        submitLabel="Сохранить"
+        rating={newReview.rating}
+        text={newReview.text}
+        isSubmitting={isSubmitting}
+        onClose={closeEditModal}
+        onSubmit={handleUpdateReview}
+        onRatingChange={(rating) => setNewReview((prev) => ({ ...prev, rating }))}
+        onTextChange={(text) => setNewReview((prev) => ({ ...prev, text }))}
+        theme={theme}
+      />
     </SafeAreaView>
   );
 }
@@ -934,6 +853,18 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     marginBottom: 12,
   },
+  tourMeta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingTop: 8,
+    marginBottom: 12,
+    borderTopWidth: 1,
+  },
+  tourMetaText: {
+    fontSize: 12,
+    flex: 1,
+  },
   photosContainer: {
     marginBottom: 12,
   },
@@ -997,90 +928,18 @@ const styles = StyleSheet.create({
   loadingText: {
     marginTop: 16,
     fontSize: 14,
+    textAlign: 'center',
   },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'flex-end',
-  },
-  modalContent: {
-    borderTopLeftRadius: radius.xl,
-    borderTopRightRadius: radius.xl,
-    maxHeight: '90%',
-    paddingBottom: 20,
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(0, 0, 0, 0.1)',
-  },
-  modalTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-  },
-  modalCloseButton: {
-    padding: 4,
-  },
-  modalScroll: {
-    maxHeight: 400,
-  },
-  modalSection: {
-    padding: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(0, 0, 0, 0.05)',
-  },
-  modalLabel: {
-    fontSize: 16,
-    fontWeight: '600',
-    marginBottom: 12,
-  },
-  ratingSelector: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    gap: 8,
-  },
-  ratingStarButton: {
-    padding: 4,
-  },
-  reviewTextInput: {
-    borderWidth: 1,
+  retryButton: {
+    marginTop: 16,
+    paddingHorizontal: 24,
+    paddingVertical: 12,
     borderRadius: 12,
-    padding: 16,
-    fontSize: 16,
-    minHeight: 120,
-    maxHeight: 200,
   },
-  modalActions: {
-    flexDirection: 'row',
-    padding: 20,
-    gap: 12,
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(0, 0, 0, 0.1)',
-  },
-  modalCancelButton: {
-    flex: 1,
-    paddingVertical: 14,
-    borderRadius: 12,
-    borderWidth: 1,
-    alignItems: 'center',
-  },
-  modalCancelText: {
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  modalSubmitButton: {
-    flex: 1,
-    paddingVertical: 14,
-    borderRadius: 12,
-    alignItems: 'center',
-  },
-  modalSubmitText: {
+  retryButtonText: {
     color: '#FFFFFF',
     fontSize: 16,
-    fontWeight: '700',
+    fontWeight: '600',
   },
   reviewActions: {
     flexDirection: 'row',

@@ -1,8 +1,8 @@
 <?php
 /**
  * /api/crm/reviews.php — отзывы (JWT Bearer, MySQL).
- * GET    ?tourId=&hotelId=  — список
- * POST   { tourId?, hotelId?, rating, text }
+ * GET    ?tourId=&hotelId=&scope=general  — список (без параметров — все отзывы)
+ * POST   { tourId?, hotelId?, hotelName?, countryName?, rating, text }
  * PUT    { id, rating, text }
  * DELETE ?id=
  */
@@ -41,6 +41,7 @@ try {
 if ($method === 'GET') {
     $tourId = isset($_GET['tourId']) ? trim((string) $_GET['tourId']) : '';
     $hotelId = isset($_GET['hotelId']) ? trim((string) $_GET['hotelId']) : '';
+    $scope = isset($_GET['scope']) ? trim((string) $_GET['scope']) : '';
     $viewerId = null;
     $authHeader = $_SERVER['HTTP_AUTHORIZATION'] ?? $_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? '';
     if (preg_match('/^Bearer\s+(.+)$/i', $authHeader, $m)) {
@@ -50,7 +51,7 @@ if ($method === 'GET') {
             $viewerId = (int) $claims['sub'];
         }
     }
-    reviews_json_ok(reviews_list($pdo, $tourId ?: null, $hotelId ?: null, $viewerId));
+    reviews_json_ok(reviews_list($pdo, $tourId ?: null, $hotelId ?: null, $viewerId, $scope ?: null));
 }
 
 $claims = auth_jwt_require_bearer($CONFIG);
@@ -73,27 +74,35 @@ if (!is_array($body)) {
 if ($method === 'POST') {
     $tourId = isset($body['tourId']) ? trim((string) $body['tourId']) : '';
     $hotelId = isset($body['hotelId']) ? trim((string) $body['hotelId']) : '';
-    if ($tourId === '' && $hotelId === '') {
-        reviews_json_error('Укажите tourId или hotelId', 400);
-    }
-    reviews_assert_single_per_target($pdo, $userId, $tourId ?: null, $hotelId ?: null);
+    $hotelName = reviews_sanitize_label((string) ($body['hotelName'] ?? ''));
+    $countryName = reviews_sanitize_label((string) ($body['countryName'] ?? ''));
     $rating = reviews_clamp_rating($body['rating'] ?? 5);
     $text = reviews_sanitize_text((string) ($body['text'] ?? ''));
 
+    if ($text === '') {
+        reviews_json_error('Пожалуйста, напишите отзыв', 400);
+    }
+
+    reviews_assert_rate_limit($pdo, $userId);
+    reviews_assert_no_profanity($text);
+
     $stmt = $pdo->prepare(
-        'INSERT INTO reviews (user_id, user_name, tour_id, hotel_id, rating, review_text, verified)
-         VALUES (?, ?, ?, ?, ?, ?, 1)'
+        'INSERT INTO reviews (user_id, user_name, tour_id, hotel_id, hotel_name, country_name, rating, review_text, verified)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)'
     );
     $stmt->execute([
         $userId,
         $userName,
         $tourId !== '' ? $tourId : null,
         $hotelId !== '' ? $hotelId : null,
+        $hotelName !== '' ? $hotelName : null,
+        $countryName !== '' ? $countryName : null,
         $rating,
         $text,
     ]);
     $newId = (int) $pdo->lastInsertId();
-    reviews_json_ok(['id' => (string) $newId]);
+    $created = reviews_fetch_by_id($pdo, $newId, $userId);
+    reviews_json_ok($created ?? ['id' => (string) $newId]);
 }
 
 if ($method === 'PUT') {
@@ -109,6 +118,10 @@ if ($method === 'PUT') {
     }
     $rating = reviews_clamp_rating($body['rating'] ?? 5);
     $text = reviews_sanitize_text((string) ($body['text'] ?? ''));
+    if ($text === '') {
+        reviews_json_error('Пожалуйста, напишите отзыв', 400);
+    }
+    reviews_assert_no_profanity($text);
     $upd = $pdo->prepare('UPDATE reviews SET rating = ?, review_text = ?, updated_at = NOW() WHERE id = ?');
     $upd->execute([$rating, $text, $id]);
     reviews_json_ok(['id' => (string) $id]);

@@ -48,7 +48,7 @@
     }
   },
   "submit": {
-    "autosubmit":false,
+    
     "production": {
       "ios": {
         "language": "ru-RU",

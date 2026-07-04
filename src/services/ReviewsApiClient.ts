@@ -8,12 +8,16 @@ import { logger } from '../utils/logger';
 const REVIEWS_PATHS = ['/api/crm/reviews.php', '/api/crm/reviews'] as const;
 const HELPFUL_PATHS = ['/api/crm/review-helpful.php', '/api/crm/review-helpful'] as const;
 
+export type ReviewScope = 'all' | 'general' | 'tour';
+
 export type ReviewDto = {
   id: string;
   userId: string;
   userName: string;
   tourId?: string | null;
   hotelId?: string | null;
+  hotelName?: string | null;
+  countryName?: string | null;
   rating: number;
   text: string;
   helpful: number;
@@ -66,14 +70,23 @@ async function fetchJson<T>(
 export async function listReviews(params: {
   tourId?: string;
   hotelId?: string;
+  scope?: ReviewScope;
   withAuth?: boolean;
 }): Promise<ReviewDto[]> {
   const base = getCrmApiBaseUrl();
-  if (!base) return [];
+  if (!base) {
+    throw new Error('CRM base URL not configured');
+  }
 
   const qs = new URLSearchParams();
-  if (params.tourId) qs.set('tourId', params.tourId);
-  if (params.hotelId) qs.set('hotelId', params.hotelId);
+  if (params.tourId) {
+    qs.set('tourId', params.tourId);
+  } else if (params.hotelId) {
+    qs.set('hotelId', params.hotelId);
+  } else if (params.scope === 'general') {
+    qs.set('scope', 'general');
+  }
+
   const query = qs.toString();
 
   let headers: Record<string, string> = { Accept: 'application/json' };
@@ -96,31 +109,50 @@ export async function listReviews(params: {
         continue;
       }
       if (!res.ok || !json.success) {
-        logger.debug('[ReviewsApiClient] list failed:', json?.error || res.status);
-        return [];
+        const msg = json?.error || `HTTP ${res.status}`;
+        logger.debug('[ReviewsApiClient] list failed:', msg);
+        throw new Error(msg);
       }
       return Array.isArray(json.data) ? (json.data as ReviewDto[]) : [];
     } catch (e) {
+      if (e instanceof Error && e.message !== 'Network error') {
+        throw e;
+      }
       lastError = e instanceof Error ? e.message : 'Network error';
     }
   }
   logger.debug('[ReviewsApiClient] list:', lastError);
-  return [];
+  throw new Error(lastError);
 }
 
 export async function createReview(payload: {
   tourId?: string;
   hotelId?: string;
+  hotelName?: string;
+  countryName?: string;
   rating: number;
   text: string;
-}): Promise<{ success: boolean; error?: string }> {
+}): Promise<{ success: boolean; review?: ReviewDto; error?: string }> {
   const headers = await authHeaders();
-  const res = await fetchJson<{ id: string }>(REVIEWS_PATHS, {
+  const body: Record<string, unknown> = {
+    rating: payload.rating,
+    text: payload.text,
+  };
+  if (payload.tourId) body.tourId = payload.tourId;
+  if (payload.hotelId) body.hotelId = payload.hotelId;
+  if (payload.hotelName) body.hotelName = payload.hotelName;
+  if (payload.countryName) body.countryName = payload.countryName;
+
+  const res = await fetchJson<ReviewDto>(REVIEWS_PATHS, {
     method: 'POST',
     headers,
-    body: JSON.stringify(payload),
+    body: JSON.stringify(body),
   });
-  return { success: !!res.success, error: res.error };
+  return {
+    success: !!res.success,
+    review: res.data,
+    error: res.error,
+  };
 }
 
 export async function updateReview(

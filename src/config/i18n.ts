@@ -70,6 +70,7 @@ const translations: Translations = {
   'home.learnAboutTravel': { ru: 'Узнайте что-то новое о путешествиях', en: 'Learn something new about travel' },
   'home.customerReviews': { ru: 'Отзывы клиентов', en: 'Customer Reviews' },
   'home.whatClientsSay': { ru: 'Что говорят наши клиенты', en: 'What our clients say' },
+  'home.noReviewsYet': { ru: 'Пока нет отзывов', en: 'No reviews yet' },
   'home.travelerTips': { ru: 'Советы путешественникам', en: 'Traveler Tips' },
   'home.travelTipsSubtitle': { ru: 'Краткие напоминания перед поездкой', en: 'Short reminders before your trip' },
   'home.usefulRecommendations': { ru: 'Полезные рекомендации для вашего отдыха', en: 'Useful recommendations for your vacation' },

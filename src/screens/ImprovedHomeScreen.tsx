@@ -13,6 +13,7 @@ import {
   Animated,
   Modal,
   Easing,
+  RefreshControl,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -29,12 +30,15 @@ import ApiTourHotelSearch from '../components/ApiTourHotelSearch';
 import WeatherWidget from '../components/WeatherWidget';
 import { locationService, LocationData } from '../services/LocationService';
 import { logger } from '../utils/logger';
+import HomeReviewsSection from '../components/HomeReviewsSection';
+import { reviewsRefreshBus } from '../services/ReviewsRefreshBus';
 
 export default function ImprovedHomeScreen({ navigation }: any) {
   const { isAuthenticated, user, theme, themeMode, updateCounter } = useAppContext();
   const [userName, setUserName] = useState('');
   const [userLocation, setUserLocation] = useState<LocationData | null>(null);
   const [showWelcomeModal, setShowWelcomeModal] = useState(false);
+  const [homeRefreshing, setHomeRefreshing] = useState(false);
   const scrollY = useRef(new Animated.Value(0)).current;
   const welcomeOpacity = useRef(new Animated.Value(0)).current;
   const welcomeScale = useRef(new Animated.Value(0.8)).current;
@@ -227,10 +231,27 @@ export default function ImprovedHomeScreen({ navigation }: any) {
   const insets = useSafeAreaInsets();
   const TAB_BAR_HEIGHT = 65 + (platform.isAndroid ? Math.max(insets.bottom, 16) : (platform.isIOS && SCREEN_HEIGHT / SCREEN_WIDTH > 2 ? 34 : 0));
 
+  const handleHomeRefresh = useCallback(async () => {
+    setHomeRefreshing(true);
+    reviewsRefreshBus.emit({ global: true });
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    if (homeScreenMountedRef.current) {
+      setHomeRefreshing(false);
+    }
+  }, []);
+
   return (
     <ScreenContainer key={updateCounter}>
       <Animated.ScrollView 
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={homeRefreshing}
+            onRefresh={() => void handleHomeRefresh()}
+            tintColor={theme.primary}
+            colors={[theme.primary]}
+          />
+        }
         onScroll={Animated.event(
           [{ nativeEvent: { contentOffset: { y: scrollY } } }],
           { useNativeDriver: true }
@@ -359,98 +380,7 @@ export default function ImprovedHomeScreen({ navigation }: any) {
           </ScrollView>
         </View>
 
-        {/* Отзывы клиентов */}
-        <View style={dynamicStyles.section}>
-          <View style={dynamicStyles.sectionHeader}>
-            <View>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                <Ionicons name="chatbubbles" size={24} color={theme.primary} />
-                <Text style={[dynamicStyles.sectionTitle, { color: theme.text, fontSize: 24, fontWeight: '700' }]}>
-                  {i18n.t('home.customerReviews')}
-                </Text>
-              </View>
-              <Text style={[dynamicStyles.sectionSubtitle, { color: theme.secondaryText, marginTop: 4 }]}>
-                {i18n.t('home.whatClientsSay')}
-              </Text>
-            </View>
-            <TouchableOpacity onPress={() => navigation.navigate('Reviews')}>
-              <View style={dynamicStyles.seeAllWrap}>
-                <Text style={[dynamicStyles.seeAll, { color: theme.primary, fontSize: 16, fontWeight: '600' }]}>
-                  {i18n.t('home.seeAll')}
-                </Text>
-                <Ionicons name="chevron-forward" size={16} color={theme.primary} />
-              </View>
-            </TouchableOpacity>
-          </View>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={{ paddingHorizontal: 4 }}
-          >
-            {[
-              { id: '1', userName: 'Анна П.', rating: 5, textKey: 'reviews.review1', tourKey: 'reviews.tour1' },
-              { id: '2', userName: 'Иван С.', rating: 5, textKey: 'reviews.review2', tourKey: 'reviews.tour2' },
-              { id: '3', userName: 'Мария И.', rating: 5, textKey: 'reviews.review3', tourKey: 'reviews.tour3' },
-            ].map((review) => (
-              <View
-                key={review.id}
-                style={[
-                  {
-                    width: SCREEN_WIDTH - 64,
-                    backgroundColor: theme.card,
-                    borderRadius: radius.lg,
-                    padding: 20,
-                    marginRight: 16,
-                    borderWidth: 1,
-                    borderColor: theme.border,
-                  },
-                  shadows.card,
-                ]}
-              >
-                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
-                  <View style={{
-                    width: 48,
-                    height: 48,
-                    borderRadius: 24,
-                    backgroundColor: theme.primary,
-                    justifyContent: 'center',
-                    alignItems: 'center',
-                    marginRight: 12,
-                  }}>
-                    <Text style={{ color: theme.surface, fontSize: 20, fontWeight: '700' }}>
-                      {review.userName.charAt(0)}
-                    </Text>
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={{ fontSize: 16, fontWeight: '700', color: theme.text, marginBottom: 4 }}>
-                      {review.userName}
-                    </Text>
-                    <View style={{ flexDirection: 'row', gap: 2 }}>
-                      {Array.from({ length: 5 }, (_, i) => (
-                        <Ionicons key={i} name="star" size={14} color="#FFD700" />
-                      ))}
-                    </View>
-                  </View>
-                </View>
-                <Text style={{ fontSize: 14, color: theme.text, lineHeight: 20, marginBottom: 12 }}>
-                  "{i18n.t(review.textKey)}"
-                </Text>
-                <View style={{
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  paddingTop: 12,
-                  borderTopWidth: 1,
-                  borderTopColor: theme.border,
-                }}>
-                  <Ionicons name="airplane" size={14} color={theme.secondaryText} />
-                  <Text style={{ fontSize: 12, color: theme.secondaryText, marginLeft: 6 }}>
-                    {i18n.t(review.tourKey)}
-                  </Text>
-                </View>
-              </View>
-            ))}
-          </ScrollView>
-        </View>
+        <HomeReviewsSection navigation={navigation} />
 
         {/* Советы по путешествиям */}
         <View style={dynamicStyles.section}>

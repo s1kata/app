@@ -32,7 +32,7 @@ const androidPackage = (
 ).trim();
 // VIP app icon source vector: ./assets/icons/icon-vip.svg
 // PNG for native icons is auto-generated from SVG to .generated/icon-vip-1024.png
-const appIconPng = "./.generated/icon-vip-1024.png";
+const appIconPng = "./assets/icons/icon-vip-1024.png";
 /** Tourvisor passthrough (production) или полный URL из TOURVISOR_API_URL */
 const tourvisorPassthroughUrl = (
   process.env.TOURVISOR_API_URL || `${siteBaseUrl}/api/tourvisor-mobile`
@@ -137,15 +137,16 @@ module.exports = {
     ],
     ...(enableOtaUpdates
       ? {
-          updates: {
-            url: `https://u.expo.dev/${easProjectId}`,
-            // Убираем 400 "channel-name required" в standalone/release билдах
-            requestHeaders: {
-              "expo-channel-name": updateChannel,
-            },
-          }
+        updates: {
+          url: `https://u.expo.dev/${easProjectId}`,
+          requestHeaders: {
+            "expo-channel-name": updateChannel,
+          },
+          // ЭТА СТРОКА ОБЯЗАТЕЛЬНА ДЛЯ ПРАВИЛЬНОЙ РАБОТЫ OTA
+          fallbackToCacheTimeout: 0
         }
-      : {}),
+      }
+    : {}),
     runtimeVersion: {
       policy: "appVersion"
     },

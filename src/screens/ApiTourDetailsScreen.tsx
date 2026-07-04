@@ -732,6 +732,8 @@ export default function ApiTourDetailsScreen({ navigation, route }: ApiTourDetai
           <TourReviewsSection
             tourId={String(tourId)}
             hotelId={tour?.hotel?.id}
+            hotelName={tour?.hotel?.name}
+            countryName={tour?.hotel?.country?.name}
             navigation={navigation}
           />
         ) : null}
