@@ -155,6 +155,14 @@ export default function ProfileScreen({ navigation }: any) {
       icon: 'calendar-outline',
       onPress: () => navigation.navigate('MainTabs', { screen: 'Bookings' }),
     },
+    ...(!RELEASE_HIDE_PURCHASE_HISTORY && !isGuest
+      ? [{
+          id: 'purchases',
+          title: i18n.t('profile.purchaseHistory'),
+          icon: 'receipt-outline',
+          onPress: () => navigation.navigate('PurchaseHistory'),
+        }]
+      : []),
     { id: 'settings', title: i18n.t('settings.title'), icon: 'settings-outline', onPress: () => navigation.navigate('Settings') },
     { id: 'help', title: i18n.t('profile.help'), icon: 'help-circle-outline', onPress: () => navigation.navigate('HelperChat') },
   ];

@@ -145,6 +145,7 @@ const translations: Translations = {
   'purchaseHistory.title': { ru: 'История покупок', en: 'Purchase history' },
   'purchaseHistory.empty': { ru: 'Нет покупок', en: 'No purchases' },
   'purchaseHistory.emptyDesc': { ru: 'Здесь появятся ваши заявки', en: 'Your requests will appear here' },
+  'purchaseHistory.unavailable': { ru: 'История покупок временно недоступна', en: 'Purchase history is temporarily unavailable' },
   'tour.reviewsTitle': { ru: 'Отзывы', en: 'Reviews' },
   'tour.allReviews': { ru: 'Все', en: 'All' },
   'tour.noReviews': { ru: 'Пока нет отзывов. Будьте первым!', en: 'No reviews yet. Be the first!' },

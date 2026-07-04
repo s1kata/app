@@ -124,7 +124,7 @@ export default function SplashScreen({ navigation }: { navigation: any }) {
       />
       <Animated.View style={[styles.glow, { opacity: glowOpacity, backgroundColor: theme.primary }]} />
       <Animated.View style={[styles.logoWrap, { opacity: logoOpacity, transform: [{ scale: logoScale }] }]}>
-        <AppLogo size={100} bordered borderColor={theme.primary} backgroundColor={theme.surface} />
+        <AppLogo size={100} shape="rounded" bordered borderColor={theme.primary} backgroundColor={theme.surface} />
       </Animated.View>
       <Animated.Text style={[styles.title, { color: theme.text, opacity: titleOpacity }]}>
         TravelHub
