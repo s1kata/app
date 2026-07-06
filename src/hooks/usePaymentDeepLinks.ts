@@ -4,6 +4,7 @@ import * as WebBrowser from 'expo-web-browser';
 import type { NavigationContainerRef } from '@react-navigation/native';
 import { authSession } from '../services/AuthSession';
 import { bookingService } from '../services/BookingService';
+import { bonusService } from '../services/BonusService';
 import { getLastPaymentTransaction, pollPaymentUntilFinal } from '../services/PaymentService';
 import { presentPaymentPollOutcome } from '../utils/paymentPollOutcomes';
 import { i18n } from '../config/i18n';
@@ -95,6 +96,12 @@ export function usePaymentDeepLinks(navigationRef: Ref) {
           onBeforeSuccessAlert: async () => {
             if (uid && last.orderId) {
               await bookingService.maybeAwardLoyaltyAfterPaidBooking(uid, last.orderId);
+              const user = await authSession.getStoredUser();
+              await bonusService.redeemAfterSuccessfulPayment(
+                last.orderId,
+                user?.email,
+                user?.phone,
+              );
             }
           },
           onPendingOk: goBookings,

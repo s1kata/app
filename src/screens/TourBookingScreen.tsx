@@ -30,6 +30,9 @@ import { validatePassportData, validatePhone } from '../utils/validation';
 import { AuthService } from '../services/AuthService';
 import { websiteTourService } from '../services/WebsiteTourService';
 import { notificationService } from '../services/NotificationService';
+import { bonusService } from '../services/BonusService';
+import { BonusRedemptionBlock } from '../components/BonusRedemptionBlock';
+import type { BonusQuote } from '../config/bonusRules';
 
 interface TourBookingScreenProps {
   navigation: any;
@@ -52,6 +55,13 @@ export default function TourBookingScreen({ navigation, route }: TourBookingScre
   const [userHasPassport, setUserHasPassport] = useState(false);
   const [profilePassportError, setProfilePassportError] = useState<string | null>(null);
   const bookingSubmitLock = useRef(false);
+
+  const [bonusLoading, setBonusLoading] = useState(false);
+  const [bonusEnabled, setBonusEnabled] = useState(false);
+  const [bonusesToSpend, setBonusesToSpend] = useState(0);
+  const [bonusQuote, setBonusQuote] = useState<BonusQuote | null>(null);
+  const [bonusBcId, setBonusBcId] = useState<number | null>(null);
+  const [bonusAvailable, setBonusAvailable] = useState(0);
 
   // Проверяем, является ли пользователь гостем
   const isGuest = user?.uid?.startsWith('guest_') || user?.isAnonymous === true;
@@ -340,6 +350,87 @@ export default function TourBookingScreen({ navigation, route }: TourBookingScre
     return tour.price * getParticipants();
   };
 
+  const userEmail = formData.email || user?.email || '';
+  const userPhone = formData.phone || (user as any)?.phoneNumber || (user as any)?.phone || '';
+
+  const loadBonusInfo = useCallback(async () => {
+    if (isGuest || (!userEmail && !userPhone)) {
+      setBonusAvailable(0);
+      setBonusBcId(null);
+      return;
+    }
+    setBonusLoading(true);
+    try {
+      const res = await bonusService.getBonusBalanceAndHistory({
+        email: userEmail || undefined,
+        phone: userPhone || undefined,
+      });
+      if (res.success && res.data) {
+        setBonusAvailable(res.data.availableBalance ?? res.data.balance);
+        setBonusBcId(res.data.bcId ?? bonusService.getCardIdFromTransactions(res.data.transactions));
+      }
+    } catch (e) {
+      logger.warn('[TourBookingScreen] bonus load failed', e);
+    } finally {
+      setBonusLoading(false);
+    }
+  }, [isGuest, userEmail, userPhone]);
+
+  useEffect(() => {
+    if (!isGuest && user) loadBonusInfo();
+  }, [isGuest, user, loadBonusInfo]);
+
+  const refreshBonusQuote = useCallback(async () => {
+    const tourPrice = calculateTotalPrice();
+    const spend = bonusEnabled ? bonusesToSpend : 0;
+    const res = await bonusService.quoteRedemption({
+      tourPrice,
+      bonusesToSpend: spend,
+      email: userEmail || undefined,
+      phone: userPhone || undefined,
+      availableBalance: bonusAvailable,
+      bcId: bonusBcId,
+    });
+    if (res.success && res.data) {
+      setBonusQuote(res.data);
+    } else {
+      setBonusQuote(null);
+    }
+  }, [
+    bonusEnabled,
+    bonusesToSpend,
+    bonusAvailable,
+    bonusBcId,
+    userEmail,
+    userPhone,
+    tour.price,
+    formData.adults,
+    formData.childrenCount,
+  ]);
+
+  useEffect(() => {
+    void refreshBonusQuote();
+  }, [refreshBonusQuote]);
+
+  const getPayablePrice = (): number => {
+    if (bonusEnabled && bonusQuote && bonusQuote.bonusesToSpend > 0) {
+      return bonusQuote.payableRub;
+    }
+    return calculateTotalPrice();
+  };
+
+  const getBonusDiscount = (): number => {
+    if (bonusEnabled && bonusQuote) return bonusQuote.discountRub;
+    return 0;
+  };
+
+  const isBonusRedemptionValid = (): boolean => {
+    if (!bonusEnabled || bonusesToSpend <= 0) return true;
+    if (!bonusQuote || !bonusBcId) return false;
+    if (bonusesToSpend < (bonusQuote.minBonuses ?? 0)) return false;
+    return bonusQuote.bonusesToSpend === bonusesToSpend;
+  };
+
   const handleBooking = async (payImmediately: boolean) => {
     if (bookingSubmitLock.current) return;
     const bookingAuth = await requireAuthForBooking(user);
@@ -368,6 +459,13 @@ export default function TourBookingScreen({ navigation, route }: TourBookingScre
       return;
     }
     if (!bookingMethod) return;
+
+    if (bonusEnabled && bonusesToSpend > 0 && !isBonusRedemptionValid()) {
+      Alert.alert(i18n.t('common.error'), bonusQuote?.minBonuses
+        ? i18n.t('bonus.minHint').replace('{min}', String(bonusQuote.minBonuses))
+        : i18n.t('bonus.redeemFailed'));
+      return;
+    }
 
     bookingSubmitLock.current = true;
     const nights = Math.max(1, Math.min(30, Number(formData.nights) || Number(tour.nights) || 1));
@@ -480,9 +578,24 @@ export default function TourBookingScreen({ navigation, route }: TourBookingScre
         return;
       }
 
+      if (bonusEnabled && bonusesToSpend > 0 && bonusBcId) {
+        const saveBonus = await bonusService.saveRedemptionForBooking({
+          bookingId: bookingResult.bookingId,
+          tourPrice: calculateTotalPrice(),
+          bonusesToSpend,
+          bcId: bonusBcId,
+          email: userEmail || undefined,
+          phone: userPhone || undefined,
+        });
+        if (!saveBonus.success) {
+          throw new Error(saveBonus.error || i18n.t('bonus.redeemFailed'));
+        }
+      }
+
+      const payableAmount = getPayablePrice();
       const paymentResult = await paymentService.createPayment(selectedPaymentProvider!, {
         bookingId: bookingResult.bookingId,
-        amount: calculateTotalPrice(),
+        amount: payableAmount,
         currency: tour.currency,
         description: `Бронирование тура: ${tour.hotel.name}`,
         returnUrl: `travelhub://payment/success?bookingId=${bookingResult.bookingId}`,
@@ -519,6 +632,11 @@ export default function TourBookingScreen({ navigation, route }: TourBookingScre
                     if (!bookingResult.bookingId || !r.success) return;
                     if (r.status === 'success') {
                       await bookingService.markPaymentStatus(bookingResult.bookingId, 'paid', { status: 'confirmed' });
+                      await bonusService.redeemAfterSuccessfulPayment(
+                        bookingResult.bookingId,
+                        userEmail || undefined,
+                        userPhone || undefined,
+                      );
                       return;
                     }
                     if (r.status === 'failed') {
@@ -630,9 +748,25 @@ export default function TourBookingScreen({ navigation, route }: TourBookingScre
             </View>
             <View style={[styles.divider, { backgroundColor: theme.border }]} />
             <View style={styles.totalRow}>
-              <Text style={[styles.totalLabel, { color: theme.text }]}>Итого:</Text>
-              <Text style={[styles.totalValue, { color: theme.primary }]}>
+              <Text style={[styles.totalLabel, { color: theme.secondaryText }]}>{i18n.t('bonus.tourPrice')}:</Text>
+              <Text style={[styles.totalValue, { color: theme.text }]}>
                 {formatPrice(calculateTotalPrice(), tour.currency)}
+              </Text>
+            </View>
+            {getBonusDiscount() > 0 && (
+              <View style={styles.totalRow}>
+                <Text style={[styles.totalLabel, { color: theme.secondaryText }]}>{i18n.t('bonus.discount')}:</Text>
+                <Text style={[styles.totalValue, { color: theme.success }]}>
+                  −{formatPrice(getBonusDiscount(), tour.currency)}
+                </Text>
+              </View>
+            )}
+            <View style={styles.totalRow}>
+              <Text style={[styles.totalLabel, { color: theme.text, fontWeight: '700' }]}>
+                {getBonusDiscount() > 0 ? i18n.t('bonus.toPay') : 'Итого'}:
+              </Text>
+              <Text style={[styles.totalValue, { color: theme.primary, fontWeight: '700' }]}>
+                {formatPrice(getPayablePrice(), tour.currency)}
               </Text>
             </View>
           </View>
@@ -948,6 +1082,32 @@ export default function TourBookingScreen({ navigation, route }: TourBookingScre
               </View>
               {bookingMethod === 'with_payment' && <Ionicons name="checkmark-circle" size={24} color={theme.primary} />}
             </TouchableOpacity>
+
+            {bookingMethod === 'with_payment' && (
+              <BonusRedemptionBlock
+                theme={{
+                  card: theme.card,
+                  border: theme.border,
+                  text: theme.text,
+                  secondaryText: theme.secondaryText,
+                  tertiaryText: theme.tertiaryText,
+                  primary: theme.primary,
+                  secondaryBackground: theme.secondaryBackground,
+                  success: theme.success,
+                  warning: theme.warning,
+                }}
+                enabled={bonusEnabled}
+                onEnabledChange={(v) => {
+                  setBonusEnabled(v);
+                  if (!v) setBonusesToSpend(0);
+                }}
+                bonusesToSpend={bonusesToSpend}
+                onBonusesChange={setBonusesToSpend}
+                quote={bonusQuote}
+                formatPrice={(n) => formatPrice(n, tour.currency)}
+                loading={bonusLoading}
+              />
+            )}
 
             {bookingMethod === 'with_payment' && (
               <>

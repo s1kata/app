@@ -141,6 +141,51 @@ const translations: Translations = {
   'bonus.activate': { ru: 'Активировать', en: 'Activate' },
   'bonus.activateSuccess': { ru: 'Карта успешно активирована', en: 'Card activated successfully' },
   'bonus.activateError': { ru: 'Не удалось активировать карту', en: 'Failed to activate card' },
+  'bonus.available': { ru: 'Доступно', en: 'Available' },
+  'bonus.expiringSoon': { ru: 'Скоро сгорят (7 дней)', en: 'Expiring within 7 days' },
+  'bonus.howItWorks': { ru: 'Как работают бонусы', en: 'How bonuses work' },
+  'bonus.ruleRate': {
+    ru: '1 бонус = 1 ₽ скидки на тур',
+    en: '1 bonus = ₽1 off your tour',
+  },
+  'bonus.ruleAccrual': {
+    ru: 'Бонусы начисляются после поездок. Здесь вы видите баланс и историю операций.',
+    en: 'Bonuses are credited after trips. Here you see your balance and history.',
+  },
+  'bonus.ruleExpiry': {
+    ru: 'У бонусов есть срок действия. Просроченные бонусы не учитываются в доступном балансе.',
+    en: 'Bonuses expire. Expired bonuses are not included in your available balance.',
+  },
+  'bonus.ruleRedeem': {
+    ru: 'При бронировании тура можно уменьшить сумму к оплате бонусами.',
+    en: 'When booking a tour you can reduce the amount to pay with bonuses.',
+  },
+  'bonus.ruleLimits': {
+    ru: 'Минимум 5% и максимум 30% от стоимости тура. Нельзя списать больше, чем есть на счёте.',
+    en: 'Min 5% and max 30% of tour price. You cannot spend more than your balance.',
+  },
+  'bonus.rulePayment': {
+    ru: 'В банк уходит сумма уже со скидкой. Бонусы списываются после успешной оплаты.',
+    en: 'You pay the discounted amount. Bonuses are deducted after successful payment.',
+  },
+  'bonus.expiresOn': { ru: 'до', en: 'until' },
+  'bonus.redeemTitle': { ru: 'Оплатить бонусами', en: 'Pay with bonuses' },
+  'bonus.redeemSubtitle': {
+    ru: '1 бонус = 1 ₽. До 30% от стоимости тура.',
+    en: '1 bonus = ₽1. Up to 30% of tour price.',
+  },
+  'bonus.useBonuses': { ru: 'Использовать бонусы', en: 'Use bonuses' },
+  'bonus.spend': { ru: 'Списать', en: 'Spend' },
+  'bonus.discount': { ru: 'Скидка', en: 'Discount' },
+  'bonus.toPay': { ru: 'К оплате', en: 'To pay' },
+  'bonus.tourPrice': { ru: 'Стоимость тура', en: 'Tour price' },
+  'bonus.max': { ru: 'Максимум', en: 'Maximum' },
+  'bonus.minHint': {
+    ru: 'Минимум {min} бонусов (5% от стоимости тура)',
+    en: 'Minimum {min} bonuses (5% of tour price)',
+  },
+  'bonus.noBonuses': { ru: 'Нет доступных бонусов', en: 'No bonuses available' },
+  'bonus.redeemFailed': { ru: 'Не удалось списать бонусы', en: 'Failed to redeem bonuses' },
 
   // Purchase history
   'purchaseHistory.title': { ru: 'История покупок', en: 'Purchase history' },

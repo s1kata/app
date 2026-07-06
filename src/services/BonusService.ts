@@ -1,12 +1,27 @@
 import { BonusTransaction, BonusBalance, SotaApiResponse } from '../types';
 import { sotaCrmService } from './SotaCrmService';
 import { logger } from '../utils/logger';
+import { computeBonusBalanceStats } from '../utils/bonusBalance';
+import {
+  BONUS_RULES,
+  computeBonusQuote,
+  type BonusQuote,
+  type BonusQuoteResult,
+} from '../config/bonusRules';
 import {
   getCrmBackendBaseUrl,
   fetchBonusBalanceViaBackend,
+  fetchBonusQuoteViaBackend,
   activateBonusCardViaBackend,
   createBonusOperationViaBackend,
 } from './crm/CrmBackendClient';
+import {
+  getPendingBonusRedemption,
+  savePendingBonusRedemption,
+  clearPendingBonusRedemption,
+  isBonusDeductedForBooking,
+  markBonusDeductedForBooking,
+} from './BonusRedemptionStore';
 
 const BONUS_UNAVAILABLE = 'Бонусы временно недоступны';
 
@@ -34,12 +49,20 @@ class BonusService {
     return error;
   }
 
+  private enrichBalance(transactions: BonusTransaction[], balance?: number): BonusBalance {
+    const stats = computeBonusBalanceStats(transactions);
+    return {
+      balance: balance ?? stats.balance,
+      availableBalance: stats.availableBalance,
+      expiringWithin7Days: stats.expiringWithin7Days,
+      bcId: stats.bcId,
+      transactions,
+      rules: BONUS_RULES,
+    };
+  }
+
   computeBalanceFromTransactions(transactions: BonusTransaction[]): number {
-    return (transactions || []).reduce((sum, t) => {
-      if (t.increase === 1) return sum + (t.amount ?? 0);
-      if (t.decrease === 1) return sum - (t.amount ?? 0);
-      return sum;
-    }, 0);
+    return computeBonusBalanceStats(transactions).balance;
   }
 
   getCardIdFromTransactions(transactions: BonusTransaction[]): number | null {
@@ -54,13 +77,24 @@ class BonusService {
     if (getCrmBackendBaseUrl()) {
       const r = await fetchBonusBalanceViaBackend(params.email, params.phone);
       if (r.success && r.data) {
-        return { success: true, data: r.data as BonusBalance };
+        const txs = (r.data.transactions || []) as BonusTransaction[];
+        const enriched: BonusBalance = {
+          ...r.data,
+          transactions: txs,
+          availableBalance:
+            r.data.availableBalance ?? computeBonusBalanceStats(txs).availableBalance,
+          expiringWithin7Days:
+            r.data.expiringWithin7Days ?? computeBonusBalanceStats(txs).expiringWithin7Days,
+          bcId: r.data.bcId ?? computeBonusBalanceStats(txs).bcId,
+          rules: r.data.rules ?? BONUS_RULES,
+        };
+        return { success: true, data: enriched };
       }
       if (r.error && r.error !== 'no_backend') {
         return {
           success: false,
           error: this.mapFriendlyError(r.error),
-          data: { balance: 0, transactions: [] },
+          data: { balance: 0, transactions: [], availableBalance: 0 },
         };
       }
     }
@@ -75,7 +109,7 @@ class BonusService {
     const clientId = await sotaCrmService.getClientId(params);
     if (clientId == null) {
       logger.debug('[BonusService] Клиент не найден');
-      return { success: true, data: { balance: 0, transactions: [] } };
+      return { success: true, data: { balance: 0, transactions: [], availableBalance: 0 } };
     }
 
     const response = await sotaCrmService.getBonusTransactionsByUser(clientId);
@@ -83,18 +117,113 @@ class BonusService {
       return {
         success: false,
         error: this.mapFriendlyError(response.error),
-        data: { balance: 0, transactions: [] },
+        data: { balance: 0, transactions: [], availableBalance: 0 },
       };
     }
 
     const transactions = response.data;
-    const balance = this.computeBalanceFromTransactions(transactions);
-    return { success: true, data: { balance, transactions } };
+    return { success: true, data: this.enrichBalance(transactions) };
+  }
+
+  async quoteRedemption(params: {
+    tourPrice: number;
+    bonusesToSpend: number;
+    email?: string;
+    phone?: string;
+    availableBalance?: number;
+    bcId?: number | null;
+  }): Promise<BonusQuoteResult> {
+    const spend = Math.max(0, Math.floor(params.bonusesToSpend));
+    const price = Math.max(0, Math.floor(params.tourPrice));
+
+    if (getCrmBackendBaseUrl()) {
+      const r = await fetchBonusQuoteViaBackend({
+        tourPrice: price,
+        bonusesToSpend: spend,
+        email: params.email,
+        phone: params.phone,
+      });
+      if (r.success && r.data) {
+        return { success: true, data: r.data };
+      }
+      if (r.error && r.error !== 'no_backend') {
+        return { success: false, error: this.mapFriendlyError(r.error) };
+      }
+    }
+
+    let available = params.availableBalance;
+    if (available == null && (params.email || params.phone)) {
+      const bal = await this.getBonusBalanceAndHistory(params);
+      available = bal.data?.availableBalance ?? 0;
+    }
+    return computeBonusQuote(price, spend, available ?? 0);
+  }
+
+  async saveRedemptionForBooking(params: {
+    bookingId: string;
+    tourPrice: number;
+    bonusesToSpend: number;
+    bcId: number;
+    email?: string;
+    phone?: string;
+  }): Promise<{ success: boolean; quote?: BonusQuote; error?: string }> {
+    const quoteRes = await this.quoteRedemption({
+      tourPrice: params.tourPrice,
+      bonusesToSpend: params.bonusesToSpend,
+      email: params.email,
+      phone: params.phone,
+    });
+    if (!quoteRes.success || !quoteRes.data) {
+      return { success: false, error: quoteRes.error };
+    }
+    if (quoteRes.data.bonusesToSpend <= 0) {
+      await clearPendingBonusRedemption(params.bookingId);
+      return { success: true, quote: quoteRes.data };
+    }
+    await savePendingBonusRedemption({
+      bookingId: params.bookingId,
+      bonusesToSpend: quoteRes.data.bonusesToSpend,
+      discountRub: quoteRes.data.discountRub,
+      tourPrice: quoteRes.data.tourPrice,
+      bcId: params.bcId,
+      createdAt: Date.now(),
+    });
+    return { success: true, quote: quoteRes.data };
+  }
+
+  async redeemAfterSuccessfulPayment(
+    bookingId: string,
+    email?: string,
+    phone?: string,
+  ): Promise<{ success: boolean; error?: string }> {
+    if (await isBonusDeductedForBooking(bookingId)) {
+      return { success: true };
+    }
+    const pending = await getPendingBonusRedemption(bookingId);
+    if (!pending || pending.bonusesToSpend <= 0) {
+      return { success: true };
+    }
+
+    const result = await this.deductBonuses({
+      bc_id: pending.bcId,
+      amount: pending.bonusesToSpend,
+      reason: `Списание по заявке ${bookingId}`,
+      email,
+      phone,
+    });
+
+    if (result.success) {
+      await markBonusDeductedForBooking(bookingId);
+      await clearPendingBonusRedemption(bookingId);
+      return { success: true };
+    }
+    logger.warn('[BonusService] redeemAfterSuccessfulPayment failed', result.error);
+    return { success: false, error: result.error || BONUS_UNAVAILABLE };
   }
 
   async getBalance(email?: string, phone?: string): Promise<number> {
     const res = await this.getBonusBalanceAndHistory({ email, phone });
-    return res.success && res.data ? res.data.balance : 0;
+    return res.success && res.data ? (res.data.availableBalance ?? res.data.balance) : 0;
   }
 
   async getBonusHistory(email?: string, phone?: string): Promise<BonusTransaction[]> {
@@ -104,9 +233,6 @@ class BonusService {
     return [...list].sort((a, b) => (b.datetime || '').localeCompare(a.datetime || ''));
   }
 
-  /**
-   * Активация бонусной карты (U-ON: bcard-activate/create).
-   */
   async activateBonusCard(params: {
     bc_number: string;
     email?: string;
@@ -142,9 +268,6 @@ class BonusService {
     return sotaCrmService.activateBonusCard(clientId, bcNumber);
   }
 
-  /**
-   * Списание бонусов при оплате (U-ON: bcard-bonus/create, type=2).
-   */
   async deductBonuses(params: {
     bc_id: number;
     amount: number;
