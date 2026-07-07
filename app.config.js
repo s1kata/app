@@ -18,7 +18,11 @@ const siteBaseUrl = (
 ).replace(/\/+$/, "");
 const authApiBaseUrl = (process.env.AUTH_API_BASE_URL || siteBaseUrl).replace(/\/+$/, "");
 const authApiPath = (process.env.AUTH_API_PATH || "/api/auth-mobile.php").trim();
-const crmApiBaseUrl = (process.env.CRM_API_BASE_URL || siteBaseUrl).replace(/\/+$/, "");
+const crmApiBaseUrl = (
+  process.env.CRM_API_BASE_URL ||
+  process.env.SOTA_CRM_BASE_URL ||
+  siteBaseUrl
+).replace(/\/+$/, "");
 const bonusApiBaseUrl = (process.env.BONUS_API_BASE_URL || crmApiBaseUrl).replace(/\/+$/, "");
 const paymentApiBaseUrl = (process.env.PAYMENT_API_BASE_URL || siteBaseUrl).replace(/\/+$/, "");
 /** @deprecated alias for siteBaseUrl */
@@ -44,10 +48,16 @@ const hasSentryUploadCreds =
 
 /** EAS / Expo project id: `EAS_PROJECT_ID` в .env / EAS Secrets перекрывает значение по умолчанию. */
 const easProjectId = (process.env.EAS_PROJECT_ID || "0f6984f9-e3d1-46f5-ae15-dd0e5b4deef2").trim();
-/** OTA только для preview/production — локальный Xcode без лишних expo-updates recovery */
-const enableOtaUpdates =
-  Boolean(easProjectId) &&
-  (isProductionLike || process.env.EXPO_UPDATES_ENABLED === "1");
+/** OTA: URL в конфиге нужен и для `eas update` с локальной машины (без APP_ENV=production). */
+const otaUpdatesConfig = easProjectId
+  ? {
+      url: `https://u.expo.dev/${easProjectId}`,
+      requestHeaders: {
+        "expo-channel-name": updateChannel,
+      },
+      fallbackToCacheTimeout: 0,
+    }
+  : null;
 
 /**
  * EAS production / preview: задайте в Secrets или в UI (Environment variables), не в репозитории:
@@ -135,18 +145,7 @@ module.exports = {
           ]]
         : [])
     ],
-    ...(enableOtaUpdates
-      ? {
-        updates: {
-          url: `https://u.expo.dev/${easProjectId}`,
-          requestHeaders: {
-            "expo-channel-name": updateChannel,
-          },
-          // ЭТА СТРОКА ОБЯЗАТЕЛЬНА ДЛЯ ПРАВИЛЬНОЙ РАБОТЫ OTA
-          fallbackToCacheTimeout: 0
-        }
-      }
-    : {}),
+    ...(otaUpdatesConfig ? { updates: otaUpdatesConfig } : {}),
     runtimeVersion: {
       policy: "appVersion"
     },
@@ -184,7 +183,9 @@ module.exports = {
       firebaseAppId: process.env.FIREBASE_APP_ID || "",
       firebaseMeasurementId: process.env.FIREBASE_MEASUREMENT_ID || "",
       sentryDsn: (process.env.EXPO_PUBLIC_SENTRY_DSN || "").trim(),
-      sentryEnableInDev: process.env.EXPO_PUBLIC_SENTRY_ENABLE_IN_DEV === "1" ? "1" : "0"
+      sentryEnableInDev: process.env.EXPO_PUBLIC_SENTRY_ENABLE_IN_DEV === "1" ? "1" : "0",
+      // Оплата: 1 = Safari/Chrome (рекомендуется), 0 = in-app expo-web-browser
+      useExternalPaymentBrowser: process.env.USE_EXTERNAL_PAYMENT_BROWSER === "0" ? "0" : "1"
     }
   }
 };

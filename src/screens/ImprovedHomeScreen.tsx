@@ -32,9 +32,13 @@ import { locationService, LocationData } from '../services/LocationService';
 import { logger } from '../utils/logger';
 import HomeReviewsSection from '../components/HomeReviewsSection';
 import { reviewsRefreshBus } from '../services/ReviewsRefreshBus';
+import GuestModeBanner from '../components/ux/GuestModeBanner';
+import CollapsibleSection from '../components/ux/CollapsibleSection';
+import PrimaryButton from '../components/ui/PrimaryButton';
 
 export default function ImprovedHomeScreen({ navigation }: any) {
   const { isAuthenticated, user, theme, themeMode, updateCounter } = useAppContext();
+  const isGuest = user?.uid?.startsWith('guest_') || user?.isAnonymous === true;
   const [userName, setUserName] = useState('');
   const [userLocation, setUserLocation] = useState<LocationData | null>(null);
   const [showWelcomeModal, setShowWelcomeModal] = useState(false);
@@ -267,37 +271,9 @@ export default function ImprovedHomeScreen({ navigation }: any) {
         }]}>
           <View style={dynamicStyles.headerContent}>
             <View style={dynamicStyles.headerLeft}>
-              {!isAuthenticated && (
-                <TouchableOpacity
-                  onPress={() => navigation.navigate('Login')}
-                  style={dynamicStyles.authButton}
-                  activeOpacity={0.8}
-                >
-                  <View
-                    style={{
-                      flexDirection: 'row',
-                      alignItems: 'center',
-                      paddingHorizontal: 20,
-                      paddingVertical: 12,
-                      borderRadius: 16,
-                      gap: 8,
-                      backgroundColor: theme.primary,
-                    }}
-                  >
-                    <Ionicons name="log-in" size={20} color={theme.surface} />
-                    <Text style={{
-                      color: theme.surface,
-                      fontSize: 16,
-                      fontWeight: '700',
-                    }}>{i18n.t('auth.login')}</Text>
-                  </View>
-                </TouchableOpacity>
-              )}
-              {isAuthenticated && (
-                <View style={dynamicStyles.brandMark}>
-                  <AppLogo size={44} bordered borderColor={theme.primary} backgroundColor={theme.surface} />
-                </View>
-              )}
+              <View style={dynamicStyles.brandMark}>
+                <AppLogo size={44} bordered borderColor={theme.primary} backgroundColor={theme.surface} />
+              </View>
             </View>
             <View style={dynamicStyles.headerRight}>
               <WeatherWidget location={userLocation} onRefresh={loadUserLocation} />
@@ -305,8 +281,17 @@ export default function ImprovedHomeScreen({ navigation }: any) {
           </View>
         </View>
 
+        {isGuest ? (
+          <View style={{ paddingHorizontal: adaptive.getHorizontalPadding(), marginBottom: spacing.md }}>
+            <GuestModeBanner onCreateProfile={() => navigation.navigate('Register')} />
+          </View>
+        ) : null}
+
         {/* API Tour & Hotel Search */}
         <View style={{ paddingHorizontal: adaptive.getHorizontalPadding(), marginBottom: 24, width: '100%' }}>
+          <Text style={{ color: theme.primary, fontWeight: '700', fontSize: 13, marginBottom: 8, letterSpacing: 0.3 }}>
+            {i18n.t('ux.homeStartHere').toUpperCase()}
+          </Text>
           <ApiTourHotelSearch
             navigation={navigation}
             enableHotelSearch={false}
@@ -316,20 +301,12 @@ export default function ImprovedHomeScreen({ navigation }: any) {
 
 
         {/* Интересные факты о путешествиях */}
-        <View style={dynamicStyles.section}>
-          <View style={dynamicStyles.sectionHeader}>
-            <View>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                <Ionicons name="bulb" size={24} color={theme.primary} />
-                <Text style={[dynamicStyles.sectionTitle, { color: theme.text, fontSize: 24, fontWeight: '700' }]}>
-                  {i18n.t('home.interestingFacts')}
-                </Text>
-              </View>
-              <Text style={[dynamicStyles.sectionSubtitle, { color: theme.secondaryText, marginTop: 4 }]}>
-                {i18n.t('home.learnAboutTravel')}
-              </Text>
-            </View>
-          </View>
+        <View style={[dynamicStyles.section, { paddingHorizontal: adaptive.getHorizontalPadding() }]}>
+        <CollapsibleSection
+          title={i18n.t('home.interestingFacts')}
+          subtitle={i18n.t('home.learnAboutTravel')}
+          icon="bulb-outline"
+        >
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
@@ -378,26 +355,22 @@ export default function ImprovedHomeScreen({ navigation }: any) {
               </View>
             ))}
           </ScrollView>
+        </CollapsibleSection>
         </View>
 
+        <View style={[dynamicStyles.section, { paddingHorizontal: adaptive.getHorizontalPadding() }]}>
+        <CollapsibleSection title={i18n.t('tour.reviewsTitle')} icon="chatbubbles-outline">
         <HomeReviewsSection navigation={navigation} />
+        </CollapsibleSection>
+        </View>
 
         {/* Советы по путешествиям */}
-        <View style={dynamicStyles.section}>
-          <View style={dynamicStyles.sectionHeader}>
-            <View>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                <Ionicons name="book" size={24} color={theme.primary} />
-                <Text style={[dynamicStyles.sectionTitle, { color: theme.text, fontSize: 24, fontWeight: '700' }]}>
-                  {i18n.t('home.travelerTips')}
-                </Text>
-              </View>
-              <Text style={[dynamicStyles.sectionSubtitle, { color: theme.secondaryText, marginTop: 4 }]}>
-                {/* Персональные рекомендации скрыты до следующего патча: оставляем нейтральный подзаголовок. */}
-                {i18n.t('home.travelTipsSubtitle')}
-              </Text>
-            </View>
-          </View>
+        <View style={[dynamicStyles.section, { paddingHorizontal: adaptive.getHorizontalPadding() }]}>
+        <CollapsibleSection
+          title={i18n.t('home.travelerTips')}
+          subtitle={i18n.t('home.travelTipsSubtitle')}
+          icon="book-outline"
+        >
           <View style={{ gap: 12 }}>
             {[
               { id: '1', icon: 'document-text', color: theme.primary, titleKey: 'tips.documents', tipKey: 'tips.documentsDesc' },
@@ -444,6 +417,7 @@ export default function ImprovedHomeScreen({ navigation }: any) {
               </View>
             ))}
           </View>
+        </CollapsibleSection>
         </View>
 
       </Animated.ScrollView>
@@ -514,6 +488,12 @@ export default function ImprovedHomeScreen({ navigation }: any) {
               
               {/* Декоративная линия */}
               <View style={[dynamicStyles.welcomeLine, { backgroundColor: theme.primary + '30' }]} />
+              <PrimaryButton
+                title={i18n.t('welcome.ok')}
+                onPress={() => setShowWelcomeModal(false)}
+                variant="cta"
+                style={{ marginTop: 16, alignSelf: 'stretch' }}
+              />
             </View>
           </Animated.View>
         </View>

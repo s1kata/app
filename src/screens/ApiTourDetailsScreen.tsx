@@ -29,6 +29,7 @@ import type { Currency } from '../services/SettingsService';
 import { i18n } from '../config/i18n';
 import { logger } from '../utils/logger';
 import TourReviewsSection from '../components/TourReviewsSection';
+import AuthRequiredCard from '../components/ux/AuthRequiredCard';
 
 interface ApiTourDetailsScreenProps {
   navigation: any;
@@ -53,6 +54,8 @@ export default function ApiTourDetailsScreen({ navigation, route }: ApiTourDetai
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingFlights, setIsLoadingFlights] = useState(false);
   const [isFavorite, setIsFavorite] = useState(false);
+  const [showAuthCard, setShowAuthCard] = useState(false);
+  const [authCardAction, setAuthCardAction] = useState<'favorite' | 'book'>('book');
   const [activeGalleryIndex, setActiveGalleryIndex] = useState(0);
   
   // 3. Ref hooks
@@ -206,14 +209,8 @@ export default function ApiTourDetailsScreen({ navigation, route }: ApiTourDetai
     if (!tour) return;
     try {
       if (isGuest || !user) {
-        Alert.alert(
-          i18n.t('favorites.authRequired'),
-          i18n.t('auth.favoritesRequired'),
-          [
-            { text: i18n.t('common.cancel'), style: 'cancel' },
-            { text: i18n.t('auth.login'), onPress: () => navigation.navigate('Login') },
-          ]
-        );
+        setAuthCardAction('favorite');
+        setShowAuthCard(true);
         return;
       }
       const result = await FavoritesService.getInstance().toggleTourFavorite(tour);
@@ -637,15 +634,8 @@ export default function ApiTourDetailsScreen({ navigation, route }: ApiTourDetai
 
   const handleBookPress = () => {
     if (isGuest || !user) {
-      Alert.alert(
-        i18n.t('favorites.authRequired'),
-        i18n.t('booking.authRequiredDesc'),
-        [
-          { text: i18n.t('common.cancel'), style: 'cancel' },
-          { text: i18n.t('auth.login'), onPress: () => navigation.navigate('Login') },
-          { text: i18n.t('auth.register'), onPress: () => navigation.navigate('Register') },
-        ]
-      );
+      setAuthCardAction('book');
+      setShowAuthCard(true);
       return;
     }
     navigation.navigate('TourBooking', { tour, searchParams });
@@ -739,19 +729,37 @@ export default function ApiTourDetailsScreen({ navigation, route }: ApiTourDetai
         ) : null}
       </ScrollView>
 
-      {/* Sticky кнопка «Оставить заявку» */}
+      {/* Sticky кнопка «Забронировать» */}
       <View style={[styles.stickyFooter, { 
         backgroundColor: theme.card, 
         borderTopColor: theme.border,
         paddingBottom: stickyBottom,
       }]}>
         <PrimaryButton
-          title="Оставить заявку"
+          title={i18n.t('tours.book')}
           onPress={handleBookPress}
           variant="cta"
           style={styles.bookingButton}
         />
       </View>
+      <AuthRequiredCard
+        visible={showAuthCard}
+        title={i18n.t('ux.authRequiredTitle')}
+        message={
+          authCardAction === 'book'
+            ? i18n.t('booking.authRequiredDesc')
+            : i18n.t('auth.favoritesRequired')
+        }
+        onLater={() => setShowAuthCard(false)}
+        onLogin={() => {
+          setShowAuthCard(false);
+          navigation.navigate('Login');
+        }}
+        onRegister={() => {
+          setShowAuthCard(false);
+          navigation.navigate('Register');
+        }}
+      />
     </ScreenContainer>
   );
 }

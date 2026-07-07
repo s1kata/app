@@ -18,14 +18,22 @@ import { i18n } from '../config/i18n';
 import { sotaCrmService } from '../services/SotaCrmService';
 import { bookingService } from '../services/BookingService';
 import { paymentService, openPaymentInBrowser } from '../services/PaymentService';
-import { presentPaymentPollOutcome } from '../utils/paymentPollOutcomes';
-import { resolvePaymentAfterBrowser } from '../utils/paymentAfterBrowser';
 import { showPaymentStatusBar } from '../utils/paymentStatusBanner';
 import { Booking } from '../types/index';
 import { logger } from '../utils/logger';
 import { logIosTestStep, IosTestStep } from '../utils/iosTestFlows';
 import { registerBookingsReloadHandler } from '../utils/paymentBookingsReload';
 import { shadows, typography, surfaces } from '../config/designSystem';
+import { PaymentPrepareModal } from '../components/ux/PaymentFlowModals';
+import { paymentUxBus } from '../services/PaymentUxBus';
+import GuestModeBanner from '../components/ux/GuestModeBanner';
+import {
+  getBookingLegDisplay,
+  getPaymentLegDisplay,
+  mapCrmLeadStatusToBookingStatus,
+  statusToneColor,
+  type StatusLegDisplay,
+} from '../utils/bookingStatus';
 
 export default function BookingsScreen({ navigation }: any) {
   const { user, theme } = useAppContext();
@@ -39,6 +47,10 @@ export default function BookingsScreen({ navigation }: any) {
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [payingBookingId, setPayingBookingId] = useState<string | null>(null);
+  const [paymentPrepare, setPaymentPrepare] = useState<{
+    booking: Booking;
+    paymentUrl: string;
+  } | null>(null);
   const bookingsRef = useRef<Booking[]>([]);
   const crmPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const crmSyncInFlightRef = useRef(false);
@@ -49,17 +61,7 @@ export default function BookingsScreen({ navigation }: any) {
     bookingsRef.current = bookings;
   }, [bookings]);
 
-  const mapCrmStatusToBookingStatus = (crmStatusRaw?: string): Booking['status'] | null => {
-    const s = String(crmStatusRaw || '').toLowerCase().trim();
-    if (!s) return null;
-
-    if (s.includes('cancel') || s.includes('отмен') || s.includes('аннул')) return 'cancelled';
-    if (s.includes('complete') || s.includes('closed') || s.includes('заверш') || s.includes('архив') || s.includes('выдан')) return 'completed';
-    if (s.includes('confirm') || s.includes('approved') || s.includes('подтверж')) return 'confirmed';
-    if (s.includes('new') || s.includes('open') || s.includes('pending') || s.includes('wait') || s.includes('нов')) return 'pending';
-
-    return null;
-  };
+  const mapCrmStatusToBookingStatus = mapCrmLeadStatusToBookingStatus;
 
   const syncCrmStatusesForVisibleBookings = useCallback(async (source: Booking[]) => {
     if (!source.length || crmSyncInFlightRef.current) return;
@@ -91,14 +93,8 @@ export default function BookingsScreen({ navigation }: any) {
             const nextStatus = mapCrmStatusToBookingStatus(crmStatusRaw);
             if (!nextStatus || nextStatus === b.status) return;
 
-            await bookingService.markPaymentStatus(
-              b.id,
-              b.paymentStatus || 'pending',
-              {
-                status: nextStatus,
-                updatedAt: new Date().toISOString(),
-              } as Partial<Booking>
-            );
+            const updated = await bookingService.updateBookingStatus(b.id, nextStatus);
+            if (!updated) return;
           } catch (e) {
             logger.warn('[BookingsScreen] CRM status sync item failed:', e);
           }
@@ -359,68 +355,36 @@ export default function BookingsScreen({ navigation }: any) {
         setPayingBookingId(null);
         return;
       }
-      Alert.alert(
-        i18n.t('payment.redirectTitle'),
-        i18n.t('payment.redirectMessage'),
-        [
-          { text: i18n.t('payment.cancel'), style: 'cancel', onPress: () => setPayingBookingId(null) },
-          {
-            text: i18n.t('payment.openButton'),
-            onPress: async () => {
-              try {
-                const browserResult = await openPaymentInBrowser(paymentResult.paymentUrl!);
-                const statusResult = await resolvePaymentAfterBrowser(
-                  paymentResult.transactionId!,
-                  browserResult,
-                );
-                presentPaymentPollOutcome({
-                  transactionId: paymentResult.transactionId!,
-                  result: statusResult,
-                  onStatusResolved: async (r) => {
-                    if (!r.success) return;
-                    if (r.status === 'success') {
-                      await bookingService.markPaymentStatus(booking.id, 'paid', { status: 'confirmed' });
-                      return;
-                    }
-                    if (r.status === 'failed') {
-                      await bookingService.markPaymentStatus(booking.id, 'failed');
-                      return;
-                    }
-                    if (r.status === 'cancelled') {
-                      await bookingService.markPaymentStatus(booking.id, 'cancelled');
-                      return;
-                    }
-                    if (r.status === 'pending') {
-                      await bookingService.markPaymentStatus(booking.id, 'payment_processing');
-                    }
-                  },
-                  onReload: loadBookings,
-                  alertSuccess: () =>
-                    Alert.alert(i18n.t('payment.successTitle'), i18n.t('payment.successMessage'), [
-                      { text: i18n.t('common.ok') },
-                    ]),
-                  alertFailed: () =>
-                    Alert.alert(i18n.t('common.error'), i18n.t('payment.failedMessage'), [
-                      { text: i18n.t('common.ok') },
-                    ]),
-                  alertFallbackError: () =>
-                    Alert.alert(i18n.t('common.error'), i18n.t('payment.failedMessage'), [
-                      { text: i18n.t('common.ok') },
-                    ]),
-                  alertNetworkError: (message) =>
-                    Alert.alert(i18n.t('common.error'), message, [{ text: i18n.t('common.ok') }]),
-                });
-              } finally {
-                setPayingBookingId(null);
-              }
-            },
-          },
-        ]
-      );
+      setPayingBookingId(null);
+      setPaymentPrepare({
+        booking,
+        paymentUrl: paymentResult.paymentUrl,
+      });
     } catch (error: any) {
       logger.error('[BookingsScreen] Pay booking error:', error);
       showPaymentStatusBar(error?.message || i18n.t('payment.loadError'), 'error');
       Alert.alert(i18n.t('common.error'), error?.message || i18n.t('payment.loadError'));
+      setPayingBookingId(null);
+    }
+  };
+
+  const runPaymentFromPrepare = async () => {
+    if (!paymentPrepare) return;
+    const { booking, paymentUrl } = paymentPrepare;
+    setPaymentPrepare(null);
+    setPayingBookingId(booking.id);
+    try {
+      await bookingService.markPaymentStatus(booking.id, 'payment_processing');
+      setBookings((prev) =>
+        prev.map((b) =>
+          b.id === booking.id ? { ...b, paymentStatus: 'payment_processing' } : b,
+        ),
+      );
+      await openPaymentInBrowser(paymentUrl);
+    } catch (error) {
+      logger.warn('[BookingsScreen] Failed to open payment page:', error);
+      paymentUxBus.showPaymentRecovery(() => navigation.navigate('MainTabs', { screen: 'Bookings' }));
+    } finally {
       setPayingBookingId(null);
     }
   };
@@ -446,40 +410,19 @@ export default function BookingsScreen({ navigation }: any) {
     icon: keyof typeof Ionicons.glyphMap;
   };
 
+  const toStatusChip = (display: StatusLegDisplay): StatusChip => ({
+    text: i18n.t(display.i18nKey),
+    color: statusToneColor(display.tone, theme),
+    icon: display.icon,
+  });
+
   /** Статус заявки (CRM / бронь), без смешивания с оплатой */
-  const getBookingLegStatus = (booking: Booking): StatusChip => {
-    if (booking.status === 'cancelled') {
-      return { text: i18n.t('bookings.statusCancelled'), color: theme.error, icon: 'close-circle' };
-    }
-    if (booking.status === 'completed') {
-      return { text: i18n.t('bookings.statusCompleted'), color: theme.success, icon: 'checkmark-done-circle' };
-    }
-    if (booking.status === 'confirmed') {
-      return { text: i18n.t('bookings.statusConfirmed'), color: theme.success, icon: 'checkmark-circle' };
-    }
-    return { text: i18n.t('bookings.statusPending'), color: theme.warning, icon: 'time-outline' };
-  };
+  const getBookingLegStatus = (booking: Booking): StatusChip =>
+    toStatusChip(getBookingLegDisplay(booking.status));
 
   /** Статус оплаты отдельной строкой */
-  const getPaymentLegStatus = (booking: Booking): StatusChip => {
-    const ps = booking.paymentStatus || 'pending';
-    if (ps === 'paid') {
-      return { text: i18n.t('bookings.statusPaid'), color: theme.success, icon: 'checkmark-circle' };
-    }
-    if (ps === 'payment_processing') {
-      return { text: i18n.t('bookings.paymentProcessing'), color: theme.warning, icon: 'sync' };
-    }
-    if (ps === 'failed') {
-      return { text: i18n.t('bookings.paymentFailed'), color: theme.error, icon: 'alert-circle' };
-    }
-    if (ps === 'cancelled') {
-      return { text: i18n.t('bookings.paymentCancelled'), color: theme.secondaryText, icon: 'remove-circle-outline' };
-    }
-    if (ps === 'refunded') {
-      return { text: i18n.t('bookings.paymentRefunded'), color: theme.secondaryText, icon: 'return-down-back' };
-    }
-    return { text: i18n.t('bookings.paymentPending'), color: theme.warning, icon: 'hourglass-outline' };
-  };
+  const getPaymentLegStatus = (booking: Booking): StatusChip =>
+    toStatusChip(getPaymentLegDisplay(booking.paymentStatus));
 
   if (loading && bookings.length === 0) {
     return (
@@ -529,6 +472,14 @@ export default function BookingsScreen({ navigation }: any) {
         }
       >
         <View style={styles.bookingsContainer}>
+          {isGuest ? (
+            <GuestModeBanner
+              large
+              title={i18n.t('bookings.guestBannerTitle')}
+              message={i18n.t('bookings.guestBannerBody')}
+              onCreateProfile={() => navigation.navigate('Register')}
+            />
+          ) : null}
           {/* Бронирования из Tourvisor */}
           {bookings.length > 0 && (
             <View style={styles.bookingsSection}>
@@ -625,6 +576,11 @@ export default function BookingsScreen({ navigation }: any) {
                           </View>
                         </View>
                       </View>
+                      {booking.paymentStatus === 'paid' && booking.status === 'pending' ? (
+                        <Text style={[styles.paidHint, { color: theme.secondaryText }]}>
+                          {i18n.t('bookings.paidAwaitingConfirmation')}
+                        </Text>
+                      ) : null}
                       <View style={styles.locationRow}>
                         <Ionicons name="location" size={14} color={theme.secondaryText} />
                         <Text style={[styles.locationText, { color: theme.secondaryText }]}>
@@ -657,7 +613,9 @@ export default function BookingsScreen({ navigation }: any) {
                         )}
                       </View>
 
-                      {booking.paymentStatus !== 'paid' && booking.status !== 'cancelled' && (
+                      {booking.paymentStatus !== 'paid' &&
+                        booking.paymentStatus !== 'payment_processing' &&
+                        booking.status !== 'cancelled' && (
                         <TouchableOpacity
                           style={[styles.payButton, { backgroundColor: theme.accent }]}
                           onPress={() => handlePayBooking(booking)}
@@ -722,25 +680,24 @@ export default function BookingsScreen({ navigation }: any) {
             </View>
           )}
 
-          {/* Пустое состояние */}
-          {bookings.length === 0 && !loading && (
+          {bookings.length === 0 && !loading && !isGuest && (
             <View style={styles.emptyContainer}>
               <View style={[styles.emptyIconContainer, { backgroundColor: theme.secondaryBackground }]}>
                 <Ionicons name="calendar-outline" size={64} color={theme.inactive} />
               </View>
               <Text style={[styles.emptyTitle, { color: theme.text }]}>
-                {isGuest ? i18n.t('bookings.signIn') : i18n.t('bookings.noBookings')}
+                {i18n.t('bookings.noBookings')}
               </Text>
               <Text style={[styles.emptySubtitle, { color: theme.secondaryText }]}>
-                {isGuest ? i18n.t('bookings.emptyDescGuest') : i18n.t('bookings.emptyDesc')}
+                {i18n.t('bookings.emptyDesc')}
               </Text>
               <TouchableOpacity
                 style={styles.emptyButton}
-                onPress={() => navigation.navigate(isGuest ? 'Login' : 'Home')}
+                onPress={() => navigation.navigate('Home')}
               >
                 <View style={[styles.emptyButtonGradient, { backgroundColor: theme.primary }]}>
                   <Text style={[styles.emptyButtonText, { color: theme.surface }]}>
-                    {isGuest ? i18n.t('auth.login') : i18n.t('bookings.findTours')}
+                    {i18n.t('bookings.findTours')}
                   </Text>
                 </View>
               </TouchableOpacity>
@@ -749,6 +706,11 @@ export default function BookingsScreen({ navigation }: any) {
 
         </View>
       </ScrollView>
+      <PaymentPrepareModal
+        visible={!!paymentPrepare}
+        onCancel={() => setPaymentPrepare(null)}
+        onContinue={() => void runPaymentFromPrepare()}
+      />
     </SafeAreaView>
   );
 }
@@ -859,6 +821,11 @@ const styles = StyleSheet.create({
   legStatusBlock: {
     marginBottom: 10,
     gap: 4,
+  },
+  paidHint: {
+    fontSize: 13,
+    lineHeight: 18,
+    marginBottom: 8,
   },
   legStatusLine: {
     flexDirection: 'row',

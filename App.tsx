@@ -10,6 +10,7 @@ import AppNavigator from './src/navigation/AppNavigator';
 import LocationPermissionModal from './src/components/LocationPermissionModal';
 import NetworkStatusBanner from './src/components/NetworkStatusBanner';
 import PaymentStatusBanner from './src/components/PaymentStatusBanner';
+import PaymentSuccessHost from './src/components/ux/PaymentSuccessHost';
 import { notificationService } from './src/services/NotificationService';
 import { messageService } from './src/services/MessageService';
 import { setAuthNavigationRef } from './src/auth/authNavigation';
@@ -107,6 +108,7 @@ export default function App() {
           <QueryClientProvider client={queryClient}>
             <AppProvider>
               <PaymentStatusBanner />
+              <PaymentSuccessHost />
               <NetworkStatusBanner />
               <View style={{ flex: 1 }}>
                 <NavigationContainer

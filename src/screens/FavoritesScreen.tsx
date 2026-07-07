@@ -8,7 +8,6 @@ import {
   Image,
   ActivityIndicator,
   RefreshControl,
-  Alert,
   StatusBar,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -20,38 +19,33 @@ import ProfileIcon from '../components/ProfileIcon';
 import { FavoritesService } from '../services/FavoritesService';
 import { settingsService } from '../services/SettingsService';
 import type { Currency } from '../services/SettingsService';
+import AuthRequiredCard from '../components/ux/AuthRequiredCard';
 
 export default function FavoritesScreen({ navigation }: any) {
   const { theme, isDark, apiReady, user, isAuthenticated, currency } = useAppContext();
   const [favoriteTours, setFavoriteTours] = useState<TourOutput[]>([]);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [showAuthCard, setShowAuthCard] = useState(false);
 
   const isGuest = user?.uid?.startsWith('guest_') || user?.isAnonymous === true;
 
   useEffect(() => {
     if (!isAuthenticated || !user || isGuest) {
-      Alert.alert(
-        i18n.t('favorites.authRequired'),
-        i18n.t('favorites.authRequiredDesc'),
-        [
-          { text: i18n.t('common.cancel'), style: 'cancel', onPress: () => navigation.goBack() },
-          { text: i18n.t('auth.login'), onPress: () => navigation.navigate('Login') },
-          { text: i18n.t('auth.register'), onPress: () => navigation.navigate('Login', { initialTab: 'register' }), style: 'default' },
-        ],
-        { cancelable: true, onDismiss: () => navigation.goBack() }
-      );
+      setShowAuthCard(true);
       return;
     }
+    setShowAuthCard(false);
 
     if (apiReady) {
       loadFavorites();
     }
-  }, [apiReady, isAuthenticated, user]);
+  }, [apiReady, isAuthenticated, user, isGuest]);
 
   const loadFavorites = async () => {
     try {
       setLoading(true);
+      await FavoritesService.getInstance().syncFromServer();
       const tours = await FavoritesService.getInstance().getFavoriteTours();
       setFavoriteTours(tours || []);
     } catch (error: any) {
@@ -222,6 +216,23 @@ export default function FavoritesScreen({ navigation }: any) {
           </View>
         </ScrollView>
       )}
+      <AuthRequiredCard
+        visible={showAuthCard}
+        title={i18n.t('ux.authRequiredTitle')}
+        message={i18n.t('favorites.authRequiredDesc')}
+        onLater={() => {
+          setShowAuthCard(false);
+          navigation.goBack();
+        }}
+        onLogin={() => {
+          setShowAuthCard(false);
+          navigation.navigate('Login');
+        }}
+        onRegister={() => {
+          setShowAuthCard(false);
+          navigation.navigate('Register');
+        }}
+      />
     </SafeAreaView>
   );
 }

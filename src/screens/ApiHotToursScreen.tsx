@@ -21,6 +21,7 @@ import { TourHot, TourHotel, Country, Departure, HotToursParams, TourSearchParam
 import { platform } from '../utils/platform';
 import { preCacheTourDetailsFromSearchResults, cacheTourFromSearchResult, buildTourOutputFromSearchResult } from '../utils/tourDetailsCache';
 import { FavoritesService } from '../services/FavoritesService';
+import AuthRequiredCard from '../components/ux/AuthRequiredCard';
 import { cacheService, CacheType } from '../services/CacheService';
 import { settingsService } from '../services/SettingsService';
 import type { Currency } from '../services/SettingsService';
@@ -63,6 +64,7 @@ export default function ApiHotToursScreen({ navigation, route }: ApiHotToursScre
   const [hotTours, setHotTours] = useState<TourHotel[]>([]);
   const [hasFailedOnce, setHasFailedOnce] = useState(false);
   const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set());
+  const [showAuthCard, setShowAuthCard] = useState(false);
 
   // Dictionary data
   const [departures, setDepartures] = useState<Departure[]>([]);
@@ -562,14 +564,7 @@ export default function ApiHotToursScreen({ navigation, route }: ApiHotToursScre
     async (item: TourHotel, firstTour: Tour) => {
       try {
         if (isGuest || !user) {
-          Alert.alert(
-            i18n.t('favorites.authRequired'),
-            i18n.t('auth.favoritesRequired'),
-            [
-              { text: i18n.t('common.cancel'), style: 'cancel' },
-              { text: i18n.t('auth.login'), onPress: () => navigation.navigate('Login') },
-            ]
-          );
+          setShowAuthCard(true);
           return;
         }
         const tourOutput = buildTourOutputFromSearchResult(item, firstTour);
@@ -902,6 +897,20 @@ export default function ApiHotToursScreen({ navigation, route }: ApiHotToursScre
           }
         />
       )}
+      <AuthRequiredCard
+        visible={showAuthCard}
+        title={i18n.t('ux.authRequiredTitle')}
+        message={i18n.t('auth.favoritesRequired')}
+        onLater={() => setShowAuthCard(false)}
+        onLogin={() => {
+          setShowAuthCard(false);
+          navigation.navigate('Login');
+        }}
+        onRegister={() => {
+          setShowAuthCard(false);
+          navigation.navigate('Register');
+        }}
+      />
     </SafeAreaView>
   );
 }

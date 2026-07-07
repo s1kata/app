@@ -16,7 +16,8 @@ import { tourvisorApi } from '../services/TourvisorApiService';
 import { dictionaryService } from '../services/DictionaryService';
 import { Country } from '../types/tourvisor';
 import { useAppContext } from '../contexts/AppContext';
-import { Alert } from 'react-native';
+import { i18n } from '../config/i18n';
+import AuthRequiredCard from '../components/ux/AuthRequiredCard';
 import { logger } from '../utils/logger';
 
 interface CountryInfoScreenProps {
@@ -34,6 +35,7 @@ export default function CountryInfoScreen({ navigation, route }: CountryInfoScre
   const { width } = useWindowDimensions();
   const [country, setCountry] = useState<CountryData | null>(null);
   const [tourvisorCountry, setTourvisorCountry] = useState<Country | null>(null);
+  const [showAuthCard, setShowAuthCard] = useState(false);
   const [loading, setLoading] = useState(true);
   
   // Проверка, является ли пользователь гостем
@@ -73,20 +75,7 @@ export default function CountryInfoScreen({ navigation, route }: CountryInfoScre
   const handleBookTour = () => {
     // Проверка на гостевой режим
     if (isGuest) {
-      Alert.alert(
-        'Требуется авторизация',
-        'Для бронирования туров необходимо войти в систему. Хотите войти или зарегистрироваться?',
-        [
-          {
-            text: 'Отмена',
-            style: 'cancel',
-          },
-          {
-            text: 'Войти',
-            onPress: () => navigation.navigate('Login'),
-          },
-        ]
-      );
+      setShowAuthCard(true);
       return;
     }
 
@@ -301,6 +290,20 @@ export default function CountryInfoScreen({ navigation, route }: CountryInfoScre
           </View>
         </TouchableOpacity>
       </View>
+      <AuthRequiredCard
+        visible={showAuthCard}
+        title={i18n.t('ux.authRequiredTitle')}
+        message={i18n.t('booking.authRequiredDesc')}
+        onLater={() => setShowAuthCard(false)}
+        onLogin={() => {
+          setShowAuthCard(false);
+          navigation.navigate('Login');
+        }}
+        onRegister={() => {
+          setShowAuthCard(false);
+          navigation.navigate('Register');
+        }}
+      />
     </SafeAreaView>
   );
 }

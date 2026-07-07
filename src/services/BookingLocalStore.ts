@@ -118,4 +118,26 @@ export const bookingLocalStore = {
     await writeAll(all.filter((b) => b.id !== bookingId));
     return true;
   },
+
+  async setBookingsForUser(userId: string, userBookings: Booking[]): Promise<void> {
+    const all = await readAll();
+    const others = all.filter((b) => String(b.userId) !== String(userId));
+    await writeAll([...userBookings, ...others]);
+  },
+
+  async upsert(booking: Booking): Promise<void> {
+    const all = await readAll();
+    const idx = all.findIndex(
+      (b) =>
+        b.id === booking.id ||
+        (booking.idempotencyKey && b.idempotencyKey === booking.idempotencyKey) ||
+        (booking.sotaBookingId && b.sotaBookingId === booking.sotaBookingId),
+    );
+    if (idx >= 0) {
+      all[idx] = { ...all[idx], ...booking, id: all[idx].id };
+    } else {
+      all.unshift(booking);
+    }
+    await writeAll(all);
+  },
 };

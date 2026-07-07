@@ -12,9 +12,9 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useAppContext } from '../contexts/AppContext';
 import { i18n } from '../config/i18n';
-import { sotaCrmService } from '../services/SotaCrmService';
 import { bookingService } from '../services/BookingService';
-import { Booking, SotaBooking } from '../types';
+import { mapLocalBookingToSota } from '../services/sync/bookingMapper';
+import { SotaBooking } from '../types';
 import { PrimaryButton } from '../components/ui';
 
 function formatDate(s: string): string {
@@ -25,37 +25,6 @@ function formatDate(s: string): string {
   return date.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' });
 }
 
-function mapLocalBookingToSota(b: Booking): SotaBooking {
-  const snap = b.tourSnapshot;
-  const tourName = snap?.hotelName
-    || [snap?.countryName, snap?.regionName].filter(Boolean).join(', ')
-    || '—';
-  const statusLabel =
-    b.paymentStatus === 'paid'
-      ? 'Оплачено'
-      : b.paymentStatus === 'pending' || b.paymentStatus === 'payment_processing'
-        ? 'Ожидает оплаты'
-        : b.status;
-
-  return {
-    id: b.id,
-    bookingNumber: b.sotaBookingId || b.idempotencyKey || b.id,
-    clientName: b.contactInfo?.name || '—',
-    clientPhone: b.contactInfo?.phone || '',
-    clientEmail: b.contactInfo?.email || '',
-    tourName,
-    departureDate: b.startDate,
-    returnDate: b.endDate,
-    participants: b.participants,
-    status: statusLabel,
-    totalPrice: b.totalPrice,
-    currency: b.currency || snap?.currency || 'RUB',
-    documents: b.departureDocuments || [],
-    createdAt: b.createdAt,
-    updatedAt: b.updatedAt || b.createdAt,
-  };
-}
-
 export default function PurchaseHistoryScreen({ navigation }: any) {
   const { user, theme } = useAppContext();
   const [bookings, setBookings] = useState<SotaBooking[]>([]);
@@ -64,75 +33,30 @@ export default function PurchaseHistoryScreen({ navigation }: any) {
   const [error, setError] = useState<string | null>(null);
 
   const isGuest = user?.uid?.startsWith('guest_') || user?.isAnonymous === true;
-  const email = (user as any)?.email || undefined;
-  const phone = (user as any)?.phoneNumber || (user as any)?.phone || undefined;
 
   const load = useCallback(async () => {
-    if (isGuest || (!email && !phone && !user?.uid)) {
+    if (isGuest || !user?.uid) {
       setBookings([]);
       setLoading(false);
       return;
     }
     setError(null);
     try {
-      const res = await sotaCrmService.getBookings({
-        clientEmail: email,
-        clientPhone: phone,
-      });
-      if (res.success && res.data && res.data.length > 0) {
-        setBookings(res.data);
-        return;
-      }
-
-      const crmUnavailable =
-        !res.success &&
-        (res.error?.toLowerCase().includes('404') ||
-          res.error?.toLowerCase().includes('not found') ||
-          res.error?.toLowerCase().includes('недоступна') ||
-          res.error?.toLowerCase().includes('unauthorized'));
-
-      if (user?.uid) {
-        const local = await bookingService.getUserBookings(user.uid);
-        const mapped = local.map(mapLocalBookingToSota);
-        if (mapped.length > 0) {
-          setBookings(mapped);
-          if (crmUnavailable) {
-            setError(null);
-          }
-          return;
-        }
-      }
-
-      if (res.success) {
-        setBookings([]);
-      } else {
-        setError(res.error || i18n.t('purchaseHistory.unavailable'));
+      const merged = await bookingService.getUserBookings(user.uid);
+      const mapped = merged.map(mapLocalBookingToSota);
+      setBookings(mapped);
+      if (mapped.length === 0) {
+        setError(null);
       }
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
-      if (user?.uid) {
-        try {
-          const local = await bookingService.getUserBookings(user.uid);
-          const mapped = local.map(mapLocalBookingToSota);
-          if (mapped.length > 0) {
-            setBookings(mapped);
-            setError(null);
-            return;
-          }
-        } catch {
-          /* ignore */
-        }
-      }
-      setError(
-        msg.toLowerCase().includes('404') || msg.toLowerCase().includes('not found')
-          ? i18n.t('purchaseHistory.unavailable')
-          : msg || i18n.t('purchaseHistory.unavailable')
-      );
+      setError(msg || i18n.t('purchaseHistory.unavailable'));
+      setBookings([]);
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [isGuest, email, phone, user?.uid]);
+  }, [isGuest, user?.uid]);
 
   useEffect(() => {
     load();

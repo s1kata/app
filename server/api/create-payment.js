@@ -25,6 +25,34 @@ function getBookingAmountKopecks(booking) {
   return Math.round(major * 100);
 }
 
+/** Материализует бронь в Firestore для локальных ID (AsyncStorage), если документа ещё нет. */
+async function resolveBookingForPayment(db, orderId, userId, parsedAmount, currency) {
+  const bookingRef = db.collection('bookings').doc(orderId);
+  const bookingSnap = await bookingRef.get();
+  if (bookingSnap.exists) {
+    const booking = bookingSnap.data();
+    if (booking.userId !== userId) {
+      const err = new Error('Forbidden: not your booking');
+      err.statusCode = 403;
+      throw err;
+    }
+    return { bookingRef, booking };
+  }
+
+  const synthetic = {
+    userId,
+    totalPrice: parsedAmount,
+    currency: String(currency || 'RUB').toUpperCase(),
+    paymentStatus: 'pending',
+    status: 'pending',
+    source: 'app_local',
+    createdAt: FieldValue.serverTimestamp(),
+    updatedAt: FieldValue.serverTimestamp(),
+  };
+  await bookingRef.set(synthetic, { merge: true });
+  return { bookingRef, booking: synthetic };
+}
+
 async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
@@ -53,7 +81,7 @@ async function handler(req, res) {
     if (!/^[a-zA-Z0-9_-]{3,128}$/.test(normalizedOrderId)) {
       return res.status(400).json({ error: 'Invalid orderId format' });
     }
-    if (!/^[A-Za-z0-9_-]{6,128}$/.test(String(userId))) {
+    if (!/^[a-zA-Z0-9_-]{1,128}$/.test(String(userId))) {
       return res.status(400).json({ error: 'Invalid userId format' });
     }
 
@@ -67,7 +95,6 @@ async function handler(req, res) {
     const decoded = { uid: auth.userId };
 
     const db = admin.firestore();
-    const bookingRef = db.collection('bookings').doc(normalizedOrderId);
 
     // Идемпотентность повторного Init (двойной клик / retry)
     const idemId = `${decoded.uid}_${normalizedOrderId}_${idempotencyKey}`.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 400);
@@ -93,13 +120,23 @@ async function handler(req, res) {
       }
     }
 
-    const bookingSnap = await bookingRef.get();
-    if (!bookingSnap.exists) {
-      return res.status(404).json({ error: 'Booking not found' });
-    }
-    const booking = bookingSnap.data();
-    if (booking.userId !== decoded.uid) {
-      return res.status(403).json({ error: 'Forbidden: not your booking' });
+    let bookingRef;
+    let booking;
+    try {
+      const resolved = await resolveBookingForPayment(
+        db,
+        normalizedOrderId,
+        decoded.uid,
+        parsedAmount,
+        currency,
+      );
+      bookingRef = resolved.bookingRef;
+      booking = resolved.booking;
+    } catch (e) {
+      if (e.statusCode === 403) {
+        return res.status(403).json({ error: e.message });
+      }
+      throw e;
     }
 
     const expectedKopecks = getBookingAmountKopecks(booking);

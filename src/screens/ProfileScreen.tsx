@@ -150,6 +150,12 @@ export default function ProfileScreen({ navigation }: any) {
   const menuItems = [
     { id: 'personal', title: i18n.t('profile.personalData'), icon: 'id-card-outline', onPress: () => navigation.navigate('PersonalData') },
     {
+      id: 'favorites',
+      title: i18n.t('profile.favorites'),
+      icon: 'heart-outline',
+      onPress: () => navigation.navigate('Home', { screen: 'Favorites' }),
+    },
+    {
       id: 'bookings',
       title: i18n.t('profile.myBookings'),
       icon: 'calendar-outline',
@@ -182,11 +188,15 @@ export default function ProfileScreen({ navigation }: any) {
         </View>
 
         <Text style={[styles.name, { color: theme.text }]}>
-          {profile?.fullName === i18n.t('profile.guest') || profile?.fullName === 'Guest' || profile?.fullName === 'Гость'
-            ? i18n.t('profile.guest')
+          {isGuest
+            ? i18n.t('profile.guestModeLabel')
             : profile?.fullName || i18n.t('profile.user')}
         </Text>
-        <Text style={[styles.email, { color: theme.secondaryText }]}>{profile?.email || profile?.phone}</Text>
+        {isGuest ? (
+          <Text style={[styles.email, { color: theme.secondaryText }]}>{i18n.t('ux.guestBannerBody')}</Text>
+        ) : (
+          <Text style={[styles.email, { color: theme.secondaryText }]}>{profile?.email || profile?.phone}</Text>
+        )}
 
         {profile && (
           <View style={[styles.statsContainer, { backgroundColor: theme.secondaryBackground }]}>

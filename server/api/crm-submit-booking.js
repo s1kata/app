@@ -1,9 +1,9 @@
 /**
  * POST /api/crm/submit-booking
- * Создание заявки в U-ON с сервера (секрет UON_API_KEY не в клиенте).
+ * Создание обращения в U-ON с сервера (секрет UON_API_KEY не в клиенте).
  * Auth: Firebase ID token ИЛИ JWT из auth-mobile.php (JWT_SECRET / AUTH_MOBILE_JWT_SECRET).
  */
-const { buildRequestCreateBody } = require('../crm/submitBookingCore');
+const { buildLeadCreateBody } = require('../crm/submitBookingCore');
 const { uonRequest } = require('../sota/uonClient');
 const { resolveUserIdFromToken } = require('../lib/resolveAuthUser');
 
@@ -45,12 +45,12 @@ async function handler(req, res) {
 
   let requestBody;
   try {
-    requestBody = buildRequestCreateBody({ ...payload, idempotencyKey });
+    requestBody = buildLeadCreateBody({ ...payload, idempotencyKey });
   } catch (e) {
     return res.status(400).json({ error: e.message || 'Invalid payload' });
   }
 
-  const response = await uonRequest('request/create.json', {
+  const response = await uonRequest('lead/create.json', {
     method: 'POST',
     body: JSON.stringify(requestBody),
   });

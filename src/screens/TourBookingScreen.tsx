@@ -19,9 +19,6 @@ import { useAppContext } from '../contexts/AppContext';
 import { i18n } from '../config/i18n';
 import { bookingService } from '../services/BookingService';
 import { paymentService, PaymentProvider, openPaymentInBrowser } from '../services/PaymentService';
-import { presentPaymentPollOutcome } from '../utils/paymentPollOutcomes';
-import { resolvePaymentAfterBrowser } from '../utils/paymentAfterBrowser';
-import { showPaymentStatusBar } from '../utils/paymentStatusBanner';
 import { requireAuthForBooking } from '../auth/requireAuth';
 import { TourOutput } from '../types/tourvisor';
 import type { TourSnapshot } from '../types';
@@ -33,6 +30,12 @@ import { notificationService } from '../services/NotificationService';
 import { bonusService } from '../services/BonusService';
 import { BonusRedemptionBlock } from '../components/BonusRedemptionBlock';
 import type { BonusQuote } from '../config/bonusRules';
+import AuthRequiredCard from '../components/ux/AuthRequiredCard';
+import BookingWizardProgress from '../components/ux/BookingWizardProgress';
+import { PaymentPrepareModal } from '../components/ux/PaymentFlowModals';
+import PrimaryButton from '../components/ui/PrimaryButton';
+import { formatDateRuLong } from '../utils/formatDateRu';
+import { paymentUxBus } from '../services/PaymentUxBus';
 
 interface TourBookingScreenProps {
   navigation: any;
@@ -62,6 +65,10 @@ export default function TourBookingScreen({ navigation, route }: TourBookingScre
   const [bonusQuote, setBonusQuote] = useState<BonusQuote | null>(null);
   const [bonusBcId, setBonusBcId] = useState<number | null>(null);
   const [bonusAvailable, setBonusAvailable] = useState(0);
+  const [showAuthCard, setShowAuthCard] = useState(false);
+  const [wizardStep, setWizardStep] = useState<1 | 2 | 3>(3);
+  const [showPaymentPrepare, setShowPaymentPrepare] = useState(false);
+  const pendingPaymentActionRef = useRef<(() => Promise<void>) | null>(null);
 
   // Проверяем, является ли пользователь гостем
   const isGuest = user?.uid?.startsWith('guest_') || user?.isAnonymous === true;
@@ -110,37 +117,23 @@ export default function TourBookingScreen({ navigation, route }: TourBookingScre
   }, [navigation]);
 
   useEffect(() => {
-    // Проверяем авторизацию при входе на экран
     if (isGuest || !user) {
-      Alert.alert(
-        i18n.t('favorites.authRequired'),
-        i18n.t('booking.authRequiredDesc'),
-        [
-          {
-            text: i18n.t('common.cancel'),
-            style: 'cancel',
-            onPress: () => navigation.goBack(),
-          },
-          {
-            text: i18n.t('auth.login'),
-            onPress: () => {
-              navigation.navigate('Login', { returnTo: { name: 'TourBooking', params: { tour, searchParams } } });
-            },
-          },
-          {
-            text: i18n.t('auth.register'),
-            onPress: () => {
-              navigation.navigate('Register', { returnTo: { name: 'TourBooking', params: { tour, searchParams } } });
-            },
-          },
-        ]
-      );
+      setShowAuthCard(true);
+      setWizardStep(1);
       return;
     }
+    setShowAuthCard(false);
+    if (loadingProfile) return;
+    if (!userHasPassport) {
+      setWizardStep(2);
+      return;
+    }
+    setWizardStep(3);
+  }, [user, isGuest, loadingProfile, userHasPassport]);
 
-    // Загружаем профиль пользователя для автозаполнения
+  useEffect(() => {
     loadUserProfile();
-  }, [user, isGuest, navigation]);
+  }, [user, isGuest]);
 
   useFocusEffect(
     useCallback(() => {
@@ -199,18 +192,14 @@ export default function TourBookingScreen({ navigation, route }: TourBookingScre
     const newErrors: Record<string, string> = {};
 
     if (!formData.startDate.trim()) {
-      newErrors.startDate = 'Укажите дату начала тура';
+      newErrors.startDate = i18n.t('ux.pickDate');
     } else if (!/^\d{4}-\d{2}-\d{2}$/.test(formData.startDate.trim())) {
-      newErrors.startDate = 'Формат даты: YYYY-MM-DD';
+      newErrors.startDate = i18n.t('ux.pickDate');
     }
 
     const nights = Number(formData.nights);
     if (!Number.isFinite(nights) || nights < 1 || nights > 30) {
       newErrors.nights = 'Количество ночей: от 1 до 30';
-    }
-
-    if (!formData.tourOperator.trim()) {
-      newErrors.tourOperator = 'Введите туроператора';
     }
 
     if (!formData.name.trim()) {
@@ -269,39 +258,6 @@ export default function TourBookingScreen({ navigation, route }: TourBookingScre
         const newErrors = { ...prev };
         delete newErrors[field];
         return newErrors;
-      });
-    }
-  };
-
-  const setChildrenCount = (nextCount: number) => {
-    const clamped = Math.max(0, Math.min(10, nextCount));
-    setFormData(prev => {
-      // При любом изменении количества детей очищаем поля возрастов,
-      // чтобы удалённые значения не "возвращались" в TextInput.
-      const nextAges = Array.from({ length: clamped }, () => '');
-      return { ...prev, childrenCount: clamped, childrenAges: nextAges };
-    });
-    if (errors.childrenAges) {
-      setErrors(prev => {
-        const next = { ...prev };
-        delete next.childrenAges;
-        return next;
-      });
-    }
-  };
-
-  const setChildAge = (index: number, value: string) => {
-    setFormData(prev => {
-      const ages = Array.isArray(prev.childrenAges) ? [...prev.childrenAges] : [];
-      if (index < 0 || index >= ages.length) return prev;
-      ages[index] = value;
-      return { ...prev, childrenAges: ages };
-    });
-    if (errors.childrenAges) {
-      setErrors(prev => {
-        const next = { ...prev };
-        delete next.childrenAges;
-        return next;
       });
     }
   };
@@ -435,17 +391,7 @@ export default function TourBookingScreen({ navigation, route }: TourBookingScre
     if (bookingSubmitLock.current) return;
     const bookingAuth = await requireAuthForBooking(user);
     if (!bookingAuth.ok) {
-      const body =
-        bookingAuth.reason === 'auth_desync'
-          ? 'Сессия устарела. Выйдите из профиля и войдите снова, затем повторите бронирование.'
-          : i18n.t('booking.authRequiredDesc');
-      Alert.alert(i18n.t('favorites.authRequired'), body, [
-        { text: i18n.t('common.cancel'), style: 'cancel' },
-        {
-          text: i18n.t('auth.login'),
-          onPress: () => navigation.navigate('Login', { returnTo: { name: 'TourBooking', params: { tour, searchParams } } }),
-        },
-      ]);
+      setShowAuthCard(true);
       return;
     }
 
@@ -540,7 +486,7 @@ export default function TourBookingScreen({ navigation, route }: TourBookingScre
         totalPrice: calculateTotalPrice(),
         currency: tour.currency,
         party: { adults, childrenAges },
-        tourOperator: String(formData.tourOperator || '').trim(),
+        tourOperator: String(formData.tourOperator || tour.operator?.name || 'TravelHub').trim(),
         contactInfo: {
           name: formData.name,
           phone: formData.phone,
@@ -609,78 +555,19 @@ export default function TourBookingScreen({ navigation, route }: TourBookingScre
         throw new Error(paymentResult.error || 'Не удалось создать платёж');
       }
 
-      // По правилам Apple/Google: явно сообщаем о переходе на внешнюю страницу оплаты
-      Alert.alert(
-        i18n.t('payment.redirectTitle'),
-        i18n.t('payment.redirectMessage'),
-        [
-          { text: i18n.t('payment.cancel'), style: 'cancel', onPress: () => setIsSubmitting(false) },
-          {
-            text: i18n.t('payment.openButton'),
-            onPress: async () => {
-              try {
-                const browserResult = await openPaymentInBrowser(paymentResult.paymentUrl!);
-                const statusResult = await resolvePaymentAfterBrowser(
-                  paymentResult.transactionId!,
-                  browserResult,
-                );
-                const goBookings = () => navigation.navigate('MainTabs', { screen: 'Bookings' });
-                presentPaymentPollOutcome({
-                  transactionId: paymentResult.transactionId!,
-                  result: statusResult,
-                  onStatusResolved: async (r) => {
-                    if (!bookingResult.bookingId || !r.success) return;
-                    if (r.status === 'success') {
-                      await bookingService.markPaymentStatus(bookingResult.bookingId, 'paid', { status: 'confirmed' });
-                      await bonusService.redeemAfterSuccessfulPayment(
-                        bookingResult.bookingId,
-                        userEmail || undefined,
-                        userPhone || undefined,
-                      );
-                      return;
-                    }
-                    if (r.status === 'failed') {
-                      await bookingService.markPaymentStatus(bookingResult.bookingId, 'failed');
-                      return;
-                    }
-                    if (r.status === 'cancelled') {
-                      await bookingService.markPaymentStatus(bookingResult.bookingId, 'cancelled');
-                      return;
-                    }
-                    if (r.status === 'pending') {
-                      await bookingService.markPaymentStatus(bookingResult.bookingId, 'payment_processing');
-                    }
-                  },
-                  onBeforeSuccessAlert: async () => {
-                    if (user?.uid && bookingResult.bookingId) {
-                      await bookingService.maybeAwardLoyaltyAfterPaidBooking(user.uid, bookingResult.bookingId);
-                    }
-                  },
-                  onPendingOk: goBookings,
-                  alertSuccess: () =>
-                    Alert.alert(i18n.t('payment.successTitle'), i18n.t('payment.successMessage'), [
-                      { text: i18n.t('common.ok'), onPress: goBookings },
-                    ]),
-                  alertFailed: () =>
-                    Alert.alert(i18n.t('common.error'), i18n.t('payment.failedMessage'), [
-                      { text: i18n.t('common.ok'), onPress: goBookings },
-                    ]),
-                  alertFallbackError: () =>
-                    Alert.alert(i18n.t('common.error'), i18n.t('payment.failedMessage'), [
-                      { text: i18n.t('common.ok'), onPress: goBookings },
-                    ]),
-                  alertNetworkError: (message) =>
-                    Alert.alert(i18n.t('common.error'), message, [
-                      { text: i18n.t('common.ok'), onPress: goBookings },
-                    ]),
-                });
-              } finally {
-                setIsSubmitting(false);
-              }
-            },
-          },
-        ]
-      );
+      const bookingId = bookingResult.bookingId;
+      pendingPaymentActionRef.current = async () => {
+        try {
+          await bookingService.markPaymentStatus(bookingId, 'payment_processing');
+          await openPaymentInBrowser(paymentResult.paymentUrl!);
+        } catch (error) {
+          logger.warn('Ошибка открытия страницы оплаты:', error);
+          paymentUxBus.showPaymentRecovery(() => navigation.navigate('MainTabs', { screen: 'Bookings' }));
+        } finally {
+          setIsSubmitting(false);
+        }
+      };
+      setShowPaymentPrepare(true);
       return;
     } catch (error: any) {
       logger.error('[TourBookingScreen] Booking error:', error);
@@ -727,6 +614,24 @@ export default function TourBookingScreen({ navigation, route }: TourBookingScre
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
         >
+          {!isGuest && user ? <BookingWizardProgress currentStep={wizardStep} /> : null}
+
+          {wizardStep === 2 && !loadingProfile ? (
+            <View style={[styles.formCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+              <Text style={[styles.sectionTitle, { color: theme.text }]}>{i18n.t('profile.personalData')}</Text>
+              <Text style={[styles.bookingMethodDesc, { color: theme.secondaryText, marginBottom: 16 }]}>
+                {i18n.t('booking.requirePersonalDataDesc')}
+              </Text>
+              <PrimaryButton
+                title={i18n.t('profile.personalData')}
+                onPress={() => navigation.navigate('Profile', { screen: 'PersonalData' })}
+                variant="cta"
+              />
+            </View>
+          ) : null}
+
+          {wizardStep === 3 ? (
+          <>
           {/* Tour Info Card */}
           <View style={[styles.tourCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
             <Text style={[styles.tourTitle, { color: theme.text }]} numberOfLines={2}>
@@ -775,160 +680,24 @@ export default function TourBookingScreen({ navigation, route }: TourBookingScre
           <View style={[styles.formCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
             <Text style={[styles.sectionTitle, { color: theme.text }]}>Данные бронирования</Text>
 
-            {/* Start date */}
-            <View style={styles.inputGroup}>
-              <Text style={[styles.inputLabel, { color: theme.text }]}>Дата начала тура *</Text>
-              <TextInput
-                style={[
-                  styles.input,
-                  {
-                    backgroundColor: theme.secondaryBackground,
-                    borderColor: errors.startDate ? theme.error : theme.border,
-                    color: theme.text,
-                  },
-                ]}
-                value={formData.startDate}
-                onChangeText={(value) => handleInputChange('startDate', value)}
-                placeholder="YYYY-MM-DD"
-                placeholderTextColor={theme.tertiaryText}
-              />
-              {errors.startDate && (
-                <Text style={[styles.errorText, { color: theme.error }]}>{errors.startDate}</Text>
-              )}
-            </View>
-
-            {/* Nights */}
-            <View style={styles.inputGroup}>
-              <Text style={[styles.inputLabel, { color: theme.text }]}>Количество ночей *</Text>
-              <TextInput
-                style={[
-                  styles.input,
-                  {
-                    backgroundColor: theme.secondaryBackground,
-                    borderColor: errors.nights ? theme.error : theme.border,
-                    color: theme.text,
-                  },
-                ]}
-                value={String(formData.nights)}
-                onChangeText={(value) => handleInputChange('nights', value)}
-                placeholder="7"
-                placeholderTextColor={theme.tertiaryText}
-                keyboardType="number-pad"
-                maxLength={2}
-              />
-              {errors.nights && (
-                <Text style={[styles.errorText, { color: theme.error }]}>{errors.nights}</Text>
-              )}
-            </View>
-
-            {/* Tour operator */}
-            <View style={styles.inputGroup}>
-              <Text style={[styles.inputLabel, { color: theme.text }]}>Туроператор *</Text>
-              <TextInput
-                style={[
-                  styles.input,
-                  {
-                    backgroundColor: theme.secondaryBackground,
-                    borderColor: errors.tourOperator ? theme.error : theme.border,
-                    color: theme.text,
-                  },
-                ]}
-                value={formData.tourOperator}
-                onChangeText={(value) => handleInputChange('tourOperator', value)}
-                placeholder="Например: Anex Tour"
-                placeholderTextColor={theme.tertiaryText}
-              />
-              {errors.tourOperator && (
-                <Text style={[styles.errorText, { color: theme.error }]}>{errors.tourOperator}</Text>
-              )}
+            {/* На этапе бронирования поисковые параметры только для чтения */}
+            <View style={[styles.readOnlySummary, { backgroundColor: theme.secondaryBackground, borderColor: theme.border }]}>
+              <Text style={[styles.readOnlyTitle, { color: theme.text }]}>Параметры тура</Text>
+              <Text style={[styles.readOnlyRow, { color: theme.secondaryText }]}>
+                Вылет: {formatDateRuLong(formData.startDate) || formatDate(tour.date)}
+              </Text>
+              <Text style={[styles.readOnlyRow, { color: theme.secondaryText }]}>
+                Ночей: {formData.nights}
+              </Text>
+              <Text style={[styles.readOnlyRow, { color: theme.secondaryText }]}>
+                Туристы: {formData.adults} взрослых{formData.childrenCount > 0 ? `, ${formData.childrenCount} детей` : ''}
+              </Text>
+              <TouchableOpacity onPress={() => navigation.goBack()} activeOpacity={0.8}>
+                <Text style={[styles.readOnlyLink, { color: theme.primary }]}>Изменить параметры тура в поиске</Text>
+              </TouchableOpacity>
             </View>
 
             <View style={[styles.divider, { backgroundColor: theme.border }]} />
-
-            <Text style={[styles.sectionTitle, { color: theme.text, marginBottom: 12 }]}>Состав</Text>
-
-            {/* Adults */}
-            <View style={styles.inputGroup}>
-              <Text style={[styles.inputLabel, { color: theme.text }]}>Взрослые *</Text>
-              <View style={styles.participantsRow}>
-                <TouchableOpacity
-                  style={[styles.participantButton, { borderColor: theme.border }]}
-                  onPress={() => handleInputChange('adults', Math.max(1, Number(formData.adults) - 1))}
-                  disabled={Number(formData.adults) <= 1}
-                >
-                  <Ionicons name="remove" size={20} color={theme.primary} />
-                </TouchableOpacity>
-                <Text style={[styles.participantCount, { color: theme.text }]}>
-                  {formData.adults}
-                </Text>
-                <TouchableOpacity
-                  style={[styles.participantButton, { borderColor: theme.border }]}
-                  onPress={() => handleInputChange('adults', Math.min(20, Number(formData.adults) + 1))}
-                  disabled={Number(formData.adults) >= 20}
-                >
-                  <Ionicons name="add" size={20} color={theme.primary} />
-                </TouchableOpacity>
-              </View>
-              {errors.adults && (
-                <Text style={[styles.errorText, { color: theme.error }]}>{errors.adults}</Text>
-              )}
-            </View>
-
-            {/* Children */}
-            <View style={styles.inputGroup}>
-              <Text style={[styles.inputLabel, { color: theme.text }]}>Дети (кол-во) *</Text>
-              <View style={styles.participantsRow}>
-                <TouchableOpacity
-                  style={[styles.participantButton, { borderColor: theme.border }]}
-                  onPress={() => setChildrenCount(Number(formData.childrenCount) - 1)}
-                  disabled={Number(formData.childrenCount) <= 0}
-                >
-                  <Ionicons name="remove" size={20} color={theme.primary} />
-                </TouchableOpacity>
-                <Text style={[styles.participantCount, { color: theme.text }]}>
-                  {formData.childrenCount}
-                </Text>
-                <TouchableOpacity
-                  style={[styles.participantButton, { borderColor: theme.border }]}
-                  onPress={() => setChildrenCount(Number(formData.childrenCount) + 1)}
-                  disabled={Number(formData.childrenCount) >= 10}
-                >
-                  <Ionicons name="add" size={20} color={theme.primary} />
-                </TouchableOpacity>
-              </View>
-            </View>
-
-            {Number(formData.childrenCount) > 0 && (
-              <View style={styles.inputGroup}>
-                <Text style={[styles.inputLabel, { color: theme.text }]}>Возраст детей *</Text>
-                {formData.childrenAges.map((age: string, idx: number) => (
-                  <View key={`child_age_${idx}`} style={{ marginBottom: 10 }}>
-                    <Text style={[styles.inputLabel, { color: theme.secondaryText, marginBottom: 6 }]}>
-                      Ребёнок {idx + 1}
-                    </Text>
-                    <TextInput
-                      style={[
-                        styles.input,
-                        {
-                          backgroundColor: theme.secondaryBackground,
-                          borderColor: errors.childrenAges ? theme.error : theme.border,
-                          color: theme.text,
-                        },
-                      ]}
-                      value={age}
-                      onChangeText={(value) => setChildAge(idx, value)}
-                      placeholder="Например: 7"
-                      placeholderTextColor={theme.tertiaryText}
-                      keyboardType="number-pad"
-                      maxLength={2}
-                    />
-                  </View>
-                ))}
-                {errors.childrenAges && (
-                  <Text style={[styles.errorText, { color: theme.error }]}>{errors.childrenAges}</Text>
-                )}
-              </View>
-            )}
 
             {!canBook && !loadingProfile && (
               <View style={[styles.passportWarning, { backgroundColor: theme.warning + '20', borderColor: theme.warning }]}>
@@ -1055,7 +824,7 @@ export default function TourBookingScreen({ navigation, route }: TourBookingScre
             >
               <Ionicons name="calendar-outline" size={24} color={bookingMethod === 'without_payment' ? theme.primary : theme.secondaryText} />
               <View style={{ flex: 1 }}>
-                <Text style={[styles.bookingMethodTitle, { color: theme.text }]}>Без оплаты</Text>
+                <Text style={[styles.bookingMethodTitle, { color: theme.text }]}>{i18n.t('booking.payLater')}</Text>
                 <Text style={[styles.bookingMethodDesc, { color: theme.secondaryText }]}>
                   Оплатить можно позже в разделе «Мои бронирования»
                 </Text>
@@ -1075,7 +844,7 @@ export default function TourBookingScreen({ navigation, route }: TourBookingScre
             >
               <Ionicons name="card-outline" size={24} color={bookingMethod === 'with_payment' ? theme.primary : theme.secondaryText} />
               <View style={{ flex: 1 }}>
-                <Text style={[styles.bookingMethodTitle, { color: theme.text }]}>С оплатой</Text>
+                <Text style={[styles.bookingMethodTitle, { color: theme.text }]}>{i18n.t('booking.payNow')}</Text>
                 <Text style={[styles.bookingMethodDesc, { color: theme.secondaryText }]}>
                   Выберите способ оплаты ниже
                 </Text>
@@ -1186,15 +955,56 @@ export default function TourBookingScreen({ navigation, route }: TourBookingScre
                 <>
 <Ionicons name={bookingMethod === 'with_payment' ? 'card' : 'calendar'} size={20} color="#fff" />
                 <Text style={styles.submitButtonText}>
-                  {bookingMethod === 'with_payment' ? 'Забронировать и оплатить' : 'Забронировать'}
+                  {bookingMethod === 'with_payment' ? i18n.t('booking.payNow') : i18n.t('booking.payLater')}
                 </Text>
                 </>
               )}
             </View>
           </TouchableOpacity>
           )}
+          </>
+          ) : null}
         </ScrollView>
       </KeyboardAvoidingView>
+
+      <AuthRequiredCard
+        visible={showAuthCard}
+        onLater={() => {
+          setShowAuthCard(false);
+          navigation.goBack();
+        }}
+        onLogin={() => {
+          setShowAuthCard(false);
+          navigation.navigate('Login', { returnTo: { name: 'TourBooking', params: { tour, searchParams } } });
+        }}
+        onRegister={() => {
+          setShowAuthCard(false);
+          navigation.navigate('Register', { returnTo: { name: 'TourBooking', params: { tour, searchParams } } });
+        }}
+      />
+      <PaymentPrepareModal
+        visible={showPaymentPrepare}
+        onCancel={() => {
+          setShowPaymentPrepare(false);
+          setIsSubmitting(false);
+          pendingPaymentActionRef.current = null;
+        }}
+        onContinue={async () => {
+          setShowPaymentPrepare(false);
+          const action = pendingPaymentActionRef.current;
+          pendingPaymentActionRef.current = null;
+          try {
+            if (action) await action();
+            else {
+              paymentUxBus.showPaymentRecovery(() => navigation.navigate('MainTabs', { screen: 'Bookings' }));
+              setIsSubmitting(false);
+            }
+          } catch {
+            setIsSubmitting(false);
+            paymentUxBus.showPaymentRecovery(() => navigation.navigate('MainTabs', { screen: 'Bookings' }));
+          }
+        }}
+      />
     </SafeAreaView>
   );
 }
@@ -1295,6 +1105,26 @@ const styles = StyleSheet.create({
   },
   inputGroup: {
     marginBottom: 16,
+  },
+  readOnlySummary: {
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 8,
+  },
+  readOnlyTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    marginBottom: 8,
+  },
+  readOnlyRow: {
+    fontSize: 14,
+    marginBottom: 4,
+  },
+  readOnlyLink: {
+    marginTop: 8,
+    fontSize: 14,
+    fontWeight: '600',
   },
   inputLabel: {
     fontSize: 14,

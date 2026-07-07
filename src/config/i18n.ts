@@ -22,8 +22,8 @@ const translations: Translations = {
   'auth.login': { ru: 'Войти', en: 'Login' },
   'auth.register': { ru: 'Зарегистрироваться', en: 'Register' },
   'auth.logout': { ru: 'Выйти', en: 'Logout' },
-  'auth.email': { ru: 'Email или телефон', en: 'Email or phone' },
-  'auth.emailOrPhone': { ru: 'Email или телефон', en: 'Email or phone' },
+  'auth.email': { ru: 'Электронная почта', en: 'Email' },
+  'auth.emailOrPhone': { ru: 'Электронная почта', en: 'Email' },
   'auth.password': { ru: 'Пароль', en: 'Password' },
   'auth.name': { ru: 'Имя', en: 'Name' },
   'auth.confirmPassword': { ru: 'Подтвердите пароль', en: 'Confirm password' },
@@ -197,7 +197,7 @@ const translations: Translations = {
   'tour.noReviews': { ru: 'Пока нет отзывов. Будьте первым!', en: 'No reviews yet. Be the first!' },
   'tour.addReview': { ru: 'Оставить отзыв', en: 'Write a review' },
   'reviews.anonymous': { ru: 'Пользователь', en: 'User' },
-  'reviews.authRequiredTitle': { ru: 'Требуется авторизация', en: 'Sign in required' },
+  'reviews.authRequiredTitle': { ru: 'Нужно войти в аккаунт', en: 'Sign in required' },
   'reviews.authRequiredBody': {
     ru: 'Войдите в аккаунт, чтобы оставить отзыв.',
     en: 'Sign in to leave a review.',
@@ -251,7 +251,8 @@ const translations: Translations = {
   'nav.documents': { ru: 'Документы', en: 'Documents' },
   'profile.myBookings': { ru: 'Мои бронирования', en: 'My Bookings' },
   'profile.recommendations': { ru: 'Персональные рекомендации', en: 'Personal recommendations' },
-  'profile.guest': { ru: 'Гость', en: 'Guest' },
+  'profile.guest': { ru: 'Просмотр без аккаунта', en: 'Browsing without account' },
+  'profile.guestModeLabel': { ru: 'Режим просмотра (без брони)', en: 'Browse only (no booking)' },
   'profile.user': { ru: 'Пользователь', en: 'User' },
   'profile.loginToAccount': { ru: 'Вход в аккаунт', en: 'Log in' },
   'profile.register': { ru: 'Зарегистрироваться', en: 'Register' },
@@ -287,6 +288,14 @@ const translations: Translations = {
   'bookings.adults': { ru: 'взрослых', en: 'adults' },
   'bookings.children': { ru: 'детей', en: 'children' },
   'bookings.signIn': { ru: 'Войдите в аккаунт', en: 'Sign in' },
+  'bookings.guestBannerTitle': {
+    ru: 'Чтобы видеть бронирования, войдите в аккаунт',
+    en: 'Sign in to see your bookings',
+  },
+  'bookings.guestBannerBody': {
+    ru: 'Нажмите «Создать профиль» — это займёт около 2 минут.',
+    en: 'Tap «Create profile» — it takes about two minutes.',
+  },
   'bookings.emptyDescGuest': { ru: 'Здесь будут отображаться ваши туры после входа и бронирования', en: 'Your tours will appear here after you sign in and book' },
   'bookings.emptyDesc': { ru: 'Забронированные туры появятся здесь. Можно забронировать с оплатой сразу или без оплаты.', en: 'Your booked tours will appear here. You can book with or without immediate payment.' },
   'bookings.findTours': { ru: 'Найти туры', en: 'Find tours' },
@@ -294,7 +303,7 @@ const translations: Translations = {
   'bookings.delete': { ru: 'Удалить', en: 'Delete' },
   'bookings.statusCancelled': { ru: 'Отменено', en: 'Cancelled' },
   'bookings.statusCompleted': { ru: 'Завершён', en: 'Completed' },
-  'bookings.statusPaid': { ru: 'Оплачен', en: 'Paid' },
+  'bookings.statusPaid': { ru: 'Оплачено', en: 'Paid' },
   'bookings.statusReadyUnpaid': { ru: 'Готов, но не оплачен', en: 'Ready, unpaid' },
   'bookings.statusPending': { ru: 'В обработке', en: 'Pending' },
   'bookings.statusConfirmed': { ru: 'Подтверждено', en: 'Confirmed' },
@@ -304,7 +313,11 @@ const translations: Translations = {
   'bookings.paymentCancelled': { ru: 'Оплата отменена', en: 'Payment cancelled' },
   'bookings.paymentRefunded': { ru: 'Возврат', en: 'Refunded' },
   'bookings.paymentProcessing': { ru: 'Оплата обрабатывается', en: 'Payment processing' },
-  'bookings.paymentFailed': { ru: 'Оплата не прошла', en: 'Payment failed' },
+  'bookings.paymentFailed': { ru: 'Не прошла', en: 'Payment failed' },
+  'bookings.paidAwaitingConfirmation': {
+    ru: 'Оплата получена. Заявка обрабатывается менеджером.',
+    en: 'Payment received. Your booking request is being processed.',
+  },
   'bookings.cancelOnlyPending': { ru: 'Отменить можно только бронь без начатой оплаты', en: 'You can only cancel before payment starts' },
   'bookings.docVoucher': { ru: 'Ваучер', en: 'Voucher' },
   'bookings.docTicket': { ru: 'Билет', en: 'Ticket' },
@@ -356,6 +369,7 @@ const translations: Translations = {
   'common.loading': { ru: 'Загрузка...', en: 'Loading...' },
   'common.save': { ru: 'Сохранить', en: 'Save' },
   'common.back': { ru: 'Назад', en: 'Back' },
+  'common.next': { ru: 'Далее', en: 'Next' },
   'common.deleteFailed': { ru: 'Не удалось удалить аккаунт', en: 'Failed to delete account' },
 
   // Theme switcher
@@ -404,10 +418,10 @@ const translations: Translations = {
   'search.staleCacheHint': { ru: 'Показаны сохранённые результаты, обновляем…', en: 'Showing saved results, refreshing…' },
   'search.cacheCorrupted': { ru: 'Сохранённые результаты повреждены. Выполняем новый поиск…', en: 'Saved results are corrupted. Running a new search…' },
   'tours.notFoundShort': { ru: 'Туры не найдены', en: 'No tours found' },
-  'tours.adultsShort': { ru: 'взр.', en: 'adults' },
-  'tours.childrenShort': { ru: 'дет.', en: 'ch.' },
+  'tours.adultsShort': { ru: 'взрослых', en: 'adults' },
+  'tours.childrenShort': { ru: 'детей', en: 'children' },
   'tours.loading': { ru: 'Загрузка тура...', en: 'Loading tour...' },
-  'tours.nightsShort': { ru: 'н.', en: 'n.' },
+  'tours.nightsShort': { ru: 'ночей', en: 'nights' },
 
   // Hot tours
   'hotTours.title': { ru: 'Туры', en: 'Tours' },
@@ -429,8 +443,8 @@ const translations: Translations = {
   'hotTours.from': { ru: 'от', en: 'from' },
 
   // Favorites
-  'favorites.authRequired': { ru: 'Требуется авторизация', en: 'Sign in required' },
-  'favorites.authRequiredDesc': { ru: 'Для просмотра избранного необходимо войти в систему или зарегистрироваться.', en: 'To view favorites, please sign in or register.' },
+  'favorites.authRequired': { ru: 'Нужно войти в аккаунт', en: 'Sign in required' },
+  'favorites.authRequiredDesc': { ru: 'Чтобы смотреть избранное, войдите или создайте профиль.', en: 'To view favorites, sign in or create a profile.' },
 
   // Profile / Account
   'profile.notRegistered': { ru: 'Аккаунт не зарегистрирован', en: 'Account not registered' },
@@ -539,6 +553,9 @@ const translations: Translations = {
   'search.selectDateRange': { ru: 'Выберите диапазон', en: 'Select range' },
   'search.anyMeal': { ru: 'Любая', en: 'Any' },
   'search.findTours': { ru: 'Найти туры', en: 'Find tours' },
+  'search.wizardStepFrom': { ru: 'Откуда летим?', en: 'Where from?' },
+  'search.wizardStepTo': { ru: 'Куда летим?', en: 'Where to?' },
+  'search.wizardStepWhen': { ru: 'Когда летим?', en: 'When?' },
   'search.findHotels': { ru: 'Найти отели', en: 'Find hotels' },
   'search.selectDepartureCity': { ru: 'Выберите город вылета', en: 'Select departure city' },
   'search.selectTripDates': { ru: 'Выберите даты поездки', en: 'Select trip dates' },
@@ -603,7 +620,9 @@ const translations: Translations = {
   },
   'booking.invalidEmail': { ru: 'Некорректный email', en: 'Invalid email' },
   'booking.exampleCity': { ru: 'Например: Москва', en: 'e.g. Moscow' },
-  'booking.authRequiredDesc': { ru: 'Для бронирования туров необходимо войти в систему. Хотите войти или зарегистрироваться?', en: 'To book tours you need to sign in. Would you like to sign in or register?' },
+  'booking.authRequiredDesc': { ru: 'Чтобы забронировать тур, войдите или создайте профиль. Это займёт около 2 минут.', en: 'To book a tour, sign in or create a profile. It takes about 2 minutes.' },
+  'booking.payLater': { ru: 'Забронировать, оплачу позже', en: 'Book now, pay later' },
+  'booking.payNow': { ru: 'Забронировать и оплатить сейчас', en: 'Book and pay now' },
   'booking.hotelAuthRequiredDesc': { ru: 'Для бронирования отеля необходимо войти в систему.', en: 'To book a hotel you need to sign in.' },
   'booking.requirePersonalData': { ru: 'Для бронирования заполните личные данные', en: 'Complete personal data to book' },
   'booking.requirePersonalDataDesc': { ru: 'Укажите телефон и паспортные данные (серия и номер) в разделе «Личные данные» в профиле. Без этого бронирование невозможно.', en: 'Enter your phone number and passport details (series and number) in Profile → Personal Data. Booking is not possible without this.' },
@@ -654,7 +673,7 @@ const translations: Translations = {
   'form.dateFrom': { ru: 'С', en: 'From' },
   'form.dateTo': { ru: 'По', en: 'To' },
   'form.passengers': { ru: 'Пассажиры', en: 'Passengers' },
-  'form.adultsShort': { ru: 'взр.', en: 'adults' },
+  'form.adultsShort': { ru: 'взрослых', en: 'adults' },
   'form.country': { ru: 'Страна', en: 'Country' },
   'form.resortOptional': { ru: 'Курорт (необязательно)', en: 'Resort (optional)' },
   'form.stayDates': { ru: 'Даты пребывания', en: 'Stay dates' },
@@ -678,6 +697,7 @@ const translations: Translations = {
   'form.manualInput': { ru: 'Ручной ввод', en: 'Manual' },
   'form.children': { ru: 'Дети', en: 'Children' },
   'form.age': { ru: 'Возраст', en: 'Age' },
+  'form.selectChildAge': { ru: 'Выберите возраст: 0–17', en: 'Select age: 0–17' },
 
   'calendar.loadingCalendar': { ru: 'Загрузка календаря…', en: 'Loading calendar…' },
   'calendar.clear': { ru: 'Очистить', en: 'Clear' },
@@ -702,6 +722,51 @@ const translations: Translations = {
   },
 
   'promo.sectionTitle': { ru: 'Акции и предложения', en: 'Promotions & offers' },
+
+  // UX (plain language)
+  'ux.authRequiredTitle': { ru: 'Чтобы забронировать, нужен профиль', en: 'Profile required to book' },
+  'ux.authRequiredMessage': {
+    ru: 'Это займёт около 2 минут. Без профиля можно только смотреть туры.',
+    en: 'It takes about 2 minutes. Without a profile you can only browse tours.',
+  },
+  'ux.createProfile': { ru: 'Создать профиль', en: 'Create profile' },
+  'ux.later': { ru: 'Позже', en: 'Later' },
+  'ux.guestBannerTitle': { ru: 'Вы смотрите без аккаунта', en: 'You are browsing without an account' },
+  'ux.guestBannerBody': {
+    ru: 'Чтобы забронировать тур — создайте профиль.',
+    en: 'Create a profile to book a tour.',
+  },
+  'ux.wizardStepAuth': { ru: 'Вход', en: 'Sign in' },
+  'ux.wizardStepPassport': { ru: 'Паспорт', en: 'Passport' },
+  'ux.wizardStepConfirm': { ru: 'Бронь', en: 'Booking' },
+  'ux.wizardStepOf': { ru: 'Шаг {current} из {total}', en: 'Step {current} of {total}' },
+  'ux.pickDate': { ru: 'Выберите дату', en: 'Pick a date' },
+  'ux.paymentPrepareTitle': { ru: 'Сейчас откроется страница банка', en: 'Bank page will open' },
+  'ux.paymentPrepareBody': {
+    ru: 'Это нормально и безопасно. Карту вводите только на странице банка Тинькофф.',
+    en: 'This is normal and secure. Enter your card only on the Tinkoff bank page.',
+  },
+  'ux.paymentPrepareHint': {
+    ru: 'После оплаты вернитесь в приложение — статус обновится автоматически.',
+    en: 'After payment, return to the app — status will update automatically.',
+  },
+  'ux.paymentGoToBank': { ru: 'Перейти к оплате', en: 'Go to payment' },
+  'ux.paymentSuccessTitle': { ru: 'Оплата прошла!', en: 'Payment successful!' },
+  'ux.paymentSuccessBody': {
+    ru: 'Спасибо! Детали брони — в разделе «Бронирования». Документы пришлём на почту.',
+    en: 'Thank you! Booking details are in Bookings. Documents will be emailed.',
+  },
+  'ux.paymentSuccessDone': { ru: 'К моим бронированиям', en: 'Go to bookings' },
+  'ux.paymentRecoveryTitle': { ru: 'Оплата прошла?', en: 'Payment completed?' },
+  'ux.paymentRecoveryBody': {
+    ru: 'Если после возврата из банка экран завис, проверьте статус в бронированиях.',
+    en: 'If the app did not recover after returning from the bank page, check your booking status.',
+  },
+  'ux.paymentRecoveryCta': { ru: 'Проверить бронирования', en: 'Check bookings' },
+  'ux.homeStartHere': { ru: 'Начните здесь', en: 'Start here' },
+  'ux.homeMore': { ru: 'Ещё', en: 'More' },
+  'splash.subtitle': { ru: 'Поиск и бронирование туров', en: 'Tour search and booking' },
+  'welcome.ok': { ru: 'Понятно', en: 'Got it' },
 };
 
 class I18n {

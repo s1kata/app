@@ -377,7 +377,7 @@ class SotaCrmService {
   }
 
   /**
-   * Отправка данных бронирования в SOTA (U-ON: создание заявки request/create).
+   * Отправка данных бронирования в SOTA (U-ON: создание обращения lead/create).
    * Вызывается после сохранения в Firestore. Документация: https://api.u-on.ru/doc
    */
   /** Нормализация телефона для API: только цифры и + */
@@ -440,7 +440,7 @@ class SotaCrmService {
       return { success: false, error: 'Для создания заявки нужен телефон или email клиента' };
     }
 
-    logger.log('[SOTA] 📤 Данные поступают в SOTA (U-ON request/create):', {
+    logger.log('[SOTA] 📤 Данные поступают в SOTA (U-ON lead/create):', {
       idempotencyKey: payload.idempotencyKey,
       firestoreBookingId: payload.firestoreBookingId ?? payload.idempotencyKey,
       contact: `${payload.contactInfo.name}, ${payload.contactInfo.email}, ${payload.contactInfo.phone}`,
@@ -510,9 +510,14 @@ class SotaCrmService {
     const body: Record<string, unknown> = {
       r_id_internal: payload.idempotencyKey,
       r_dat: now,
-      r_dat_lead: now,
-      r_dat_begin: rDatBegin,
-      r_dat_end: rDatEnd,
+      date_from: rDatBegin.slice(0, 10),
+      date_to: rDatEnd.slice(0, 10),
+      nights_from: nights ? String(nights) : undefined,
+      nights_to: nights ? String(nights) : undefined,
+      tourist_count: String(adults),
+      tourist_child_count: String(childrenCount),
+      budget: Math.max(0, Math.round(Number(payload.totalPrice) || 0)),
+      requirements_note: note,
       source: isHotel ? 'TravelHub App (Отель)' : 'TravelHub App',
       ...(tourOperator && { r_tour_operator: tourOperator }),
       ...(payload.tourSnapshot?.tourPackageUrl && { r_tour_operator_link: payload.tourSnapshot.tourPackageUrl }),
@@ -521,29 +526,14 @@ class SotaCrmService {
       u_phone: phone || undefined,
       u_phone_mobile: phone || undefined,
       u_email: email || undefined,
-      note,
-      price: String(payload.totalPrice),
-      services: [
-        {
-          type_id: 1,
-          description: [
-            serviceDescription,
-            payload.departureCity?.trim() ? `Вылет: ${payload.departureCity.trim()}` : undefined,
-            nights ? `Ночей: ${nights}` : undefined,
-            `Состав: ${partyText}`,
-            tourOperator ? `Туроператор: ${tourOperator}` : undefined,
-          ].filter(Boolean).join(' | '),
-          date_begin: rDatBegin,
-          date_end: rDatEnd,
-          price: payload.totalPrice,
-          ...(payload.tourSnapshot?.countryName && { country: payload.tourSnapshot.countryName }),
-          ...(payload.tourSnapshot?.hotelName && { hotel: payload.tourSnapshot.hotelName }),
-        },
-      ],
+      note: [
+        serviceDescription ? `Подбор: ${serviceDescription}` : undefined,
+        note,
+      ].filter(Boolean).join('\n'),
     };
 
     const response = await this.request<{ id?: string; id_system?: string; id_internal?: string }>(
-      'request/create.json',
+      'lead/create.json',
       {
         method: 'POST',
         body: JSON.stringify(body),
@@ -576,7 +566,7 @@ class SotaCrmService {
   }
 
   /**
-   * Получение списка бронирований из SOTA (U-ON: поиск клиента по email/телефону, затем request-by-client).
+   * Получение списка обращений из SOTA (U-ON: поиск клиента по email/телефону, затем lead-by-client).
    */
   async getBookings(params?: {
     clientEmail?: string;
@@ -641,32 +631,32 @@ class SotaCrmService {
       return { success: true, data: [] };
     }
 
-    const response = await this.request<unknown[]>(`request-by-client/${clientId}/1.json`, { method: 'GET' });
+    const response = await this.request<unknown[]>(`lead-by-client/${clientId}/1.json`, { method: 'GET' });
     if (!response.success) {
       logger.error('[SOTA] ❌ Не удалось получить бронирования для пользователя:', response.error);
       return { success: false, error: response.error, data: [] };
     }
 
     const list = Array.isArray(response.data) ? response.data : [];
-    const bookings: SotaBooking[] = list.map((item: any) => this.mapUonRequestToBooking(item));
+    const bookings: SotaBooking[] = list.map((item: any) => this.mapUonLeadToBooking(item));
     logger.log(`[SOTA] ✅ Получено бронирований: ${bookings.length}`);
     return { success: true, data: bookings };
   }
 
-  private mapUonRequestToBooking(r: any): SotaBooking {
+  private mapUonLeadToBooking(r: any): SotaBooking {
     return {
       id: String(r.id ?? r.id_system ?? ''),
       bookingNumber: r.id_internal ?? r.id_system ?? String(r.id ?? ''),
       clientName: [r.client_surname, r.client_name, r.client_sname].filter(Boolean).join(' ') || '—',
       clientPhone: r.client_phone ?? r.client_phone_mobile ?? '',
       clientEmail: r.client_email ?? '',
-      tourName: r.services?.[0]?.hotel ?? r.services?.[0]?.description ?? '—',
-      departureDate: r.date_begin ?? '',
-      returnDate: r.date_end ?? '',
+      tourName: r.requirements_note ?? r.note ?? '—',
+      departureDate: r.date_from ?? r.date_begin ?? '',
+      returnDate: r.date_to ?? r.date_end ?? '',
       participants: 0,
       status: r.status ?? '—',
-      totalPrice: r.calc_price ?? 0,
-      currency: r.services?.[0]?.currency ?? 'RUB',
+      totalPrice: r.budget ?? r.calc_price ?? 0,
+      currency: r.currency ?? 'RUB',
       documents: [],
       createdAt: r.dat ?? r.created_at ?? '',
       updatedAt: r.dat_updated ?? '',
@@ -674,17 +664,17 @@ class SotaCrmService {
   }
 
   /**
-   * Получение заявки по ID (U-ON: GET request/{id}.json).
+   * Получение обращения по ID (U-ON: GET lead/{id}.json).
    */
   async getBookingById(bookingId: string): Promise<SotaApiResponse<SotaBooking>> {
     logger.log(`[SOTA] 📥 Запрос бронирования по ID: ${bookingId}`);
-    const response = await this.request<any>(`request/${bookingId}.json`, { method: 'GET' });
+    const response = await this.request<any>(`lead/${bookingId}.json`, { method: 'GET' });
 
     if (response.success && response.data) {
       logger.log(`[SOTA] ✅ Бронирование получено: ${bookingId}`);
       return {
         success: true,
-        data: this.mapUonRequestToBooking(response.data),
+        data: this.mapUonLeadToBooking(response.data),
       };
     }
     logger.error(`[SOTA] ❌ Не удалось получить бронирование (ID: ${bookingId}):`, response.error);
@@ -692,11 +682,11 @@ class SotaCrmService {
   }
 
   /**
-   * Получение документов на вылет для бронирования (U-ON: файлы из GET request/{id}.json).
+   * Получение документов по обращению (U-ON: файлы из GET lead/{id}.json).
    */
   async getDepartureDocuments(bookingId: string): Promise<SotaApiResponse<DepartureDocument[]>> {
     logger.log(`[SOTA] 📥 Запрос документов на вылет для бронирования: ${bookingId}`);
-    const requestResponse = await this.request<any>(`request/${bookingId}.json`, { method: 'GET' });
+    const requestResponse = await this.request<any>(`lead/${bookingId}.json`, { method: 'GET' });
 
     if (!requestResponse.success || !requestResponse.data) {
       logger.error(`[SOTA] ❌ Не удалось получить данные заявки (ID: ${bookingId}):`, requestResponse.error);
@@ -748,10 +738,10 @@ class SotaCrmService {
   }
 
   /**
-   * Получение файла по ID (U-ON: заявка request/{id}.json, файл ищется в массиве files).
+   * Получение файла по ID (U-ON: обращение lead/{id}.json, файл ищется в массиве files).
    */
   async getFileById(fileId: string, requestId: string): Promise<SotaApiResponse<DepartureDocument>> {
-    const reqResponse = await this.request<any>(`request/${requestId}.json`, { method: 'GET' });
+    const reqResponse = await this.request<any>(`lead/${requestId}.json`, { method: 'GET' });
     if (!reqResponse.success || !reqResponse.data) {
       return { success: false, error: reqResponse.error || 'Failed to fetch request' };
     }

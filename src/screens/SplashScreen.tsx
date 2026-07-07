@@ -9,6 +9,8 @@ import { logger } from '../utils/logger';
 import { useLifecycleLog } from '../hooks/useLifecycleLog';
 import { logIosTestStep, IosTestStep } from '../utils/iosTestFlows';
 import AppLogo from '../components/AppLogo';
+import { i18n } from '../config/i18n';
+import { isPaymentRelinkInProgress } from '../services/PaymentRelinkState';
 
 export default function SplashScreen({ navigation }: { navigation: any }) {
   const { isAuthenticated, theme, isDark } = useAppContext();
@@ -30,6 +32,7 @@ export default function SplashScreen({ navigation }: { navigation: any }) {
   useEffect(() => {
     let alive = true;
     let hideSplashTimer: ReturnType<typeof setTimeout> | undefined;
+    let navTimer: ReturnType<typeof setTimeout> | undefined;
     Animated.parallel([
       Animated.timing(logoOpacity, {
         toValue: 1,
@@ -81,6 +84,11 @@ export default function SplashScreen({ navigation }: { navigation: any }) {
 
     const doNavigate = () => {
       if (!alive || hasNavigated.current) return;
+      if (isPaymentRelinkInProgress()) {
+        logger.info('[Splash] payment relink lock active, postpone navigation');
+        navTimer = setTimeout(doNavigate, 250);
+        return;
+      }
       hasNavigated.current = true;
       const target = isAuthenticated ? 'MainTabs' : 'Login';
       logIosTestStep(IosTestStep.LAUNCH, { isAuthenticated, target });
@@ -92,7 +100,7 @@ export default function SplashScreen({ navigation }: { navigation: any }) {
 
     const minDelay = 1300;
     const waitMs = Math.max(0, minDelay - (Date.now() - mountTime));
-    const navTimer = setTimeout(doNavigate, waitMs);
+    navTimer = setTimeout(doNavigate, waitMs);
     const hardHideTimer = setTimeout(() => NativeSplash.hideAsync().catch(() => {}), 1000);
 
     return () => {
@@ -130,7 +138,7 @@ export default function SplashScreen({ navigation }: { navigation: any }) {
         TravelHub
       </Animated.Text>
       <Animated.Text style={[styles.subtitle, { color: theme.secondaryText, opacity: subtitleOpacity }]}>
-        Premium travel service
+        {i18n.t('splash.subtitle')}
       </Animated.Text>
     </SafeAreaView>
   );

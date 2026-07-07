@@ -27,6 +27,8 @@ import { validateReviewText } from '../utils/reviewProfanity';
 import { mapReviewDto, type ReviewListItem } from '../utils/reviewMappers';
 import { reviewsRefreshBus } from '../services/ReviewsRefreshBus';
 import ReviewFormModal from '../components/ReviewFormModal';
+import AuthRequiredCard from '../components/ux/AuthRequiredCard';
+import { i18n } from '../config/i18n';
 import { logger } from '../utils/logger';
 
 interface Review extends ReviewListItem {
@@ -59,6 +61,7 @@ export default function ReviewsScreen({ navigation, route }: ReviewsScreenProps)
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showAuthCard, setShowAuthCard] = useState(false);
   
   // Форма для нового отзыва (фото не добавляем)
   const [newReview, setNewReview] = useState({
@@ -149,7 +152,8 @@ export default function ReviewsScreen({ navigation, route }: ReviewsScreenProps)
   }, [navigation]);
 
   const loadReviews = useCallback(async () => {
-    if (!authReady) {
+    const isGuest = user?.uid?.startsWith('guest_') || user?.isAnonymous === true;
+    if (!isGuest && !authReady) {
       return;
     }
     try {
@@ -158,7 +162,7 @@ export default function ReviewsScreen({ navigation, route }: ReviewsScreenProps)
       const items = await listReviews({
         tourId: tourIdStr,
         scope: tourIdStr ? 'tour' : 'all',
-        withAuth: isAuthenticated,
+        withAuth: isAuthenticated && !isGuest,
       });
       const loadedReviews: Review[] = items.map((r: ReviewDto) => ({
         ...mapReviewDto(r),
@@ -176,7 +180,7 @@ export default function ReviewsScreen({ navigation, route }: ReviewsScreenProps)
     } finally {
       setIsLoading(false);
     }
-  }, [tourIdStr, isAuthenticated, authReady]);
+  }, [tourIdStr, isAuthenticated, authReady, user?.uid, user?.isAnonymous]);
 
   useEffect(() => {
     void loadReviews();
@@ -194,31 +198,16 @@ export default function ReviewsScreen({ navigation, route }: ReviewsScreenProps)
     });
   }, [loadReviews]);
 
+  const isGuestUser = user?.uid?.startsWith('guest_') || user?.isAnonymous === true;
+
+  const promptAuthForReview = () => {
+    setShowAddReviewModal(false);
+    setShowAuthCard(true);
+  };
+
   const handleSubmitReview = async () => {
-    // Проверяем авторизацию с красивым уведомлением
-    const isGuest = user?.uid?.startsWith('guest_') || user?.isAnonymous === true;
-    if (!isAuthenticated || !user || isGuest) {
-      Alert.alert(
-        'Требуется авторизация',
-        'Для того чтобы оставить отзыв, необходимо войти в систему или зарегистрироваться.',
-        [
-          {
-            text: 'Отмена',
-            style: 'cancel',
-          },
-          {
-            text: 'Войти',
-            onPress: () => navigation.navigate('Login'),
-          },
-          {
-            text: 'Зарегистрироваться',
-            onPress: () => navigation.navigate('Login', { initialTab: 'register' }),
-            style: 'default',
-          },
-        ],
-        { cancelable: true }
-      );
-      setShowAddReviewModal(false);
+    if (!isAuthenticated || !user || isGuestUser) {
+      promptAuthForReview();
       return;
     }
 
@@ -645,27 +634,8 @@ export default function ReviewsScreen({ navigation, route }: ReviewsScreenProps)
           <TouchableOpacity
             style={[styles.addReviewButton, { backgroundColor: theme.primary }]}
             onPress={() => {
-              if (!isAuthenticated || !user) {
-                Alert.alert(
-                  'Требуется авторизация',
-                  'Для того чтобы оставить отзыв, необходимо войти в систему или зарегистрироваться.',
-                  [
-                    {
-                      text: 'Отмена',
-                      style: 'cancel',
-                    },
-                    {
-                      text: 'Войти',
-                      onPress: () => navigation.navigate('Login'),
-                    },
-                    {
-                      text: 'Зарегистрироваться',
-                      onPress: () => navigation.navigate('Login', { initialTab: 'register' }),
-                      style: 'default',
-                    },
-                  ],
-                  { cancelable: true }
-                );
+              if (!isAuthenticated || !user || isGuestUser) {
+                promptAuthForReview();
                 return;
               }
               setShowAddReviewModal(true);
@@ -705,6 +675,20 @@ export default function ReviewsScreen({ navigation, route }: ReviewsScreenProps)
         onRatingChange={(rating) => setNewReview((prev) => ({ ...prev, rating }))}
         onTextChange={(text) => setNewReview((prev) => ({ ...prev, text }))}
         theme={theme}
+      />
+      <AuthRequiredCard
+        visible={showAuthCard}
+        title={i18n.t('ux.authRequiredTitle')}
+        message={i18n.t('reviews.authRequiredBody')}
+        onLater={() => setShowAuthCard(false)}
+        onLogin={() => {
+          setShowAuthCard(false);
+          navigation.navigate('Login');
+        }}
+        onRegister={() => {
+          setShowAuthCard(false);
+          navigation.navigate('Register');
+        }}
       />
     </SafeAreaView>
   );

@@ -1,21 +1,25 @@
 /**
- * Проверка доступности интернета и бэкенда TravelHub (auth-mobile health → HTTP 200).
+ * Проверка доступности бэкенда TravelHub (auth-mobile health → HTTP 200).
+ * Не используем apple.com — на части сетей он недоступен при рабочем travelhub63.ru.
  */
 import Constants from 'expo-constants';
-import { getAuthApiUrl } from '../api/apiClient';
+import NetInfo from '@react-native-community/netinfo';
+import { getAuthApiUrl, getSiteBaseUrl } from '../config/apiEndpoints';
 import { logger } from './logger';
 
 const FETCH_TIMEOUT_MS = 8000;
-const BACKEND_TIMEOUT_MS = 10000;
+const BACKEND_TIMEOUT_MS = 12000;
 
-const GENERAL_INTERNET_URLS = [
-  'https://www.apple.com/library/test/success.html',
-  'https://www.cloudflare.com/cdn-cgi/trace',
-];
+function appExtra(): Record<string, unknown> {
+  return (
+    (Constants.expoConfig?.extra as Record<string, unknown> | undefined) ||
+    (Constants as { easConfig?: { extra?: Record<string, unknown> } }).easConfig?.extra ||
+    {}
+  );
+}
 
-function getHealthCheckToken(): string {
-  const extra = Constants.expoConfig?.extra as { healthCheckToken?: string } | undefined;
-  return String(extra?.healthCheckToken || '').trim();
+export function getHealthCheckToken(): string {
+  return String(appExtra().healthCheckToken || '').trim();
 }
 
 function healthRequestHeaders(): Record<string, string> {
@@ -37,20 +41,30 @@ async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: numbe
   }
 }
 
-/** Есть ли общий доступ в интернет (не наш бэкенд). */
-export async function pingGeneralInternet(): Promise<boolean> {
-  for (const url of GENERAL_INTERNET_URLS) {
-    try {
-      const res = await fetchWithTimeout(url, { method: 'GET' }, FETCH_TIMEOUT_MS);
-      if (res && (res.status === 204 || res.status === 200 || res.ok)) return true;
-    } catch (e) {
-      logger.debug('[backendHealth] general ping failed:', url, (e as Error)?.message || e);
-    }
+/** NetInfo: устройство считает себя без сети. */
+export async function isDeviceOffline(): Promise<boolean> {
+  try {
+    const state = await NetInfo.fetch();
+    return state.isConnected === false;
+  } catch {
+    return false;
   }
-  return false;
 }
 
-/** Бэкенд ответил HTTP 200 (health). */
+/** Лёгкий ping своего хоста (без health-токена — может быть 403, это ок для «есть маршрут»). */
+export async function pingSiteReachable(): Promise<boolean> {
+  const base = getSiteBaseUrl();
+  if (!base) return false;
+  try {
+    const res = await fetchWithTimeout(`${base}/api/health.php`, { method: 'GET' }, FETCH_TIMEOUT_MS);
+    return res.ok || res.status === 403 || res.status === 401;
+  } catch (e) {
+    logger.debug('[backendHealth] site ping failed:', (e as Error)?.message || e);
+    return false;
+  }
+}
+
+/** Бэкенд auth-mobile ответил HTTP 200 на health с токеном. */
 export async function pingBackendHealth(): Promise<boolean> {
   const url = getAuthApiUrl();
   try {
@@ -63,9 +77,18 @@ export async function pingBackendHealth(): Promise<boolean> {
       },
       BACKEND_TIMEOUT_MS,
     );
-    return response.ok;
+    if (response.ok) return true;
+    logger.debug('[backendHealth] health HTTP', response.status, 'tokenConfigured', !!getHealthCheckToken());
+    return false;
   } catch (e) {
     logger.debug('[backendHealth] backend health failed:', url, (e as Error)?.message || e);
     return false;
   }
+}
+
+/** @deprecated — оставлено для диагностики; не блокирует UI. */
+export async function pingGeneralInternet(): Promise<boolean> {
+  if (await isDeviceOffline()) return false;
+  if (await pingBackendHealth()) return true;
+  return pingSiteReachable();
 }

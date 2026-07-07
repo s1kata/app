@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   View,
   Text,
@@ -27,6 +27,8 @@ import { Country, Departure, Region, Meal, TourSearchParams, TourHotel } from '.
 import { filterMealsForUi, isValidTourMealId, sanitizeTourMealParam } from '../utils/tourvisorMeals';
 import TourSearchLoader from './TourSearchLoader';
 import DateRangeCalendar from './DateRangeCalendar';
+import BookingWizardProgress from './ux/BookingWizardProgress';
+import PrimaryButton from './ui/PrimaryButton';
 import { useAppContext } from '../contexts/AppContext';
 import { i18n } from '../config/i18n';
 import { radius, shadows } from '../config/designSystem';
@@ -47,6 +49,8 @@ interface ApiTourHotelSearchProps {
   onSearchHotels?: (params: any) => void;
   onOpenHotTours?: () => void;
   enableHotelSearch?: boolean;
+  /** Пошаговый мастер поиска (главная) */
+  useSearchWizard?: boolean;
 }
 
 export default function ApiTourHotelSearch({
@@ -55,6 +59,7 @@ export default function ApiTourHotelSearch({
   onSearchHotels,
   onOpenHotTours = () => navigation.navigate('ApiHotTours'),
   enableHotelSearch: enableHotelSearchProp = true,
+  useSearchWizard = true,
 }: ApiTourHotelSearchProps) {
   useLifecycleLog('ApiTourHotelSearch');
   const enableHotelSearch = RELEASE_HIDE_NEXT_PATCH_UI ? false : enableHotelSearchProp;
@@ -118,8 +123,14 @@ export default function ApiTourHotelSearch({
   const [filterRegionId, setFilterRegionId] = useState<string>('');
   const [filterHotelCategory, setFilterHotelCategory] = useState<number | ''>('');
   const [adultsManual, setAdultsManual] = useState(false);
+  const [searchWizardStep, setSearchWizardStep] = useState<1 | 2 | 3>(1);
   const [adultsInput, setAdultsInput] = useState('');
   const [childrenManual, setChildrenManual] = useState(false);
+  const [showChildAgeModal, setShowChildAgeModal] = useState(false);
+  const [childAgeTargetIndex, setChildAgeTargetIndex] = useState<number | null>(null);
+  const [showFilterSheet, setShowFilterSheet] = useState(false);
+  const [filterSheetType, setFilterSheetType] = useState<'nights' | 'meal' | 'region' | 'category'>('nights');
+  const filtersEffectReadyRef = useRef(false);
 
   useEffect(() => {
     // Релизный UX: единый сценарий поиска туров без переключателя вкладок.
@@ -637,6 +648,40 @@ export default function ApiTourHotelSearch({
     setHotelSearch(prev => ({ ...prev, [field]: value }));
   };
 
+  const openChildAgePicker = (index: number) => {
+    setChildAgeTargetIndex(index);
+    setShowChildAgeModal(true);
+  };
+
+  const applyChildAge = (age: number) => {
+    if (childAgeTargetIndex == null) return;
+    setChildrenAgesInput((prev) => {
+      const next = [...prev];
+      if (childAgeTargetIndex >= 0 && childAgeTargetIndex < next.length) {
+        next[childAgeTargetIndex] = String(age);
+      }
+      return next;
+    });
+    setTourSearch((prev) => {
+      const nextChilds = [...prev.childs];
+      if (childAgeTargetIndex >= 0 && childAgeTargetIndex < nextChilds.length) {
+        nextChilds[childAgeTargetIndex] = age;
+      }
+      return { ...prev, childs: nextChilds };
+    });
+    setShowChildAgeModal(false);
+    setChildAgeTargetIndex(null);
+  };
+
+  useEffect(() => {
+    // Поиск запускается только по кнопке «Найти туры».
+    // Фильтры и даты остаются интерактивными, но без авто-запроса.
+    if (!useSearchWizard || searchWizardStep !== 3) return;
+    if (!filtersEffectReadyRef.current) {
+      filtersEffectReadyRef.current = true;
+    }
+  }, [useSearchWizard, searchWizardStep]);
+
   const renderTourSearchForm = () => (
     <View style={styles.searchForm}>
       {/* Departure */}
@@ -825,8 +870,343 @@ export default function ApiTourHotelSearch({
     </View>
   );
 
-  // Проверяем, загружены ли критичные данные
   const hasData = departures.length > 0 && countries.length > 0;
+
+  const searchWizardLabels: [string, string, string] = [
+    i18n.t('search.wizardStepFrom'),
+    i18n.t('search.wizardStepTo'),
+    i18n.t('search.wizardStepWhen'),
+  ];
+
+  const selectedDepartureName =
+    departures.find((d) => d.id.toString() === tourSearch.departureId)?.name ||
+    (hasData ? i18n.t('search.moscow') : i18n.t('search.notLoaded'));
+  const selectedCountryName =
+    countries.find((c) => c.id.toString() === tourSearch.countryId)?.name ||
+    (hasData ? defaultCountryName : i18n.t('search.notLoaded'));
+  const selectedMealLabel =
+    filterMealId === ''
+      ? i18n.t('form.any')
+      : meals.find((m) => m.id === filterMealId)?.russianName ||
+        meals.find((m) => m.id === filterMealId)?.name ||
+        i18n.t('form.any');
+  const selectedRegionLabel =
+    filterRegionId === ''
+      ? i18n.t('form.anyCategory')
+      : regions.find((r) => String(r.id) === filterRegionId)?.name || i18n.t('form.anyCategory');
+  const selectedCategoryLabel =
+    filterHotelCategory === '' ? i18n.t('form.anyCategory') : `${filterHotelCategory}★+`;
+  const selectedNightsLabel =
+    !tourSearch.nightsFrom || !tourSearch.nightsTo
+      ? i18n.t('form.any')
+      : `${tourSearch.nightsFrom}-${tourSearch.nightsTo} ${i18n.t('form.nightsShort')}`;
+
+  const renderDeparturePicker = (fullWidth = false) => (
+    <TouchableOpacity
+      style={[
+        styles.compactInput,
+        fullWidth && styles.compactInputFull,
+        { backgroundColor: theme.secondaryBackground, borderColor: theme.border, borderWidth: 1 },
+      ]}
+      activeOpacity={0.7}
+      onPress={() =>
+        hasData
+          ? setShowDepartureModal(true)
+          : Alert.alert(i18n.t('common.error'), i18n.t('errors.dataNotLoaded'))
+      }
+      disabled={!hasData}
+    >
+      <Ionicons name="airplane-outline" size={20} color={hasData ? theme.primary : theme.secondaryText} />
+      <View style={styles.compactInputContent}>
+        <Text style={[styles.compactLabel, { color: theme.secondaryText }]}>{i18n.t('form.fromWhere')}</Text>
+        <Text style={[styles.compactValue, { color: hasData ? theme.text : theme.secondaryText }]} numberOfLines={1}>
+          {selectedDepartureName}
+        </Text>
+      </View>
+      <Ionicons name="chevron-down" size={18} color={theme.secondaryText} />
+    </TouchableOpacity>
+  );
+
+  const renderCountryPicker = (fullWidth = false) => (
+    <TouchableOpacity
+      style={[
+        styles.compactInput,
+        fullWidth && styles.compactInputFull,
+        { backgroundColor: theme.secondaryBackground, borderColor: theme.border, borderWidth: 1 },
+      ]}
+      activeOpacity={0.7}
+      onPress={() =>
+        hasData
+          ? setShowCountryModal(true)
+          : Alert.alert(i18n.t('common.error'), i18n.t('errors.dataNotLoaded'))
+      }
+      disabled={!hasData}
+    >
+      <Ionicons name="globe-outline" size={20} color={hasData ? theme.primary : theme.secondaryText} />
+      <View style={styles.compactInputContent}>
+        <Text style={[styles.compactLabel, { color: theme.secondaryText }]}>{i18n.t('form.toWhere')}</Text>
+        <Text style={[styles.compactValue, { color: hasData ? theme.text : theme.secondaryText }]} numberOfLines={1}>
+          {selectedCountryName}
+        </Text>
+      </View>
+      <Ionicons name="chevron-down" size={18} color={theme.secondaryText} />
+    </TouchableOpacity>
+  );
+
+  const renderTourFiltersBlock = () => (
+    <>
+      <TouchableOpacity
+        style={[styles.filtersToggle, { borderColor: theme.border }]}
+        onPress={() => setShowFilters(!showFilters)}
+        activeOpacity={0.8}
+      >
+        <Ionicons name="options-outline" size={18} color={theme.primary} />
+        <Text style={[styles.filtersToggleText, { color: theme.text }]}>{i18n.t('hotTours.filters')}</Text>
+        <Ionicons name={showFilters ? 'chevron-up' : 'chevron-down'} size={18} color={theme.secondaryText} />
+      </TouchableOpacity>
+      {showFilters && (
+        <View style={[styles.filtersBlock, { backgroundColor: theme.secondaryBackground, borderColor: theme.border }]}>
+          <TouchableOpacity
+            style={[styles.compactInput, styles.compactInputFull, { backgroundColor: theme.card, borderColor: theme.border, borderWidth: 1 }]}
+            activeOpacity={0.8}
+            onPress={() => {
+              setFilterSheetType('nights');
+              setShowFilterSheet(true);
+            }}
+          >
+            <Ionicons name="moon-outline" size={20} color={theme.primary} />
+            <View style={styles.compactInputContent}>
+              <Text style={[styles.compactLabel, { color: theme.secondaryText }]}>{i18n.t('form.nights')}</Text>
+              <Text style={[styles.compactValue, { color: theme.text }]} numberOfLines={1}>{selectedNightsLabel}</Text>
+            </View>
+            <Ionicons name="chevron-down" size={18} color={theme.secondaryText} />
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.compactInput, styles.compactInputFull, { backgroundColor: theme.card, borderColor: theme.border, borderWidth: 1 }]}
+            activeOpacity={0.8}
+            onPress={() => {
+              setFilterSheetType('meal');
+              setShowFilterSheet(true);
+            }}
+          >
+            <Ionicons name="restaurant-outline" size={20} color={theme.primary} />
+            <View style={styles.compactInputContent}>
+              <Text style={[styles.compactLabel, { color: theme.secondaryText }]}>{i18n.t('form.meals')}</Text>
+              <Text style={[styles.compactValue, { color: theme.text }]} numberOfLines={1}>{selectedMealLabel}</Text>
+            </View>
+            <Ionicons name="chevron-down" size={18} color={theme.secondaryText} />
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.compactInput, styles.compactInputFull, { backgroundColor: theme.card, borderColor: theme.border, borderWidth: 1 }]}
+            activeOpacity={0.8}
+            onPress={() => {
+              if (!tourSearch.countryId) {
+                Alert.alert(i18n.t('common.error'), i18n.t('search.selectCountry'));
+                return;
+              }
+              setFilterSheetType('region');
+              setShowFilterSheet(true);
+            }}
+          >
+            <Ionicons name="map-outline" size={20} color={theme.primary} />
+            <View style={styles.compactInputContent}>
+              <Text style={[styles.compactLabel, { color: theme.secondaryText }]}>{i18n.t('form.resort')}</Text>
+              <Text style={[styles.compactValue, { color: theme.text }]} numberOfLines={1}>{selectedRegionLabel}</Text>
+            </View>
+            <Ionicons name="chevron-down" size={18} color={theme.secondaryText} />
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.compactInput, styles.compactInputFull, { backgroundColor: theme.card, borderColor: theme.border, borderWidth: 1 }]}
+            activeOpacity={0.8}
+            onPress={() => {
+              setFilterSheetType('category');
+              setShowFilterSheet(true);
+            }}
+          >
+            <Ionicons name="star-outline" size={20} color={theme.primary} />
+            <View style={styles.compactInputContent}>
+              <Text style={[styles.compactLabel, { color: theme.secondaryText }]}>{i18n.t('form.hotelCategory')}</Text>
+              <Text style={[styles.compactValue, { color: theme.text }]} numberOfLines={1}>{selectedCategoryLabel}</Text>
+            </View>
+            <Ionicons name="chevron-down" size={18} color={theme.secondaryText} />
+          </TouchableOpacity>
+          <View style={styles.filterRow}>
+            <Text style={[styles.compactLabel, { color: theme.secondaryText }]}>{i18n.t('form.adults')}</Text>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+              {[1, 2, 3].map((n) => (
+                <TouchableOpacity key={n} style={[styles.presetChip, { borderColor: theme.border, backgroundColor: !adultsManual && tourSearch.adults === n ? theme.primary + '20' : undefined }]} onPress={() => { setAdultsManual(false); updateTourSearch('adults', n); }}>
+                  <Text style={[styles.presetChipText, { color: !adultsManual && tourSearch.adults === n ? theme.primary : theme.text }]}>{n}</Text>
+                </TouchableOpacity>
+              ))}
+              <TouchableOpacity style={[styles.presetChip, { borderColor: theme.border, backgroundColor: adultsManual ? theme.primary + '20' : undefined }]} onPress={() => setAdultsManual(true)}>
+                <Text style={[styles.presetChipText, { color: adultsManual ? theme.primary : theme.text }]}>{i18n.t('form.manualInput')}</Text>
+              </TouchableOpacity>
+              {adultsManual && (
+                <TextInput
+                  style={[styles.childAgeInput, { backgroundColor: theme.secondaryBackground, borderColor: theme.border, color: theme.text, minWidth: 56, textAlign: 'center' }]}
+                  value={adultsInput}
+                  onChangeText={(t) => {
+                    setAdultsInput(t);
+                    const n = parseInt(t, 10);
+                    if (!isNaN(n) && n >= 1 && n <= 9) updateTourSearch('adults', n);
+                  }}
+                  placeholder="4"
+                  placeholderTextColor={theme.secondaryText}
+                  keyboardType="number-pad"
+                  maxLength={1}
+                />
+              )}
+              <Text style={[styles.presetChipText, { color: theme.secondaryText }]}>{i18n.t('form.adultsShort')}</Text>
+            </View>
+          </View>
+          <View style={styles.filterRow}>
+            <Text style={[styles.compactLabel, { color: theme.secondaryText }]}>{i18n.t('form.children')}</Text>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+              {[0, 1, 2, 3].map((n) => (
+                <TouchableOpacity
+                  key={n}
+                  style={[styles.presetChip, { borderColor: theme.border, backgroundColor: !childrenManual && childrenAgesInput.length === n ? theme.primary + '20' : undefined }]}
+                  onPress={() => {
+                    setChildrenManual(false);
+                    setChildrenAgesInput(Array(n).fill(''));
+                    updateTourSearch('childs', Array(n).fill(0));
+                    if (n > 0) {
+                      openChildAgePicker(0);
+                    }
+                  }}
+                >
+                  <Text style={[styles.presetChipText, { color: !childrenManual && childrenAgesInput.length === n ? theme.primary : theme.text }]}>{n}</Text>
+                </TouchableOpacity>
+              ))}
+              <TouchableOpacity
+                style={[styles.presetChip, { borderColor: theme.border, backgroundColor: childrenManual ? theme.primary + '20' : undefined }]}
+                onPress={() => {
+                  setChildrenManual(true);
+                  if (childrenAgesInput.length === 0) {
+                    setChildrenAgesInput(['']);
+                    updateTourSearch('childs', [0]);
+                  }
+                  openChildAgePicker(0);
+                }}
+              >
+                <Text style={[styles.presetChipText, { color: childrenManual ? theme.primary : theme.text }]}>{i18n.t('form.manualInput')}</Text>
+              </TouchableOpacity>
+            </View>
+            {childrenAgesInput.length > 0 && (
+              <View style={{ marginTop: 8, gap: 6 }}>
+                {childrenAgesInput.map((age, idx) => (
+                  <TouchableOpacity
+                    key={idx}
+                    style={[styles.presetChip, { borderColor: theme.border, backgroundColor: theme.secondaryBackground }]}
+                    onPress={() => openChildAgePicker(idx)}
+                  >
+                    <Text style={[styles.presetChipText, { color: theme.text }]}>
+                      {i18n.t('form.age')} {idx + 1}: {age ? `${age}` : i18n.t('search.select')}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
+          </View>
+        </View>
+      )}
+    </>
+  );
+
+  const renderTourSearchWizard = () => (
+    <>
+      <BookingWizardProgress currentStep={searchWizardStep} labels={searchWizardLabels} />
+
+      {searchWizardStep === 1 ? (
+        <>
+          <Text style={[styles.wizardStepTitle, { color: theme.text }]}>{i18n.t('search.wizardStepFrom')}</Text>
+          {renderDeparturePicker(true)}
+          <PrimaryButton
+            title={i18n.t('common.next')}
+            onPress={() => setSearchWizardStep(2)}
+            disabled={!tourSearch.departureId}
+            variant="cta"
+            style={styles.wizardPrimaryBtn}
+          />
+        </>
+      ) : null}
+
+      {searchWizardStep === 2 ? (
+        <>
+          <Text style={[styles.wizardStepTitle, { color: theme.text }]}>{i18n.t('search.wizardStepTo')}</Text>
+          {renderCountryPicker(true)}
+          <View style={styles.wizardNavRow}>
+            <PrimaryButton
+              title={i18n.t('common.back')}
+              onPress={() => setSearchWizardStep(1)}
+              outline
+              style={styles.wizardNavBtn}
+            />
+            <PrimaryButton
+              title={i18n.t('common.next')}
+              onPress={() => setSearchWizardStep(3)}
+              disabled={!tourSearch.countryId}
+              variant="cta"
+              style={styles.wizardNavBtn}
+            />
+          </View>
+        </>
+      ) : null}
+
+      {searchWizardStep === 3 ? (
+        <>
+          <Text style={[styles.wizardStepTitle, { color: theme.text }]}>{i18n.t('search.wizardStepWhen')}</Text>
+          <Text style={[styles.wizardSummary, { color: theme.secondaryText }]}>
+            {selectedDepartureName} → {selectedCountryName}
+          </Text>
+          <TouchableOpacity
+            style={[styles.compactInput, styles.compactInputFull, { backgroundColor: theme.secondaryBackground, borderColor: theme.border }]}
+            activeOpacity={0.7}
+            onPress={() => setShowDateModal(true)}
+          >
+            <Ionicons name="calendar-outline" size={20} color={theme.primary} />
+            <View style={styles.compactInputContent}>
+              <Text style={[styles.compactLabel, { color: theme.secondaryText }]}>{i18n.t('form.dates')}</Text>
+              <Text style={[styles.compactValue, { color: theme.text }]} numberOfLines={1}>
+                {tourSearch.dateFrom && tourSearch.dateTo
+                  ? `${formatDate(tourSearch.dateFrom)} - ${formatDate(tourSearch.dateTo)}`
+                  : i18n.t('search.selectDateRange')}
+              </Text>
+            </View>
+            <Ionicons name="chevron-down" size={18} color={theme.secondaryText} />
+          </TouchableOpacity>
+          {renderTourFiltersBlock()}
+          <View style={styles.wizardNavRow}>
+            <PrimaryButton
+              title={i18n.t('common.back')}
+              onPress={() => setSearchWizardStep(2)}
+              outline
+              style={styles.wizardNavBtn}
+            />
+          </View>
+          <TouchableOpacity
+            style={[styles.searchButton, (!hasData || isSearching) && { opacity: 0.5 }]}
+            onPress={() => handleTourSearch()}
+            activeOpacity={0.8}
+            disabled={isSearching || !hasData}
+          >
+            <View style={[styles.searchButtonGradient, { backgroundColor: theme.accent }]}>
+              {isSearching ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <>
+                  <Ionicons name="search" size={22} color="#fff" />
+                  <Text style={styles.searchButtonText}>{i18n.t('search.findTours')}</Text>
+                </>
+              )}
+            </View>
+          </TouchableOpacity>
+        </>
+      ) : null}
+    </>
+  );
+
+  // Проверяем, загружены ли критичные данные
 
   // Показываем поисковик всегда, даже при загрузке (но с индикатором)
   // Это позволяет пользователю видеть интерфейс, даже если данные еще загружаются
@@ -857,6 +1237,9 @@ export default function ApiTourHotelSearch({
         {/* Compact Search Form */}
         <View style={styles.compactForm}>
           {activeTab === 'tours' ? (
+            useSearchWizard ? (
+              renderTourSearchWizard()
+            ) : (
             <>
               <View style={styles.compactRow}>
                 <TouchableOpacity 
@@ -1061,9 +1444,10 @@ export default function ApiTourHotelSearch({
                           onPress={() => {
                             setChildrenManual(false);
                             if (n === 0) { setChildrenAgesInput([]); setTourSearch((p) => ({ ...p, childs: [] })); } else {
-                              const ages = Array(n).fill('5');
+                              const ages = Array(n).fill('');
                               setChildrenAgesInput(ages);
-                              setTourSearch((p) => ({ ...p, childs: ages.map((a) => parseInt(a, 10) || 5) }));
+                              setTourSearch((p) => ({ ...p, childs: ages.map(() => 0) }));
+                              openChildAgePicker(0);
                             }
                           }}
                           style={[styles.presetChip, { borderColor: theme.border, backgroundColor: !childrenManual && childrenAgesInput.length === n ? theme.primary + '20' : undefined }]}
@@ -1072,7 +1456,14 @@ export default function ApiTourHotelSearch({
                         </TouchableOpacity>
                       ))}
                       <TouchableOpacity
-                        onPress={() => setChildrenManual(true)}
+                        onPress={() => {
+                          setChildrenManual(true);
+                          if (childrenAgesInput.length === 0) {
+                            setChildrenAgesInput(['']);
+                            setTourSearch((p) => ({ ...p, childs: [0] }));
+                          }
+                          openChildAgePicker(0);
+                        }}
                         style={[styles.presetChip, { borderColor: theme.border, backgroundColor: childrenManual ? theme.primary + '20' : undefined }]}
                       >
                         <Text style={[styles.presetChipText, { color: childrenManual ? theme.primary : theme.text }]}>{i18n.t('form.manualInput')}</Text>
@@ -1082,7 +1473,7 @@ export default function ApiTourHotelSearch({
                           <TouchableOpacity style={[styles.presetChip, { borderColor: theme.border }]} onPress={() => { setChildrenAgesInput((p) => p.slice(0, -1)); setTourSearch((p) => ({ ...p, childs: p.childs.slice(0, -1) })); }}>
                             <Ionicons name="remove" size={18} color={theme.primary} />
                           </TouchableOpacity>
-                          <TouchableOpacity style={[styles.presetChip, { borderColor: theme.border }]} onPress={() => { setChildrenAgesInput((p) => [...p, '5']); setTourSearch((p) => ({ ...p, childs: [...p.childs, 5] })); }}>
+                          <TouchableOpacity style={[styles.presetChip, { borderColor: theme.border }]} onPress={() => { setChildrenAgesInput((p) => [...p, '']); setTourSearch((p) => ({ ...p, childs: [...p.childs, 0] })); }}>
                             <Ionicons name="add" size={18} color={theme.primary} />
                           </TouchableOpacity>
                         </View>
@@ -1091,21 +1482,15 @@ export default function ApiTourHotelSearch({
                     {childrenAgesInput.length > 0 && (
                       <View style={{ marginTop: 8, gap: 6 }}>
                         {childrenAgesInput.map((age, idx) => (
-                          <View key={`fa_${idx}`} style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                            <Text style={[styles.compactLabel, { color: theme.secondaryText, width: 100 }]}>{i18n.t('form.age')} {idx + 1}</Text>
-                            <TextInput
-                              style={[styles.childAgeInput, { flex: 1, backgroundColor: theme.secondaryBackground, borderColor: theme.border, color: theme.text }]}
-                              value={age}
-                              onChangeText={(v) => {
-                                setChildrenAgesInput((p) => { const n = [...p]; n[idx] = v; return n; });
-                                setTourSearch((p) => { const next = [...p.childs]; next[idx] = parseInt(v, 10) || 0; return { ...p, childs: next }; });
-                              }}
-                              placeholder="0–17"
-                              placeholderTextColor={theme.secondaryText}
-                              keyboardType="number-pad"
-                              maxLength={2}
-                            />
-                          </View>
+                          <TouchableOpacity
+                            key={`fa_${idx}`}
+                            style={[styles.presetChip, { borderColor: theme.border, backgroundColor: theme.secondaryBackground }]}
+                            onPress={() => openChildAgePicker(idx)}
+                          >
+                            <Text style={[styles.presetChipText, { color: theme.text }]}>
+                              {i18n.t('form.age')} {idx + 1}: {age ? `${age}` : i18n.t('search.select')}
+                            </Text>
+                          </TouchableOpacity>
                         ))}
                       </View>
                     )}
@@ -1113,6 +1498,7 @@ export default function ApiTourHotelSearch({
                 </View>
               )}
             </>
+            )
           ) : (
             <>
               <View style={styles.compactRow}>
@@ -1153,6 +1539,7 @@ export default function ApiTourHotelSearch({
           )}
 
           {/* Search Button */}
+          {!(useSearchWizard && activeTab === 'tours') ? (
           <TouchableOpacity
             style={[styles.searchButton, (!hasData || isSearching) && { opacity: 0.5 }]}
             onPress={activeTab === 'tours' || !enableHotelSearch ? () => handleTourSearch() : handleHotelSearch}
@@ -1172,6 +1559,7 @@ export default function ApiTourHotelSearch({
               )}
             </View>
           </TouchableOpacity>
+          ) : null}
 
         </View>
       </View>
@@ -1227,6 +1615,7 @@ export default function ApiTourHotelSearch({
                       setHotelSearch(prev => ({ ...prev, countryId: '' }));
                       AsyncStorage.setItem(DEPARTURE_PREF_KEY, depIdStr).catch(() => {});
                       setShowDepartureModal(false);
+                      if (useSearchWizard && searchWizardStep === 1) setSearchWizardStep(2);
                     }}
                   >
                     <View style={[styles.bsItemIcon, { backgroundColor: theme.primary + '15' }]}>
@@ -1301,6 +1690,9 @@ export default function ApiTourHotelSearch({
                         updateHotelSearch('countryId', country.id.toString());
                       }
                       setShowCountryModal(false);
+                      if (useSearchWizard && activeTab === 'tours' && searchWizardStep === 2) {
+                        setSearchWizardStep(3);
+                      }
                     }}
                   >
                     <View style={[styles.bsItemIcon, { backgroundColor: theme.primary + '15' }]}>
@@ -1315,6 +1707,128 @@ export default function ApiTourHotelSearch({
                   </TouchableOpacity>
                 );
               })}
+              <View style={{ height: 20 }} />
+            </ScrollView>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+
+      <Modal
+        visible={showFilterSheet}
+        {...transparentModalProps}
+        animationType="slide"
+        onRequestClose={() => setShowFilterSheet(false)}
+      >
+        <TouchableOpacity style={styles.bsOverlay} activeOpacity={1} onPress={() => setShowFilterSheet(false)}>
+          <TouchableOpacity
+            activeOpacity={1}
+            style={[styles.bsSheet, { backgroundColor: theme.card, maxHeight: windowHeight * 0.72 }]}
+            onPress={() => {}}
+          >
+            <View style={[styles.bsDragHandle, { backgroundColor: theme.border }]} />
+            <View style={[styles.bsHeader, { borderBottomColor: theme.border }]}>
+              <Text style={[styles.bsTitle, { color: theme.text }]}>
+                {filterSheetType === 'nights'
+                  ? i18n.t('form.nights')
+                  : filterSheetType === 'meal'
+                    ? i18n.t('form.meals')
+                    : filterSheetType === 'region'
+                      ? i18n.t('form.resort')
+                      : i18n.t('form.hotelCategory')}
+              </Text>
+              <TouchableOpacity onPress={() => setShowFilterSheet(false)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                <Ionicons name="close-circle" size={26} color={theme.secondaryText} />
+              </TouchableOpacity>
+            </View>
+            <ScrollView style={styles.bsScroll} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+              {filterSheetType === 'nights'
+                ? [
+                    { key: 'any', label: i18n.t('form.any'), from: 0, to: 0 },
+                    { key: '5-7', label: `5-7 ${i18n.t('form.nightsShort')}`, from: 5, to: 7 },
+                    { key: '7-10', label: `7-10 ${i18n.t('form.nightsShort')}`, from: 7, to: 10 },
+                    { key: '10-14', label: `10-14 ${i18n.t('form.nightsShort')}`, from: 10, to: 14 },
+                    { key: '14-21', label: `14-21 ${i18n.t('form.nightsShort')}`, from: 14, to: 21 },
+                  ].map((o) => {
+                    const selected = tourSearch.nightsFrom === o.from && tourSearch.nightsTo === o.to;
+                    return (
+                      <TouchableOpacity
+                        key={o.key}
+                        style={[styles.bsItem, { borderBottomColor: theme.border }, selected && { backgroundColor: theme.primary + '12' }]}
+                        activeOpacity={0.7}
+                        onPress={() => {
+                          updateTourSearch('nightsFrom', o.from);
+                          updateTourSearch('nightsTo', o.to);
+                          setShowFilterSheet(false);
+                        }}
+                      >
+                        <Text style={[styles.bsItemText, { color: selected ? theme.primary : theme.text }]}>{o.label}</Text>
+                        {selected ? <Ionicons name="checkmark-circle" size={22} color={theme.primary} /> : null}
+                      </TouchableOpacity>
+                    );
+                  })
+                : null}
+              {filterSheetType === 'meal'
+                ? [{ id: '', label: i18n.t('form.any') }, ...meals.map((m) => ({ id: m.id, label: m.russianName || m.name }))].map((o) => {
+                    const selected = filterMealId === o.id;
+                    return (
+                      <TouchableOpacity
+                        key={String(o.id)}
+                        style={[styles.bsItem, { borderBottomColor: theme.border }, selected && { backgroundColor: theme.primary + '12' }]}
+                        activeOpacity={0.7}
+                        onPress={() => {
+                          setFilterMealId(o.id as number | '');
+                          setShowFilterSheet(false);
+                        }}
+                      >
+                        <Text style={[styles.bsItemText, { color: selected ? theme.primary : theme.text }]}>{o.label}</Text>
+                        {selected ? <Ionicons name="checkmark-circle" size={22} color={theme.primary} /> : null}
+                      </TouchableOpacity>
+                    );
+                  })
+                : null}
+              {filterSheetType === 'region'
+                ? [{ id: '', label: i18n.t('form.anyCategory') }, ...regions.map((r) => ({ id: String(r.id), label: r.name }))].map((o) => {
+                    const selected = filterRegionId === o.id;
+                    return (
+                      <TouchableOpacity
+                        key={String(o.id)}
+                        style={[styles.bsItem, { borderBottomColor: theme.border }, selected && { backgroundColor: theme.primary + '12' }]}
+                        activeOpacity={0.7}
+                        onPress={() => {
+                          setFilterRegionId(String(o.id));
+                          setShowFilterSheet(false);
+                        }}
+                      >
+                        <Text style={[styles.bsItemText, { color: selected ? theme.primary : theme.text }]}>{o.label}</Text>
+                        {selected ? <Ionicons name="checkmark-circle" size={22} color={theme.primary} /> : null}
+                      </TouchableOpacity>
+                    );
+                  })
+                : null}
+              {filterSheetType === 'category'
+                ? [
+                    { v: '' as const, l: i18n.t('form.anyCategory') },
+                    { v: 3, l: '3★+' },
+                    { v: 4, l: '4★+' },
+                    { v: 5, l: '5★' },
+                  ].map((o) => {
+                    const selected = filterHotelCategory === o.v;
+                    return (
+                      <TouchableOpacity
+                        key={String(o.v)}
+                        style={[styles.bsItem, { borderBottomColor: theme.border }, selected && { backgroundColor: theme.primary + '12' }]}
+                        activeOpacity={0.7}
+                        onPress={() => {
+                          setFilterHotelCategory(o.v);
+                          setShowFilterSheet(false);
+                        }}
+                      >
+                        <Text style={[styles.bsItemText, { color: selected ? theme.primary : theme.text }]}>{o.l}</Text>
+                        {selected ? <Ionicons name="checkmark-circle" size={22} color={theme.primary} /> : null}
+                      </TouchableOpacity>
+                    );
+                  })
+                : null}
               <View style={{ height: 20 }} />
             </ScrollView>
           </TouchableOpacity>
@@ -1367,6 +1881,35 @@ export default function ApiTourHotelSearch({
             </View>
           </View>
         </View>
+      </Modal>
+
+      <Modal
+        visible={showChildAgeModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowChildAgeModal(false)}
+      >
+        <TouchableOpacity style={styles.ageOverlay} activeOpacity={1} onPress={() => setShowChildAgeModal(false)}>
+          <TouchableOpacity
+            activeOpacity={1}
+            style={[styles.ageSheet, { backgroundColor: theme.card, borderColor: theme.border }]}
+            onPress={() => {}}
+          >
+            <Text style={[styles.ageTitle, { color: theme.text }]}>{i18n.t('form.selectChildAge')}</Text>
+            <View style={styles.ageGrid}>
+              {Array.from({ length: 18 }, (_, age) => (
+                <TouchableOpacity
+                  key={age}
+                  style={[styles.ageCell, { borderColor: theme.border, backgroundColor: theme.secondaryBackground }]}
+                  onPress={() => applyChildAge(age)}
+                  activeOpacity={0.8}
+                >
+                  <Text style={[styles.ageCellText, { color: theme.text }]}>{age}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </TouchableOpacity>
+        </TouchableOpacity>
       </Modal>
 
       <TourSearchLoader
@@ -1703,5 +2246,65 @@ const styles = StyleSheet.create({
   },
   filterRow: {
     gap: 8,
+  },
+  wizardStepTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    marginBottom: 12,
+    marginTop: 4,
+  },
+  wizardSummary: {
+    fontSize: 14,
+    marginBottom: 12,
+  },
+  wizardPrimaryBtn: {
+    marginTop: 16,
+  },
+  wizardNavRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 16,
+  },
+  wizardNavBtn: {
+    flex: 1,
+  },
+  compactInputFull: {
+    width: '100%',
+    marginBottom: 8,
+  },
+  ageOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+    justifyContent: 'center',
+    padding: 20,
+  },
+  ageSheet: {
+    borderRadius: 16,
+    borderWidth: 1,
+    padding: 14,
+  },
+  ageTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    marginBottom: 10,
+    textAlign: 'center',
+  },
+  ageGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    justifyContent: 'center',
+  },
+  ageCell: {
+    width: 50,
+    height: 40,
+    borderRadius: 10,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  ageCellText: {
+    fontSize: 15,
+    fontWeight: '600',
   },
 });
