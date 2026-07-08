@@ -283,6 +283,25 @@ export default function ApiTourDetailsScreen({ navigation, route }: ApiTourDetai
     return timeStr.substring(0, 5);
   };
 
+  const normalizeAreaUnit = (value?: string) => {
+    if (!value) return '';
+    return value
+      .replace(/\bм2\b/gi, 'м²')
+      .replace(/\bm2\b/gi, 'm²')
+      .replace(/\bкв\.?\s*м\b/gi, 'м²')
+      .replace(/&#178;|&sup2;/gi, '²');
+  };
+
+  const normalizeHotelDescription = (value?: string) => {
+    if (!value) return '';
+    return normalizeAreaUnit(value)
+      .replace(/&nbsp;/gi, ' ')
+      .replace(/&ndash;/gi, '–')
+      .replace(/&mdash;/gi, '—')
+      .replace(/&quot;/gi, '"')
+      .replace(/&amp;/gi, '&');
+  };
+
   const renderTourInfo = () => {
     if (!tour) return null;
 
@@ -299,7 +318,7 @@ export default function ApiTourDetailsScreen({ navigation, route }: ApiTourDetai
         label: `${tour.adults} ${i18n.t('tours.adultsShort')}${tour.childs > 0 ? ` + ${tour.childs} ${i18n.t('tours.childrenShort')}` : ''}`,
       } : null,
       tour.meal?.name ? { icon: 'restaurant-outline', label: tour.meal.name } : null,
-      tour.roomType ? { icon: 'bed-outline', label: tour.roomType } : null,
+      tour.roomType ? { icon: 'bed-outline', label: normalizeAreaUnit(tour.roomType) } : null,
       tour.departure?.name ? { icon: 'airplane-outline', label: tour.departure.name } : null,
     ].filter(Boolean) as { icon: keyof typeof Ionicons.glyphMap; label: string }[];
 
@@ -374,7 +393,7 @@ export default function ApiTourDetailsScreen({ navigation, route }: ApiTourDetai
             <View style={styles.detailSectionContent}>
               <Text style={[styles.detailSectionTitle, { color: theme.text }]}>Об отеле</Text>
               <Text style={[styles.descriptionText, { color: theme.secondaryText }]}>
-                {tour.hotelDescription}
+                {normalizeHotelDescription(tour.hotelDescription)}
               </Text>
             </View>
           </View>
@@ -395,7 +414,7 @@ export default function ApiTourDetailsScreen({ navigation, route }: ApiTourDetai
               {tour.placement && (
                 <View style={styles.paramBlock}>
                   <Text style={[styles.paramLabel, { color: theme.tertiaryText }]}>Размещение</Text>
-                  <Text style={[styles.paramValue, { color: theme.text }]}>{tour.placement}</Text>
+                  <Text style={[styles.paramValue, { color: theme.text }]}>{normalizeAreaUnit(tour.placement)}</Text>
                 </View>
               )}
               {tour.hotel.rating > 0 && (

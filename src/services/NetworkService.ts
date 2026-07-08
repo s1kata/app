@@ -3,7 +3,7 @@
  */
 import { AppState, AppStateStatus } from 'react-native';
 import NetInfo from '@react-native-community/netinfo';
-import { isDeviceOffline, pingBackendHealth } from '../utils/backendHealth';
+import { isDeviceOffline, pingBackendHealth, pingSiteReachable } from '../utils/backendHealth';
 import { getNetworkIssueMessage } from '../utils/networkMessages';
 import { logger } from '../utils/logger';
 
@@ -30,7 +30,7 @@ type LegacyListener = () => void;
 
 const RETRY_BASE_MS = 5000;
 const RETRY_MAX_MS = 30000;
-const CONSECUTIVE_FAILS_FOR_BANNER = 2;
+const CONSECUTIVE_FAILS_FOR_BANNER = 3;
 
 class NetworkService {
   private static instance: NetworkService;
@@ -111,6 +111,15 @@ class NetworkService {
 
       const backendOk = await pingBackendHealth();
       if (backendOk) {
+        this._backendFailStreak = 0;
+        this._applyState({ status: 'ok', issue: null });
+        return this._state;
+      }
+
+      // На части Wi-Fi/роутеров POST health может флапать, хотя хост доступен.
+      // Если базовый хост отвечает, не показываем тревожный баннер.
+      const siteReachable = await pingSiteReachable();
+      if (siteReachable) {
         this._backendFailStreak = 0;
         this._applyState({ status: 'ok', issue: null });
         return this._state;

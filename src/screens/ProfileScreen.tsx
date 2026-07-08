@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
+import Constants from 'expo-constants';
 import { Ionicons } from '@expo/vector-icons';
 import { AuthService } from '../services/AuthService';
 import { bonusService } from '../services/BonusService';
@@ -171,7 +172,21 @@ export default function ProfileScreen({ navigation }: any) {
       : []),
     { id: 'settings', title: i18n.t('settings.title'), icon: 'settings-outline', onPress: () => navigation.navigate('Settings') },
     { id: 'help', title: i18n.t('profile.help'), icon: 'help-circle-outline', onPress: () => navigation.navigate('HelperChat') },
+    {
+      id: 'privacy',
+      title: i18n.t('settings.privacyPolicy'),
+      icon: 'shield-checkmark-outline',
+      onPress: () => navigation.navigate('LegalDocument', { type: 'privacy' }),
+    },
+    {
+      id: 'terms',
+      title: i18n.t('settings.termsOfUse'),
+      icon: 'document-text-outline',
+      onPress: () => navigation.navigate('LegalDocument', { type: 'terms' }),
+    },
   ];
+
+  const appVersion = Constants.expoConfig?.version || '1.0.1';
 
   return (
     <SafeAreaView
@@ -271,7 +286,7 @@ export default function ProfileScreen({ navigation }: any) {
       </View>
 
         <View style={[styles.footer, { backgroundColor: theme.background }]}>
-          <Text style={[styles.footerText, { color: theme.tertiaryText }]}>TravelHub v1.0.0</Text>
+          <Text style={[styles.footerText, { color: theme.tertiaryText }]}>TravelHub v{appVersion}</Text>
         </View>
       </ScrollView>
 
