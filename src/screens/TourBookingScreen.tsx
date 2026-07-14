@@ -562,6 +562,7 @@ export default function TourBookingScreen({ navigation, route }: TourBookingScre
           await openPaymentInBrowser(paymentResult.paymentUrl!);
         } catch (error) {
           logger.warn('Ошибка открытия страницы оплаты:', error);
+          await bookingService.markPaymentStatus(bookingId, 'pending').catch(() => {});
           paymentUxBus.showPaymentRecovery(() => navigation.navigate('MainTabs', { screen: 'Bookings' }));
         } finally {
           setIsSubmitting(false);

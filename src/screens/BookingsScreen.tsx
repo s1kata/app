@@ -34,6 +34,18 @@ import {
   statusToneColor,
   type StatusLegDisplay,
 } from '../utils/bookingStatus';
+import {
+  canShowCheckPaymentStatus,
+  canShowPayBooking,
+} from '../utils/paymentRetryEligibility';
+import {
+  getLastPaymentTransaction,
+  pollPaymentUntilFinal,
+} from '../services/PaymentService';
+import { presentPaymentPollOutcome } from '../utils/paymentPollOutcomes';
+import { resolvePaymentStatusFromPoll } from '../utils/resolvePaymentStatusFromPoll';
+import { bonusService } from '../services/BonusService';
+import { authSession } from '../services/AuthSession';
 
 export default function BookingsScreen({ navigation }: any) {
   const { user, theme } = useAppContext();
@@ -331,12 +343,7 @@ export default function BookingsScreen({ navigation }: any) {
   };
 
   const handlePayBooking = async (booking: Booking) => {
-    if (
-      booking.paymentStatus === 'paid' ||
-      booking.paymentStatus === 'payment_processing' ||
-      booking.status === 'cancelled'
-    )
-      return;
+    if (!canShowPayBooking(booking)) return;
     if (payingBookingId) return;
     const title = booking.tourSnapshot?.hotelName || i18n.t('bookings.tour');
     setPayingBookingId(booking.id);
@@ -377,13 +384,126 @@ export default function BookingsScreen({ navigation }: any) {
       await bookingService.markPaymentStatus(booking.id, 'payment_processing');
       setBookings((prev) =>
         prev.map((b) =>
-          b.id === booking.id ? { ...b, paymentStatus: 'payment_processing' } : b,
+          b.id === booking.id
+            ? {
+                ...b,
+                paymentStatus: 'payment_processing',
+                updatedAt: new Date().toISOString(),
+              }
+            : b,
         ),
       );
       await openPaymentInBrowser(paymentUrl);
     } catch (error) {
       logger.warn('[BookingsScreen] Failed to open payment page:', error);
+      await bookingService.markPaymentStatus(booking.id, 'pending').catch(() => {});
+      setBookings((prev) =>
+        prev.map((b) =>
+          b.id === booking.id
+            ? { ...b, paymentStatus: 'pending', updatedAt: new Date().toISOString() }
+            : b,
+        ),
+      );
       paymentUxBus.showPaymentRecovery(() => navigation.navigate('MainTabs', { screen: 'Bookings' }));
+    } finally {
+      setPayingBookingId(null);
+    }
+  };
+
+  const applyPollResultToBooking = async (bookingId: string, result: Parameters<typeof resolvePaymentStatusFromPoll>[0]) => {
+    const paymentStatus = resolvePaymentStatusFromPoll(result);
+    if (!paymentStatus) return;
+    const extra: { paidAt?: string } = {};
+    if (paymentStatus === 'paid') {
+      extra.paidAt = result.paidAt || new Date().toISOString();
+    }
+    await bookingService.markPaymentStatus(bookingId, paymentStatus, extra);
+    setBookings((prev) =>
+      prev.map((b) =>
+        b.id === bookingId
+          ? {
+              ...b,
+              paymentStatus,
+              updatedAt: new Date().toISOString(),
+              ...(extra.paidAt ? { paidAt: extra.paidAt } : {}),
+            }
+          : b,
+      ),
+    );
+  };
+
+  const handleCheckPaymentStatus = async (booking: Booking) => {
+    if (payingBookingId) return;
+    setPayingBookingId(booking.id);
+    try {
+      const last = await getLastPaymentTransaction();
+      if (!last?.transactionId || String(last.orderId) !== String(booking.id)) {
+        await bookingService.markPaymentStatus(booking.id, 'pending');
+        setBookings((prev) =>
+          prev.map((b) =>
+            b.id === booking.id
+              ? { ...b, paymentStatus: 'pending', updatedAt: new Date().toISOString() }
+              : b,
+          ),
+        );
+        Alert.alert(i18n.t('payment.pendingTitle'), i18n.t('payment.retryAvailable'));
+        return;
+      }
+      const statusResult = await pollPaymentUntilFinal(last.transactionId, {
+        intervalMs: 3000,
+        maxWaitMs: 45000,
+      });
+      const stored = await authSession.getStoredUser();
+      const uid = stored?.id;
+      presentPaymentPollOutcome({
+        transactionId: last.transactionId,
+        result: statusResult,
+        onStatusResolved: async (result) => {
+          // После ручной проверки: pending = можно оплатить снова, не «вечный processing».
+          if (result.success && result.status === 'pending') {
+            await bookingService.markPaymentStatus(booking.id, 'pending');
+            setBookings((prev) =>
+              prev.map((b) =>
+                b.id === booking.id
+                  ? { ...b, paymentStatus: 'pending', updatedAt: new Date().toISOString() }
+                  : b,
+              ),
+            );
+            return;
+          }
+          await applyPollResultToBooking(booking.id, result);
+        },
+        onReload: async () => {
+          loadBookings();
+        },
+        onBeforeSuccessAlert: async () => {
+          if (uid) {
+            await bookingService.maybeAwardLoyaltyAfterPaidBooking(uid, booking.id);
+            const userStored = await authSession.getStoredUser();
+            await bonusService.redeemAfterSuccessfulPayment(
+              booking.id,
+              userStored?.email,
+              userStored?.phone,
+            );
+          }
+        },
+        onPendingOk: () => undefined,
+        alertSuccess: () => {
+          paymentUxBus.showPaymentSuccess(() => undefined);
+        },
+        alertFailed: () => {
+          Alert.alert(i18n.t('common.error'), i18n.t('payment.failedRetryMessage'));
+        },
+        alertFallbackError: () => {
+          Alert.alert(i18n.t('common.error'), i18n.t('payment.failedMessage'));
+        },
+        alertNetworkError: (message) => {
+          Alert.alert(i18n.t('common.error'), message);
+        },
+      });
+    } catch (e) {
+      logger.warn('[BookingsScreen] check payment status:', e);
+      Alert.alert(i18n.t('common.error'), i18n.t('payment.failedMessage'));
     } finally {
       setPayingBookingId(null);
     }
@@ -613,9 +733,27 @@ export default function BookingsScreen({ navigation }: any) {
                         )}
                       </View>
 
-                      {booking.paymentStatus !== 'paid' &&
-                        booking.paymentStatus !== 'payment_processing' &&
-                        booking.status !== 'cancelled' && (
+                      {canShowCheckPaymentStatus(booking) && (
+                        <TouchableOpacity
+                          style={[styles.payButton, styles.checkButton, { borderColor: theme.accent }]}
+                          onPress={() => handleCheckPaymentStatus(booking)}
+                          disabled={!!payingBookingId}
+                          activeOpacity={0.8}
+                        >
+                          {payingBookingId === booking.id ? (
+                            <ActivityIndicator size="small" color={theme.accent} />
+                          ) : (
+                            <>
+                              <Ionicons name="refresh-outline" size={20} color={theme.accent} />
+                              <Text style={[styles.payButtonText, { color: theme.accent }]}>
+                                {i18n.t('payment.checkAgain')}
+                              </Text>
+                            </>
+                          )}
+                        </TouchableOpacity>
+                      )}
+
+                      {canShowPayBooking(booking) && (
                         <TouchableOpacity
                           style={[styles.payButton, { backgroundColor: theme.accent }]}
                           onPress={() => handlePayBooking(booking)}
@@ -911,6 +1049,12 @@ const styles = StyleSheet.create({
     height: 44,
     borderRadius: 12,
     ...shadows.buttonCta,
+  },
+  checkButton: {
+    backgroundColor: 'transparent',
+    borderWidth: 1.5,
+    shadowOpacity: 0,
+    elevation: 0,
   },
   payButtonText: {
     fontSize: 15,

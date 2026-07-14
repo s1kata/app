@@ -25,7 +25,7 @@ import { PrimaryButton } from '../components/ui';
 import AppLogo from '../components/AppLogo';
 
 export default function ProfileScreen({ navigation }: any) {
-  const { logout, user, theme, isDark } = useAppContext();
+  const { logout, loginAsGuest, user, theme, isDark } = useAppContext();
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [bonusBalance, setBonusBalance] = useState(0);
   const [purchaseCount, setPurchaseCount] = useState(0);
@@ -138,9 +138,10 @@ export default function ProfileScreen({ navigation }: any) {
           style: 'destructive',
           onPress: async () => {
             await logout();
+            await loginAsGuest();
             navigation.reset({
               index: 0,
-              routes: [{ name: 'Login' }],
+              routes: [{ name: 'MainTabs' }],
             });
           },
         },
@@ -149,7 +150,14 @@ export default function ProfileScreen({ navigation }: any) {
   };
 
   const menuItems = [
-    { id: 'personal', title: i18n.t('profile.personalData'), icon: 'id-card-outline', onPress: () => navigation.navigate('PersonalData') },
+    ...(!isGuest
+      ? [{
+          id: 'personal',
+          title: i18n.t('profile.personalData'),
+          icon: 'id-card-outline',
+          onPress: () => navigation.navigate('PersonalData'),
+        }]
+      : []),
     {
       id: 'favorites',
       title: i18n.t('profile.favorites'),

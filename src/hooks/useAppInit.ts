@@ -23,10 +23,9 @@ export function useAppInit() {
     logger.info('[AppInit] starting services', { network: true, crm: true, firestore: !!db });
 
     const timer = setTimeout(() => {
-      notificationService
-        .initialize()
-        .then(() => notificationService.scheduleDailyHotToursNotification())
-        .catch((e) => logger.warn('notification init:', e));
+      // Инициализацию и маркетинговые уведомления теперь запускаем только
+      // по явному действию пользователя (из настроек), чтобы не запрашивать
+      // разрешения на пуши сразу после старта приложения.
       messageService.initialize().catch((e) => logger.warn('message init:', e));
     }, NOTIFY_DELAY_MS);
 

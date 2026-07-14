@@ -653,6 +653,14 @@ const translations: Translations = {
   'payment.failedBanner': { ru: 'Ошибка оплаты, попробуйте позже', en: 'Payment failed, please try again later' },
   'payment.pendingBanner': { ru: 'Оплата обрабатывается, ждите подтверждения', en: 'Payment is processing, please wait' },
   'payment.cancelledBanner': { ru: 'Оплата отменена', en: 'Payment cancelled' },
+  'payment.failedRetryMessage': {
+    ru: 'Оплата не прошла или была отменена. Можно оплатить снова в списке бронирований.',
+    en: 'Payment failed or was cancelled. You can pay again in My Bookings.',
+  },
+  'payment.retryAvailable': {
+    ru: 'Можно оплатить снова — нажмите «Оплатить» на бронировании.',
+    en: 'You can pay again — tap Pay on the booking.',
+  },
   'payment.secureNote': { ru: 'Оплата на защищённой странице. После оплаты нажмите «Вернуться в приложение».', en: 'Payment on secure page. After paying, tap "Return to app".' },
   'notification.dailyHotToursTitle': { ru: 'Новые туры!', en: 'New tours!' },
   'notification.dailyHotToursBody': {

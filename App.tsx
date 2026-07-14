@@ -45,9 +45,13 @@ export default function App() {
       const hasAsked = await locationService.hasAskedPermission();
       const permissionStatus = await locationService.checkPermission();
       if (!appMountedRef.current) return;
-      if (!hasAsked || permissionStatus === 'denied') {
+
+      // Геолокация — опциональна. Не блокируем приложение, не показываем модалку
+      // повторно, если пользователь уже отказался.
+      if (!hasAsked && permissionStatus !== 'granted') {
         setShowLocationModal(true);
       }
+
       markPermissionChecked();
     } catch (error) {
       logger.error('Error checking location permission:', error);
@@ -82,6 +86,11 @@ export default function App() {
     } catch (error) {
       logger.error('Error getting new location:', error);
     }
+  };
+
+  const handleLocationSkip = () => {
+    // Пользователь решил не делиться местоположением — продолжаем работу приложения.
+    setShowLocationModal(false);
   };
 
   const onNavigationReady = () => {
@@ -127,6 +136,7 @@ export default function App() {
                   visible={showLocationModal}
                   onConfirm={handleLocationConfirm}
                   onLocationIncorrect={handleLocationIncorrect}
+                  onSkip={handleLocationSkip}
                 />
               )}
             </AppProvider>

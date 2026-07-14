@@ -29,8 +29,21 @@ export function canTransitionPaymentStatus(
   const f = from || 'pending';
   if (f === to) return true;
   if (f === 'paid') return to === 'paid' || to === 'refunded';
-  if (f === 'refunded' || f === 'cancelled') return false;
-  if (to === 'pending' && (f === 'payment_processing' || f === 'failed')) return false;
+  if (f === 'refunded') return false;
+  // Отмена/ошибка → повторный Init (pending / processing) или поздний paid.
+  if (f === 'cancelled' || f === 'failed') {
+    return to === 'pending' || to === 'payment_processing' || to === 'paid';
+  }
+  // Stuck processing: unlock для retry или финальный unpaid/paid.
+  if (f === 'payment_processing') {
+    return (
+      to === 'paid' ||
+      to === 'failed' ||
+      to === 'cancelled' ||
+      to === 'pending' ||
+      to === 'payment_processing'
+    );
+  }
   return true;
 }
 
@@ -45,7 +58,8 @@ export function resolveBookingStatusMerge(a: BookingStatus, b: BookingStatus): B
 }
 
 /**
- * Слияние статуса оплаты: paid не откатывается; processing важнее pending.
+ * Слияние статуса оплаты: paid не откатывается;
+ * cancelled/failed не перетираются устаревшим payment_processing.
  */
 export function resolvePaymentStatusMerge(
   local?: Booking['paymentStatus'],
@@ -61,19 +75,25 @@ export function resolvePaymentStatusMerge(
   if (l === 'paid' || r === 'paid') return 'paid';
   if (l === 'refunded' || r === 'refunded') return 'refunded';
 
-  if (l === 'payment_processing' || r === 'payment_processing') {
-    if (l === 'failed' || r === 'failed') {
+  const isTerminalUnpaid = (s: Booking['paymentStatus']) => s === 'cancelled' || s === 'failed';
+
+  if (isTerminalUnpaid(l) || isTerminalUnpaid(r)) {
+    if (isTerminalUnpaid(l) && isTerminalUnpaid(r)) {
       return lTime >= rTime ? l : r;
     }
+    if (isTerminalUnpaid(l) && (r === 'payment_processing' || r === 'pending')) {
+      // Новый Init (processing новее) побеждает старый cancelled/failed.
+      if (r === 'payment_processing' && rTime > lTime) return r;
+      return l;
+    }
+    if (isTerminalUnpaid(r) && (l === 'payment_processing' || l === 'pending')) {
+      if (l === 'payment_processing' && lTime > rTime) return l;
+      return r;
+    }
+  }
+
+  if (l === 'payment_processing' || r === 'payment_processing') {
     return 'payment_processing';
-  }
-
-  if (l === 'failed' || r === 'failed') {
-    return lTime >= rTime ? l : r;
-  }
-
-  if (l === 'cancelled' || r === 'cancelled') {
-    return lTime >= rTime ? l : r;
   }
 
   return lTime >= rTime ? l : r;

@@ -439,7 +439,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         await AsyncStorage.removeItem(CURRENT_USER_STORAGE_KEY);
       }
 
-      logger.debug('No persisted user, showing login');
+      logger.debug('No persisted user, splash will enter guest browse mode');
       setUser(null);
       setAuthReady(true);
     } catch (error) {

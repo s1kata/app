@@ -13,11 +13,13 @@ import { i18n } from '../config/i18n';
 import { isPaymentRelinkInProgress } from '../services/PaymentRelinkState';
 
 export default function SplashScreen({ navigation }: { navigation: any }) {
-  const { isAuthenticated, theme, isDark } = useAppContext();
-  useLifecycleLog('SplashScreen', { label: 'auth', deps: [isAuthenticated] });
+  const { isAuthenticated, authReady, loginAsGuest, user, theme, isDark } = useAppContext();
+  useLifecycleLog('SplashScreen', { label: 'auth', deps: [isAuthenticated, authReady] });
 
   const mountTime = useRef(Date.now()).current;
   const hasNavigated = useRef(false);
+  const userRef = useRef(user);
+  userRef.current = user;
   const logoScale = useRef(new Animated.Value(0.7)).current;
   const logoOpacity = useRef(new Animated.Value(0)).current;
   const titleOpacity = useRef(new Animated.Value(0)).current;
@@ -82,17 +84,42 @@ export default function SplashScreen({ navigation }: { navigation: any }) {
     );
     glowLoop.start();
 
-    const doNavigate = () => {
+    const doNavigate = async () => {
       if (!alive || hasNavigated.current) return;
+      // Ждём восстановления сессии, чтобы не создать guest поверх реального user.
+      if (!authReady) {
+        navTimer = setTimeout(() => {
+          void doNavigate();
+        }, 100);
+        return;
+      }
       if (isPaymentRelinkInProgress()) {
         logger.info('[Splash] payment relink lock active, postpone navigation');
-        navTimer = setTimeout(doNavigate, 250);
+        navTimer = setTimeout(() => {
+          void doNavigate();
+        }, 250);
         return;
       }
       hasNavigated.current = true;
-      const target = isAuthenticated ? 'MainTabs' : 'Login';
-      logIosTestStep(IosTestStep.LAUNCH, { isAuthenticated, target });
-      logger.info('[Splash] navigate', { target, isAuthenticated });
+      // App Store 5.1.1(v): каталог доступен без обязательного Login.
+      // Нет сессии → silent guest → сразу Home.
+      const currentUser = userRef.current;
+      const startedAsGuest = !currentUser;
+      try {
+        if (!currentUser) {
+          await loginAsGuest();
+        }
+      } catch (e) {
+        logger.warn('[Splash] auto guest failed, continuing to MainTabs:', e);
+      }
+      // Не прерываем по alive: loginAsGuest меняет user и может cleanup'нуть effect.
+      const target = 'MainTabs';
+      logIosTestStep(IosTestStep.LAUNCH, {
+        isAuthenticated: true,
+        target,
+        guestAuto: startedAsGuest,
+      });
+      logger.info('[Splash] navigate', { target, startedAsGuest, authReady });
       NativeSplash.hideAsync().catch(() => {});
       navigation.replace(target);
       hideSplashTimer = setTimeout(() => NativeSplash.hideAsync().catch(() => {}), 150);
@@ -100,7 +127,9 @@ export default function SplashScreen({ navigation }: { navigation: any }) {
 
     const minDelay = 1300;
     const waitMs = Math.max(0, minDelay - (Date.now() - mountTime));
-    navTimer = setTimeout(doNavigate, waitMs);
+    navTimer = setTimeout(() => {
+      void doNavigate();
+    }, waitMs);
     const hardHideTimer = setTimeout(() => NativeSplash.hideAsync().catch(() => {}), 1000);
 
     return () => {
@@ -111,7 +140,10 @@ export default function SplashScreen({ navigation }: { navigation: any }) {
       if (hardHideTimer) clearTimeout(hardHideTimer);
     };
   }, [
-    isAuthenticated,
+    authReady,
+    // user / isAuthenticated не в deps: loginAsGuest иначе перезапускал бы effect
+    // в середине перехода на MainTabs. Актуальный user берём из userRef.
+    loginAsGuest,
     navigation,
     mountTime,
     logoOpacity,

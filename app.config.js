@@ -80,7 +80,7 @@ module.exports = {
     name: "TravelHub",
     slug: "travelhub",
     owner: (process.env.EXPO_OWNER || "s1kata12").trim(),
-    version: "1.0.1",
+    version: "1.0.2",
     scheme: "travelhub",
     orientation: "portrait",
     userInterfaceStyle: "automatic",
@@ -94,7 +94,7 @@ module.exports = {
       "**/*"
     ],
     ios: {
-      supportsTablet: true,
+      supportsTablet: false,
       bundleIdentifier: iosBundleIdentifier,
       icon: appIconPng,
       buildNumber: "4",
@@ -124,6 +124,7 @@ module.exports = {
       "expo-font",
       "expo-secure-store",
       "expo-web-browser",
+      "@react-native-community/datetimepicker",
       ...(enableIosPush
         ? [[
             "expo-notifications",

@@ -166,6 +166,11 @@ export function usePaymentDeepLinks(navigationRef: Ref) {
           result: statusResult,
           onStatusResolved: async (result) => {
             if (!last.orderId) return;
+            // Fail / cancel return + ещё pending у банка → разблокируем повторную оплату.
+            if (!isSuccess && result.success && result.status === 'pending') {
+              await bookingService.markPaymentStatus(last.orderId, 'pending');
+              return;
+            }
             const paymentStatus = resolvePaymentStatusFromPoll(result);
             if (!paymentStatus) return;
             const extra: { paidAt?: string } = {};
@@ -197,7 +202,7 @@ export function usePaymentDeepLinks(navigationRef: Ref) {
           },
           alertFailed: () => {
             if (recoveryTimer) clearTimeout(recoveryTimer);
-            Alert.alert(i18n.t('common.error'), i18n.t('payment.failedMessage'), [
+            Alert.alert(i18n.t('common.error'), i18n.t('payment.failedRetryMessage'), [
               { text: i18n.t('common.ok'), onPress: () => void goBookings() },
             ]);
           },
@@ -295,11 +300,85 @@ export function usePaymentDeepLinks(navigationRef: Ref) {
       externalReturnTimer = setTimeout(() => {
         if (cancelledRef.current || isHandlingPaymentReturnRef.current) return;
         if (!isExternalPaymentSession()) return;
-        logger.info('[DeepLink] External payment return without deep link — recovery');
+        logger.info('[DeepLink] External payment return without deep link — poll & recover');
         markExternalPaymentSession(false);
-        paymentUxBus.showPaymentRecovery(() => {
-          void goBookings();
-        });
+        void (async () => {
+          try {
+            const last = await getLastPaymentTransaction();
+            if (cancelledRef.current || !last?.transactionId || !last.orderId) {
+              paymentUxBus.showPaymentRecovery(() => {
+                void goBookings();
+              });
+              return;
+            }
+            await goBookings();
+            const statusResult = await pollPaymentUntilFinal(last.transactionId, {
+              intervalMs: 3000,
+              maxWaitMs: 20000,
+            });
+            if (cancelledRef.current) return;
+            const stored = await authSession.getStoredUser();
+            const uid = stored?.id;
+            presentPaymentPollOutcome({
+              transactionId: last.transactionId,
+              result: statusResult,
+              onStatusResolved: async (result) => {
+                // Без deep link: pending после короткого опроса = не завершили оплату → снова «Оплатить».
+                if (result.success && result.status === 'pending') {
+                  await bookingService.markPaymentStatus(last.orderId, 'pending');
+                  return;
+                }
+                const paymentStatus = resolvePaymentStatusFromPoll(result);
+                if (!paymentStatus) return;
+                const extra: { paidAt?: string } = {};
+                if (paymentStatus === 'paid') {
+                  extra.paidAt = result.paidAt || new Date().toISOString();
+                }
+                await bookingService.markPaymentStatus(last.orderId, paymentStatus, extra);
+              },
+              onReload: reloadBookingsAfterPayment,
+              onBeforeSuccessAlert: async () => {
+                if (uid && last.orderId) {
+                  await bookingService.maybeAwardLoyaltyAfterPaidBooking(uid, last.orderId);
+                  const user = await authSession.getStoredUser();
+                  await bonusService.redeemAfterSuccessfulPayment(
+                    last.orderId,
+                    user?.email,
+                    user?.phone,
+                  );
+                }
+              },
+              onPendingOk: () => {
+                void goBookings();
+              },
+              alertSuccess: () => {
+                paymentUxBus.showPaymentSuccess(() => {
+                  void goBookings();
+                });
+              },
+              alertFailed: () => {
+                Alert.alert(i18n.t('common.error'), i18n.t('payment.failedRetryMessage'), [
+                  { text: i18n.t('common.ok'), onPress: () => void goBookings() },
+                ]);
+              },
+              alertFallbackError: () => {
+                paymentUxBus.showPaymentRecovery(() => {
+                  void goBookings();
+                });
+              },
+              alertNetworkError: () => {
+                paymentUxBus.showPaymentRecovery(() => {
+                  void goBookings();
+                });
+              },
+            });
+          } catch (e) {
+            logger.warn('[DeepLink] external return recover:', e);
+            paymentUxBus.showPaymentRecovery(() => {
+              void goBookings();
+            });
+          }
+        })();
       }, 2000);
     });
 
