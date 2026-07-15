@@ -39,9 +39,14 @@ function isPaymentSuccessUrl(url: string): boolean {
   return url.includes('booking-success') || url.includes('payment/success');
 }
 
+function parseBookingId(url: string): string | null {
+  const match = url.match(/(?:bookingId|orderId)=([^&]+)/i);
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
 /**
  * Диплинк travelhub://booking-success|fail или travelhub://payment/success|fail —
- * статус оплаты всегда с бэкенда (poll), не из URL.
+ * статус оплаты ТОЛЬКО с бэкенда (GetState), никогда из path URL.
  */
 export function usePaymentDeepLinks(navigationRef: Ref) {
   useLifecycleLog('usePaymentDeepLinks');
@@ -54,11 +59,6 @@ export function usePaymentDeepLinks(navigationRef: Ref) {
     cancelledRef.current = false;
     let initialUrlTimer: ReturnType<typeof setTimeout> | undefined;
     let recoveryTimer: ReturnType<typeof setTimeout> | undefined;
-
-    const parseBookingId = (url: string): string | null => {
-      const match = url.match(/bookingId=([^&]+)/);
-      return match ? decodeURIComponent(match[1]) : null;
-    };
 
     const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
@@ -121,6 +121,98 @@ export function usePaymentDeepLinks(navigationRef: Ref) {
       return false;
     };
 
+    const applyPollToBooking = async (
+      orderId: string,
+      result: Parameters<typeof resolvePaymentStatusFromPoll>[0],
+      opts?: { unlockPendingOnPending?: boolean },
+    ) => {
+      if (opts?.unlockPendingOnPending && result.success && result.status === 'pending') {
+        await bookingService.markPaymentStatus(orderId, 'pending');
+        return;
+      }
+      const paymentStatus = resolvePaymentStatusFromPoll(result);
+      if (!paymentStatus) return;
+      // Клиент никогда не ставит paid «на глаз» — только если банк/API вернули success.
+      if (paymentStatus === 'paid' && result.status !== 'success') return;
+      const extra: { paidAt?: string } = {};
+      if (paymentStatus === 'paid') {
+        extra.paidAt = result.paidAt || new Date().toISOString();
+      }
+      await bookingService.markPaymentStatus(orderId, paymentStatus, extra);
+    };
+
+    const presentForSession = async (params: {
+      transactionId: string;
+      orderId: string;
+      statusResult: Awaited<ReturnType<typeof pollPaymentUntilFinal>>;
+      unlockPendingOnPending: boolean;
+    }) => {
+      const { transactionId, orderId, statusResult, unlockPendingOnPending } = params;
+      const stored = await authSession.getStoredUser();
+      const uid = stored?.id;
+
+      // Success-URL без CONFIRMED у банка → не success-модалка.
+      const safeResult =
+        unlockPendingOnPending &&
+        statusResult.success &&
+        statusResult.status === 'pending'
+          ? { ...statusResult, pendingLong: true }
+          : statusResult;
+
+      presentPaymentPollOutcome({
+        transactionId,
+        result: safeResult,
+        onStatusResolved: async (result) => {
+          await applyPollToBooking(orderId, result, { unlockPendingOnPending });
+        },
+        onReload: reloadBookingsAfterPayment,
+        onBeforeSuccessAlert: async () => {
+          if (uid && orderId) {
+            await bookingService.maybeAwardLoyaltyAfterPaidBooking(uid, orderId);
+            const user = await authSession.getStoredUser();
+            await bonusService.redeemAfterSuccessfulPayment(
+              orderId,
+              user?.email,
+              user?.phone,
+            );
+          }
+        },
+        onPendingOk: () => {
+          void goBookings();
+        },
+        alertSuccess: () => {
+          if (recoveryTimer) clearTimeout(recoveryTimer);
+          // Доп. защита: только при реальном success от API.
+          if (statusResult.success && statusResult.status === 'success') {
+            paymentUxBus.showPaymentSuccess(() => {
+              void goBookings();
+            });
+          } else {
+            showPaymentStatusBar(i18n.t('payment.pendingBanner'), 'info');
+            void goBookings();
+          }
+        },
+        alertFailed: () => {
+          if (recoveryTimer) clearTimeout(recoveryTimer);
+          Alert.alert(i18n.t('common.error'), i18n.t('payment.failedRetryMessage'), [
+            { text: i18n.t('common.ok'), onPress: () => void goBookings() },
+          ]);
+        },
+        alertFallbackError: () => {
+          if (recoveryTimer) clearTimeout(recoveryTimer);
+          Alert.alert(i18n.t('common.error'), i18n.t('payment.failedMessage'), [
+            { text: i18n.t('common.ok'), onPress: () => void goBookings() },
+          ]);
+        },
+        alertNetworkError: (message) => {
+          if (recoveryTimer) clearTimeout(recoveryTimer);
+          Alert.alert(i18n.t('common.error'), message, [
+            { text: i18n.t('common.ok'), onPress: () => void goBookings() },
+          ]);
+        },
+      });
+    };
+
     const processPaymentReturn = async (url: string) => {
       if (cancelledRef.current) return;
       if (recoveryTimer) clearTimeout(recoveryTimer);
@@ -131,93 +223,50 @@ export function usePaymentDeepLinks(navigationRef: Ref) {
           });
         }
       }, PAYMENT_RETURN_FALLBACK_MS);
-      const isSuccess = isPaymentSuccessUrl(url);
-      if (isSuccess) {
-        showPaymentStatusBar(i18n.t('payment.pendingBanner'), 'info');
-      } else {
-        showPaymentStatusBar(i18n.t('payment.cancelledBanner'), 'warning');
-      }
+
+      // URL path не определяет статус: всегда «проверяем».
+      showPaymentStatusBar(i18n.t('payment.pendingBanner'), 'info');
       const bookingIdFromUrl = parseBookingId(url);
+      const failUrl = !isPaymentSuccessUrl(url);
 
       try {
         const last = await getLastPaymentTransaction();
         if (cancelledRef.current) return;
-        if (!last?.transactionId) {
+        if (!last?.transactionId || !last.orderId) {
           paymentUxBus.showPaymentRecovery(() => {
             void goBookings();
           });
           return;
         }
 
+        // Нельзя опрашивать чужой/старый payment: иначе ложный paid.
         if (bookingIdFromUrl && String(last.orderId) !== String(bookingIdFromUrl)) {
-          logger.warn('[DeepLink] bookingId в URL не совпал с последней сессией оплаты — опираемся на последний transactionId');
+          logger.warn('[DeepLink] bookingId mismatch — abort (no false paid)', {
+            bookingIdFromUrl,
+            lastOrderId: String(last.orderId),
+          });
+          if (recoveryTimer) clearTimeout(recoveryTimer);
+          showPaymentStatusBar(i18n.t('payment.cancelledBanner'), 'warning');
+          Alert.alert(i18n.t('payment.pendingTitle'), i18n.t('payment.retryAvailable'), [
+            { text: i18n.t('common.ok'), onPress: () => void goBookings() },
+          ]);
+          return;
         }
 
         const statusResult = await pollPaymentUntilFinal(last.transactionId, {
           intervalMs: 4000,
-          maxWaitMs: 120000,
+          maxWaitMs: failUrl ? 20000 : 120000,
         });
         if (cancelledRef.current) return;
 
-        const stored = await authSession.getStoredUser();
-        const uid = stored?.id;
-        presentPaymentPollOutcome({
+        // Fail-URL или success-URL без подтверждения банка → разблокировать оплату.
+        const unlockPendingOnPending = true;
+
+        await presentForSession({
           transactionId: last.transactionId,
-          result: statusResult,
-          onStatusResolved: async (result) => {
-            if (!last.orderId) return;
-            // Fail / cancel return + ещё pending у банка → разблокируем повторную оплату.
-            if (!isSuccess && result.success && result.status === 'pending') {
-              await bookingService.markPaymentStatus(last.orderId, 'pending');
-              return;
-            }
-            const paymentStatus = resolvePaymentStatusFromPoll(result);
-            if (!paymentStatus) return;
-            const extra: { paidAt?: string } = {};
-            if (paymentStatus === 'paid') {
-              extra.paidAt = result.paidAt || new Date().toISOString();
-            }
-            await bookingService.markPaymentStatus(last.orderId, paymentStatus, extra);
-          },
-          onReload: reloadBookingsAfterPayment,
-          onBeforeSuccessAlert: async () => {
-            if (uid && last.orderId) {
-              await bookingService.maybeAwardLoyaltyAfterPaidBooking(uid, last.orderId);
-              const user = await authSession.getStoredUser();
-              await bonusService.redeemAfterSuccessfulPayment(
-                last.orderId,
-                user?.email,
-                user?.phone,
-              );
-            }
-          },
-          onPendingOk: () => {
-            void goBookings();
-          },
-          alertSuccess: () => {
-            if (recoveryTimer) clearTimeout(recoveryTimer);
-            paymentUxBus.showPaymentSuccess(() => {
-              void goBookings();
-            });
-          },
-          alertFailed: () => {
-            if (recoveryTimer) clearTimeout(recoveryTimer);
-            Alert.alert(i18n.t('common.error'), i18n.t('payment.failedRetryMessage'), [
-              { text: i18n.t('common.ok'), onPress: () => void goBookings() },
-            ]);
-          },
-          alertFallbackError: () => {
-            if (recoveryTimer) clearTimeout(recoveryTimer);
-            Alert.alert(i18n.t('common.error'), i18n.t('payment.failedMessage'), [
-              { text: i18n.t('common.ok'), onPress: () => void goBookings() },
-            ]);
-          },
-          alertNetworkError: (message) => {
-            if (recoveryTimer) clearTimeout(recoveryTimer);
-            Alert.alert(i18n.t('common.error'), message, [
-              { text: i18n.t('common.ok'), onPress: () => void goBookings() },
-            ]);
-          },
+          orderId: last.orderId,
+          statusResult,
+          unlockPendingOnPending,
         });
       } catch (e) {
         logger.warn('[DeepLink] payment return:', e);
@@ -249,6 +298,10 @@ export function usePaymentDeepLinks(navigationRef: Ref) {
             bookingIdFromUrl,
             lastOrderId: String(lastTx.orderId),
           });
+          showPaymentStatusBar(i18n.t('payment.cancelledBanner'), 'warning');
+          Alert.alert(i18n.t('payment.pendingTitle'), i18n.t('payment.retryAvailable'), [
+            { text: i18n.t('common.ok'), onPress: () => void goBookings() },
+          ]);
           return;
         }
 
@@ -317,60 +370,11 @@ export function usePaymentDeepLinks(navigationRef: Ref) {
               maxWaitMs: 20000,
             });
             if (cancelledRef.current) return;
-            const stored = await authSession.getStoredUser();
-            const uid = stored?.id;
-            presentPaymentPollOutcome({
+            await presentForSession({
               transactionId: last.transactionId,
-              result: statusResult,
-              onStatusResolved: async (result) => {
-                // Без deep link: pending после короткого опроса = не завершили оплату → снова «Оплатить».
-                if (result.success && result.status === 'pending') {
-                  await bookingService.markPaymentStatus(last.orderId, 'pending');
-                  return;
-                }
-                const paymentStatus = resolvePaymentStatusFromPoll(result);
-                if (!paymentStatus) return;
-                const extra: { paidAt?: string } = {};
-                if (paymentStatus === 'paid') {
-                  extra.paidAt = result.paidAt || new Date().toISOString();
-                }
-                await bookingService.markPaymentStatus(last.orderId, paymentStatus, extra);
-              },
-              onReload: reloadBookingsAfterPayment,
-              onBeforeSuccessAlert: async () => {
-                if (uid && last.orderId) {
-                  await bookingService.maybeAwardLoyaltyAfterPaidBooking(uid, last.orderId);
-                  const user = await authSession.getStoredUser();
-                  await bonusService.redeemAfterSuccessfulPayment(
-                    last.orderId,
-                    user?.email,
-                    user?.phone,
-                  );
-                }
-              },
-              onPendingOk: () => {
-                void goBookings();
-              },
-              alertSuccess: () => {
-                paymentUxBus.showPaymentSuccess(() => {
-                  void goBookings();
-                });
-              },
-              alertFailed: () => {
-                Alert.alert(i18n.t('common.error'), i18n.t('payment.failedRetryMessage'), [
-                  { text: i18n.t('common.ok'), onPress: () => void goBookings() },
-                ]);
-              },
-              alertFallbackError: () => {
-                paymentUxBus.showPaymentRecovery(() => {
-                  void goBookings();
-                });
-              },
-              alertNetworkError: () => {
-                paymentUxBus.showPaymentRecovery(() => {
-                  void goBookings();
-                });
-              },
+              orderId: last.orderId,
+              statusResult,
+              unlockPendingOnPending: true,
             });
           } catch (e) {
             logger.warn('[DeepLink] external return recover:', e);

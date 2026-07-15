@@ -3,12 +3,13 @@ import type { Booking } from '../types';
 
 /**
  * Маппинг результата опроса платёжного API → paymentStatus брони.
- * success → paid, failed → failed, cancelled → cancelled, pending → payment_processing.
+ * paid ТОЛЬКО при status === 'success' (банк CONFIRMED через API).
+ * pending → payment_processing (или вызывающий код может unlock в pending).
  */
 export function resolvePaymentStatusFromPoll(
   result: PaymentStatusResult,
 ): Booking['paymentStatus'] | null {
-  if (!result.success) return null;
+  if (!result.success || !result.status) return null;
   switch (result.status) {
     case 'success':
       return 'paid';

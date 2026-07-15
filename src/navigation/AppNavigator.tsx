@@ -355,6 +355,7 @@ import TourBookingScreen from '../screens/TourBookingScreen';
 import HelperChatScreen from '../screens/HelperChatScreen';
 import BonusScreen from '../screens/BonusScreen';
 import PurchaseHistoryScreen from '../screens/PurchaseHistoryScreen';
+import AboutScreen from '../screens/AboutScreen';
 
 const Tab = createBottomTabNavigator();
 const Stack = createStackNavigator();
@@ -427,6 +428,7 @@ function ProfileStack() {
       <Stack.Screen name="Bonus" component={BonusScreen} />
       <Stack.Screen name="PurchaseHistory" component={PurchaseHistoryScreen} />
       <Stack.Screen name="HelperChat" component={HelperChatScreen} />
+      <Stack.Screen name="About" component={AboutScreen} />
     </Stack.Navigator>
   );
 }

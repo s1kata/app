@@ -7,6 +7,7 @@ import {
   ScrollView,
   Alert,
   Modal,
+  Linking,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
@@ -23,6 +24,7 @@ import { radius, shadows, spacing, typography, surfaces } from '../config/design
 import { RELEASE_HIDE_PURCHASE_HISTORY } from '../config/releaseUiFlags';
 import { PrimaryButton } from '../components/ui';
 import AppLogo from '../components/AppLogo';
+import { openSupportChat } from '../config/support';
 
 export default function ProfileScreen({ navigation }: any) {
   const { logout, loginAsGuest, user, theme, isDark } = useAppContext();
@@ -180,6 +182,18 @@ export default function ProfileScreen({ navigation }: any) {
       : []),
     { id: 'settings', title: i18n.t('settings.title'), icon: 'settings-outline', onPress: () => navigation.navigate('Settings') },
     { id: 'help', title: i18n.t('profile.help'), icon: 'help-circle-outline', onPress: () => navigation.navigate('HelperChat') },
+    {
+      id: 'supportChat',
+      title: i18n.t('profile.supportChat'),
+      icon: 'chatbubble-ellipses-outline',
+      onPress: () => openSupportChat(Linking.openURL),
+    },
+    {
+      id: 'about',
+      title: i18n.t('profile.aboutUs'),
+      icon: 'information-circle-outline',
+      onPress: () => navigation.navigate('About'),
+    },
     {
       id: 'privacy',
       title: i18n.t('settings.privacyPolicy'),

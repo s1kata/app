@@ -12,6 +12,7 @@ import {
   StatusBar,
   KeyboardAvoidingView,
   Platform,
+  Linking,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -36,6 +37,7 @@ import { PaymentPrepareModal } from '../components/ux/PaymentFlowModals';
 import PrimaryButton from '../components/ui/PrimaryButton';
 import { formatDateRuLong } from '../utils/formatDateRu';
 import { paymentUxBus } from '../services/PaymentUxBus';
+import { TERMS_URL } from '../config/support';
 
 interface TourBookingScreenProps {
   navigation: any;
@@ -68,6 +70,7 @@ export default function TourBookingScreen({ navigation, route }: TourBookingScre
   const [showAuthCard, setShowAuthCard] = useState(false);
   const [wizardStep, setWizardStep] = useState<1 | 2 | 3>(3);
   const [showPaymentPrepare, setShowPaymentPrepare] = useState(false);
+  const [agreedToTerms, setAgreedToTerms] = useState(false);
   const pendingPaymentActionRef = useRef<(() => Promise<void>) | null>(null);
 
   // Проверяем, является ли пользователь гостем
@@ -932,10 +935,44 @@ export default function TourBookingScreen({ navigation, route }: TourBookingScre
             </Text>
           )}
 
+          {/* Согласие с условиями использования (обязательно) */}
+          {bookingMethod && (
+            <TouchableOpacity
+              style={styles.termsRow}
+              onPress={() => setAgreedToTerms((v) => !v)}
+              activeOpacity={0.7}
+            >
+              <View
+                style={[
+                  styles.termsCheckbox,
+                  {
+                    borderColor: agreedToTerms ? theme.primary : theme.border,
+                    backgroundColor: agreedToTerms ? theme.primary : 'transparent',
+                  },
+                ]}
+              >
+                {agreedToTerms && <Ionicons name="checkmark" size={16} color="#fff" />}
+              </View>
+              <Text style={[styles.termsText, { color: theme.secondaryText }]}>
+                {i18n.t('booking.agreeTermsPrefix')}
+                <Text
+                  style={[styles.termsLink, { color: theme.primary }]}
+                  onPress={() =>
+                    Linking.openURL(TERMS_URL).catch(() =>
+                      Alert.alert(i18n.t('common.error'), i18n.t('about.linkError')),
+                    )
+                  }
+                >
+                  {i18n.t('booking.agreeTermsLink')}
+                </Text>
+              </Text>
+            </TouchableOpacity>
+          )}
+
           {/* Кнопка: Забронировать (без оплаты) или Забронировать и оплатить (с оплатой) */}
           {bookingMethod && (
             <TouchableOpacity
-              style={[styles.submitButton, !canBook && styles.submitButtonDisabled]}
+              style={[styles.submitButton, (!canBook || !agreedToTerms) && styles.submitButtonDisabled]}
               onPress={() => {
                 if (!canBook) {
                   Alert.alert(i18n.t('booking.requirePersonalData'), i18n.t('booking.requirePersonalDataDesc'), [
@@ -946,7 +983,7 @@ export default function TourBookingScreen({ navigation, route }: TourBookingScre
                 }
                 handleBooking(bookingMethod === 'with_payment');
               }}
-            disabled={isSubmitting || !canBook || (bookingMethod === 'with_payment' && !selectedPaymentProvider)}
+            disabled={isSubmitting || !canBook || !agreedToTerms || (bookingMethod === 'with_payment' && !selectedPaymentProvider)}
             activeOpacity={0.8}
           >
             <View style={[styles.submitButtonGradient, { backgroundColor: theme.primary }]}>
@@ -1282,5 +1319,30 @@ const styles = StyleSheet.create({
   },
   submitButtonDisabled: {
     opacity: 0.6,
+  },
+  termsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 16,
+    paddingHorizontal: 4,
+    gap: 10,
+  },
+  termsCheckbox: {
+    width: 24,
+    height: 24,
+    borderRadius: 6,
+    borderWidth: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  termsText: {
+    flex: 1,
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  termsLink: {
+    fontSize: 14,
+    fontWeight: '600',
+    textDecorationLine: 'underline',
   },
 });

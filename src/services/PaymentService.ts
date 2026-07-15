@@ -53,6 +53,7 @@ export interface PaymentStatusResult {
   status?: 'pending' | 'success' | 'failed' | 'cancelled';
   amount?: number;
   paidAt?: string | null;
+  bookingId?: string | null;
   error?: string;
   /** true если статус pending держится дольше порога (опрос с сервера) — показать «ещё обрабатывается» + повтор */
   pendingLong?: boolean;
@@ -287,11 +288,13 @@ export async function checkPaymentStatus(transactionId: string): Promise<Payment
         throw new Error(errText);
       }
 
-      const status = (data?.status ?? data?.Status)?.toLowerCase();
+      // paid только при явном success от API (бэкенд подтверждает Tinkoff CONFIRMED).
+      // Не маппим "completed"/прочие строки в success — риск ложного «Оплачено».
+      const status = String(data?.status ?? data?.Status ?? '').toLowerCase();
       const mapped: PaymentStatusResult['status'] =
-        status === 'success' || status === 'completed'
+        status === 'success'
           ? 'success'
-          : status === 'cancelled'
+          : status === 'cancelled' || status === 'canceled'
             ? 'cancelled'
             : status === 'failed'
               ? 'failed'
@@ -300,7 +303,8 @@ export async function checkPaymentStatus(transactionId: string): Promise<Payment
         success: true,
         status: mapped,
         amount: data?.amount,
-        paidAt: data?.paidAt ?? data?.paid_at ?? null,
+        paidAt: mapped === 'success' ? data?.paidAt ?? data?.paid_at ?? null : null,
+        bookingId: data?.bookingId ?? data?.booking_id ?? null,
       };
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : 'Ошибка сети';

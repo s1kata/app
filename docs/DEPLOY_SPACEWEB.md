@@ -125,8 +125,16 @@ public_html/
 | `api/crm/bonus-balance.php` | `api/crm/bonus-balance.php` |
 | `api/crm/bcard-activate.php` | `api/crm/bcard-activate.php` |
 | `api/crm/bcard-bonus-create.php` | `api/crm/bcard-bonus-create.php` |
+| `api/create-payment.php` | `api/create-payment.php` |
+| `api/payment-status.php` | `api/payment-status.php` |
+| `api/payment-webhook.php` | `api/payment-webhook.php` |
+| `api/.htaccess` | `api/.htaccess` |
+| `web/payment/success.php` | `payment/success.php` |
+| `web/payment/fail.php` | `payment/fail.php` |
 
 URL в приложении: `https://travelhub63.ru/api/auth-mobile.php`, `https://travelhub63.ru/api/crm/reviews.php` и т.д.
+
+**Оплата (важно):** в `payment-status.php` статус `success` только при Tinkoff `CONFIRMED`. Не использовать fallback `Success=true` — иначе без оплаты приложение показывает «Оплачено».
 
 ### Папка `api/lib/`
 

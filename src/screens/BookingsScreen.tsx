@@ -509,8 +509,10 @@ export default function BookingsScreen({ navigation }: any) {
     }
   };
 
-  const formatPrice = (price: number) => {
-    return `${price.toLocaleString('ru-RU')} ₽`;
+  const formatPrice = (price: number, currency?: string) => {
+    const code = (currency || 'RUB').toUpperCase();
+    const symbol = code === 'USD' ? '$' : code === 'EUR' ? '€' : '₽';
+    return `${price.toLocaleString('ru-RU')} ${symbol}`;
   };
 
   const formatDate = (dateStr: string) => {
@@ -723,7 +725,7 @@ export default function BookingsScreen({ navigation }: any) {
                         <View>
                           <Text style={[styles.priceLabel, { color: theme.secondaryText }]}>{i18n.t('bookings.cost')}</Text>
                           <Text style={[styles.price, { color: theme.primary }]}>
-                            {formatPrice(booking.totalPrice)} {booking.currency}
+                            {formatPrice(booking.totalPrice, booking.currency)}
                           </Text>
                         </View>
                         {snap?.operatorName && (
