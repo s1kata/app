@@ -151,7 +151,6 @@ export default function App() {
       logger.warn('Failed to open link:', error);
     }
   }, []);
-
   const onNavigationReady = () => {
     if (navigationRef.current) {
       notificationService.setNavigationRef(navigationRef);
