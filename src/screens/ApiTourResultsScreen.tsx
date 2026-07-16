@@ -35,6 +35,7 @@ import { getFromSharedCache } from '../services/TourvisorFirestoreCache';
 import { saveTourSearchToAllCaches, searchTours } from '../hooks/useTourSearch';
 import { preCacheTourDetailsFromSearchResults, cacheTourFromSearchResult, buildTourOutputFromSearchResult } from '../utils/tourDetailsCache';
 import { FavoritesService } from '../services/FavoritesService';
+import AuthRequiredCard from '../components/ux/AuthRequiredCard';
 import { logger } from '../utils/logger';
 import type { NavigationProp, RouteProp } from '@react-navigation/native';
 import type { ApiTourResultsRouteParams } from '../navigation/types';
@@ -172,6 +173,7 @@ export default function ApiTourResultsScreen({ navigation, route }: ApiTourResul
 
   const [tours, setTours] = useState<TourHotel[]>([]);
   const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set());
+  const [showAuthCard, setShowAuthCard] = useState(false);
   const [status, setStatus] = useState<TourSearchStatus | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [loaderProgress, setLoaderProgress] = useState(0);
@@ -330,15 +332,7 @@ export default function ApiTourResultsScreen({ navigation, route }: ApiTourResul
     async (hotel: TourHotel, tour: Tour) => {
       try {
         if (isGuest || !user) {
-          const { Alert } = await import('react-native');
-          Alert.alert(
-            i18n.t('favorites.authRequired'),
-            i18n.t('auth.favoritesRequired'),
-            [
-              { text: i18n.t('common.cancel'), style: 'cancel' },
-              { text: i18n.t('auth.login'), onPress: () => navigation.navigate('Login') },
-            ]
-          );
+          setShowAuthCard(true);
           return;
         }
         const tourOutput = buildTourOutputFromSearchResult(hotel, tour);
@@ -727,6 +721,20 @@ export default function ApiTourResultsScreen({ navigation, route }: ApiTourResul
           ListEmptyComponent={renderEmpty}
         />
       )}
+      <AuthRequiredCard
+        visible={showAuthCard}
+        title={i18n.t('ux.authRequiredTitle')}
+        message={i18n.t('auth.favoritesRequired')}
+        onLater={() => setShowAuthCard(false)}
+        onLogin={() => {
+          setShowAuthCard(false);
+          navigation.navigate('Login');
+        }}
+        onRegister={() => {
+          setShowAuthCard(false);
+          navigation.navigate('Register');
+        }}
+      />
     </SafeAreaView>
   );
 }

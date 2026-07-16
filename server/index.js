@@ -32,20 +32,20 @@ app.get('/api/crm/user-departure-documents', crmRead.userDepartureDocuments);
 app.get('/api/crm/client-bookings', crmRead.clientBookings);
 app.get('/api/crm/bonus-balance', crmRead.bonusBalance);
 
-// Страница успешной оплаты: без кнопки «На главную», авто-возврат в приложение через 5 сек
+// Возврат после SuccessURL банка. Статус в приложении — только через API/GetState, не по этой странице.
 app.get('/payment/success', (req, res) => {
   const orderId = String(req.query.orderId || '').replace(/[^a-zA-Z0-9_-]/g, '');
   const returnUrl = 'travelhub://booking-success?bookingId=' + encodeURIComponent(orderId);
   res.set('Content-Type', 'text/html; charset=utf-8');
   res.send(
     '<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">' +
-    '<title>Оплата прошла</title>' +
+    '<title>Возврат в приложение</title>' +
     '<style>body{font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\',Roboto,sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;margin:0;padding:20px;background:#f0f4f8;}' +
     '.card{background:#fff;border-radius:16px;padding:32px;max-width:360px;width:100%;text-align:center;box-shadow:0 4px 20px rgba(0,0,0,.08);}' +
     'h1{margin:0 0 12px;font-size:22px;color:#0f172a;}p{margin:0 0 24px;color:#64748b;font-size:15px;line-height:1.5;}' +
     'a{display:inline-block;background:#3ba3ff;color:#fff;text-decoration:none;padding:14px 28px;border-radius:12px;font-weight:600;font-size:16px;}.countdown{font-size:14px;color:#94a3b8;margin-top:16px;}</style></head><body>' +
-    '<div class="card"><h1>✓ Оплата прошла</h1>' +
-    '<p>Через <span id="sec">5</span> сек. вы вернётесь в приложение.</p>' +
+    '<div class="card"><h1>Возврат в приложение</h1>' +
+    '<p>Статус оплаты проверит приложение. Через <span id="sec">5</span> сек. вы вернётесь автоматически.</p>' +
     '<a href="' + returnUrl.replace(/&/g, '&amp;').replace(/"/g, '&quot;') + '" id="link">Вернуться в приложение</a>' +
     '<p class="countdown" id="countdown"></p></div>' +
     '<script>var returnUrl=' + JSON.stringify(returnUrl) + ';var sec=5;var el=document.getElementById("sec");' +

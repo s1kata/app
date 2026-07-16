@@ -22,8 +22,8 @@ const translations: Translations = {
   'auth.login': { ru: 'Войти', en: 'Login' },
   'auth.register': { ru: 'Зарегистрироваться', en: 'Register' },
   'auth.logout': { ru: 'Выйти', en: 'Logout' },
-  'auth.email': { ru: 'Email или телефон', en: 'Email or phone' },
-  'auth.emailOrPhone': { ru: 'Email или телефон', en: 'Email or phone' },
+  'auth.email': { ru: 'Электронная почта', en: 'Email' },
+  'auth.emailOrPhone': { ru: 'Электронная почта', en: 'Email' },
   'auth.password': { ru: 'Пароль', en: 'Password' },
   'auth.name': { ru: 'Имя', en: 'Name' },
   'auth.confirmPassword': { ru: 'Подтвердите пароль', en: 'Confirm password' },
@@ -53,6 +53,26 @@ const translations: Translations = {
   'auth.passwordResetSuccessMessage': { ru: 'Теперь вы можете войти с новым паролем', en: 'You can now login with your new password' },
   'auth.checkEmail': { ru: 'Проверьте email', en: 'Check Email' },
   'auth.resetCodeSent': { ru: 'Мы отправили код для сброса пароля на ваш email', en: 'We sent a reset code to your email' },
+
+  // Age gate + consent
+  'ageGate.title': { ru: 'Подтверждение возраста', en: 'Age confirmation' },
+  'ageGate.body': {
+    ru: 'Приложение предназначено только для пользователей от 18 лет. Подтвердите, пожалуйста, что вам уже исполнилось 18.',
+    en: 'This app is for users 18+. Please confirm that you are at least 18 years old.',
+  },
+  'ageGate.confirm': { ru: 'Мне есть 18', en: 'I am 18+' },
+  'ageGate.decline': { ru: 'Мне нет 18', en: 'I am under 18' },
+  'ageGate.footer': { ru: 'Если вам нет 18, использование запрещено.', en: 'If you are under 18, you cannot use the app.' },
+  'ageGate.declineTitle': { ru: 'Доступ ограничен', en: 'Access restricted' },
+  'ageGate.declineBody': { ru: 'Приложение доступно только пользователям от 18 лет.', en: 'This app is available only to users 18+.' },
+  'consent.title': { ru: 'Согласие с условиями', en: 'Terms consent' },
+  'consent.body': {
+    ru: 'Продолжая, вы подтверждаете согласие с Политикой конфиденциальности и Условиями использования.',
+    en: 'By continuing, you agree to the Privacy Policy and Terms of Service.',
+  },
+  'consent.accept': { ru: 'Понятно', en: 'I agree' },
+  'consent.privacy': { ru: 'Политика конфиденциальности', en: 'Privacy policy' },
+  'consent.terms': { ru: 'Условия использования', en: 'Terms of service' },
   
   // Home
   'home.greeting': { ru: 'Привет', en: 'Hello' },
@@ -70,6 +90,7 @@ const translations: Translations = {
   'home.learnAboutTravel': { ru: 'Узнайте что-то новое о путешествиях', en: 'Learn something new about travel' },
   'home.customerReviews': { ru: 'Отзывы клиентов', en: 'Customer Reviews' },
   'home.whatClientsSay': { ru: 'Что говорят наши клиенты', en: 'What our clients say' },
+  'home.noReviewsYet': { ru: 'Пока нет отзывов', en: 'No reviews yet' },
   'home.travelerTips': { ru: 'Советы путешественникам', en: 'Traveler Tips' },
   'home.travelTipsSubtitle': { ru: 'Краткие напоминания перед поездкой', en: 'Short reminders before your trip' },
   'home.usefulRecommendations': { ru: 'Полезные рекомендации для вашего отдыха', en: 'Useful recommendations for your vacation' },
@@ -117,6 +138,23 @@ const translations: Translations = {
   'profile.settings': { ru: 'Настройки', en: 'Settings' },
   'profile.help': { ru: 'Помощь и поддержка', en: 'Help & Support' },
   'profile.about': { ru: 'О приложении', en: 'About' },
+  'profile.aboutUs': { ru: 'О нас', en: 'About Us' },
+  'profile.supportChat': { ru: 'Чат поддержки', en: 'Support Chat' },
+  // About Us
+  'about.title': { ru: 'О нас', en: 'About Us' },
+  'about.tagline': { ru: 'Ваш помощник в путешествиях', en: 'Your travel companion' },
+  'about.description': {
+    ru: 'TravelHub — сервис поиска и бронирования туров. Мы помогаем подобрать тур по вашим датам, бюджету и количеству туристов, оформить бронирование и оплатить его безопасно. Актуальные предложения от туроператоров — в одном приложении.',
+    en: 'TravelHub is a tour search and booking service. We help you find a tour by your dates, budget, and number of travelers, make a booking, and pay for it securely. Up-to-date offers from tour operators — all in one app.',
+  },
+  'about.contactsTitle': { ru: 'Контакты', en: 'Contacts' },
+  'about.email': { ru: 'Электронная почта', en: 'Email' },
+  'about.phone': { ru: 'Телефон', en: 'Phone' },
+  'about.website': { ru: 'Веб-сайт', en: 'Website' },
+  'about.supportTitle': { ru: 'Нужна помощь?', en: 'Need help?' },
+  'about.supportDesc': { ru: 'Напишите нам в чат поддержки — ответим и поможем с подбором и бронированием.', en: 'Message our support chat — we will help you with search and booking.' },
+  'about.openChat': { ru: 'Открыть чат поддержки', en: 'Open support chat' },
+  'about.linkError': { ru: 'Не удалось открыть ссылку', en: 'Could not open the link' },
   'profile.trips': { ru: 'Поездок', en: 'Trips' },
   'profile.purchases': { ru: 'Покупок', en: 'Purchases' },
   'profile.spent': { ru: 'Потрачено', en: 'Spent' },
@@ -140,17 +178,63 @@ const translations: Translations = {
   'bonus.activate': { ru: 'Активировать', en: 'Activate' },
   'bonus.activateSuccess': { ru: 'Карта успешно активирована', en: 'Card activated successfully' },
   'bonus.activateError': { ru: 'Не удалось активировать карту', en: 'Failed to activate card' },
+  'bonus.available': { ru: 'Доступно', en: 'Available' },
+  'bonus.expiringSoon': { ru: 'Скоро сгорят (7 дней)', en: 'Expiring within 7 days' },
+  'bonus.howItWorks': { ru: 'Как работают бонусы', en: 'How bonuses work' },
+  'bonus.ruleRate': {
+    ru: '1 бонус = 1 ₽ скидки на тур',
+    en: '1 bonus = ₽1 off your tour',
+  },
+  'bonus.ruleAccrual': {
+    ru: 'Бонусы начисляются после поездок. Здесь вы видите баланс и историю операций.',
+    en: 'Bonuses are credited after trips. Here you see your balance and history.',
+  },
+  'bonus.ruleExpiry': {
+    ru: 'У бонусов есть срок действия. Просроченные бонусы не учитываются в доступном балансе.',
+    en: 'Bonuses expire. Expired bonuses are not included in your available balance.',
+  },
+  'bonus.ruleRedeem': {
+    ru: 'При бронировании тура можно уменьшить сумму к оплате бонусами.',
+    en: 'When booking a tour you can reduce the amount to pay with bonuses.',
+  },
+  'bonus.ruleLimits': {
+    ru: 'Минимум 5% и максимум 30% от стоимости тура. Нельзя списать больше, чем есть на счёте.',
+    en: 'Min 5% and max 30% of tour price. You cannot spend more than your balance.',
+  },
+  'bonus.rulePayment': {
+    ru: 'В банк уходит сумма уже со скидкой. Бонусы списываются после успешной оплаты.',
+    en: 'You pay the discounted amount. Bonuses are deducted after successful payment.',
+  },
+  'bonus.expiresOn': { ru: 'до', en: 'until' },
+  'bonus.redeemTitle': { ru: 'Оплатить бонусами', en: 'Pay with bonuses' },
+  'bonus.redeemSubtitle': {
+    ru: '1 бонус = 1 ₽. До 30% от стоимости тура.',
+    en: '1 bonus = ₽1. Up to 30% of tour price.',
+  },
+  'bonus.useBonuses': { ru: 'Использовать бонусы', en: 'Use bonuses' },
+  'bonus.spend': { ru: 'Списать', en: 'Spend' },
+  'bonus.discount': { ru: 'Скидка', en: 'Discount' },
+  'bonus.toPay': { ru: 'К оплате', en: 'To pay' },
+  'bonus.tourPrice': { ru: 'Стоимость тура', en: 'Tour price' },
+  'bonus.max': { ru: 'Максимум', en: 'Maximum' },
+  'bonus.minHint': {
+    ru: 'Минимум {min} бонусов (5% от стоимости тура)',
+    en: 'Minimum {min} bonuses (5% of tour price)',
+  },
+  'bonus.noBonuses': { ru: 'Нет доступных бонусов', en: 'No bonuses available' },
+  'bonus.redeemFailed': { ru: 'Не удалось списать бонусы', en: 'Failed to redeem bonuses' },
 
   // Purchase history
   'purchaseHistory.title': { ru: 'История покупок', en: 'Purchase history' },
   'purchaseHistory.empty': { ru: 'Нет покупок', en: 'No purchases' },
   'purchaseHistory.emptyDesc': { ru: 'Здесь появятся ваши заявки', en: 'Your requests will appear here' },
+  'purchaseHistory.unavailable': { ru: 'История покупок временно недоступна', en: 'Purchase history is temporarily unavailable' },
   'tour.reviewsTitle': { ru: 'Отзывы', en: 'Reviews' },
   'tour.allReviews': { ru: 'Все', en: 'All' },
   'tour.noReviews': { ru: 'Пока нет отзывов. Будьте первым!', en: 'No reviews yet. Be the first!' },
   'tour.addReview': { ru: 'Оставить отзыв', en: 'Write a review' },
   'reviews.anonymous': { ru: 'Пользователь', en: 'User' },
-  'reviews.authRequiredTitle': { ru: 'Требуется авторизация', en: 'Sign in required' },
+  'reviews.authRequiredTitle': { ru: 'Нужно войти в аккаунт', en: 'Sign in required' },
   'reviews.authRequiredBody': {
     ru: 'Войдите в аккаунт, чтобы оставить отзыв.',
     en: 'Sign in to leave a review.',
@@ -204,7 +288,8 @@ const translations: Translations = {
   'nav.documents': { ru: 'Документы', en: 'Documents' },
   'profile.myBookings': { ru: 'Мои бронирования', en: 'My Bookings' },
   'profile.recommendations': { ru: 'Персональные рекомендации', en: 'Personal recommendations' },
-  'profile.guest': { ru: 'Гость', en: 'Guest' },
+  'profile.guest': { ru: 'Просмотр без аккаунта', en: 'Browsing without account' },
+  'profile.guestModeLabel': { ru: 'Режим просмотра (без брони)', en: 'Browse only (no booking)' },
   'profile.user': { ru: 'Пользователь', en: 'User' },
   'profile.loginToAccount': { ru: 'Вход в аккаунт', en: 'Log in' },
   'profile.register': { ru: 'Зарегистрироваться', en: 'Register' },
@@ -240,6 +325,14 @@ const translations: Translations = {
   'bookings.adults': { ru: 'взрослых', en: 'adults' },
   'bookings.children': { ru: 'детей', en: 'children' },
   'bookings.signIn': { ru: 'Войдите в аккаунт', en: 'Sign in' },
+  'bookings.guestBannerTitle': {
+    ru: 'Чтобы видеть бронирования, войдите в аккаунт',
+    en: 'Sign in to see your bookings',
+  },
+  'bookings.guestBannerBody': {
+    ru: 'Нажмите «Создать профиль» — это займёт около 2 минут.',
+    en: 'Tap «Create profile» — it takes about two minutes.',
+  },
   'bookings.emptyDescGuest': { ru: 'Здесь будут отображаться ваши туры после входа и бронирования', en: 'Your tours will appear here after you sign in and book' },
   'bookings.emptyDesc': { ru: 'Забронированные туры появятся здесь. Можно забронировать с оплатой сразу или без оплаты.', en: 'Your booked tours will appear here. You can book with or without immediate payment.' },
   'bookings.findTours': { ru: 'Найти туры', en: 'Find tours' },
@@ -247,7 +340,7 @@ const translations: Translations = {
   'bookings.delete': { ru: 'Удалить', en: 'Delete' },
   'bookings.statusCancelled': { ru: 'Отменено', en: 'Cancelled' },
   'bookings.statusCompleted': { ru: 'Завершён', en: 'Completed' },
-  'bookings.statusPaid': { ru: 'Оплачен', en: 'Paid' },
+  'bookings.statusPaid': { ru: 'Оплачено', en: 'Paid' },
   'bookings.statusReadyUnpaid': { ru: 'Готов, но не оплачен', en: 'Ready, unpaid' },
   'bookings.statusPending': { ru: 'В обработке', en: 'Pending' },
   'bookings.statusConfirmed': { ru: 'Подтверждено', en: 'Confirmed' },
@@ -257,7 +350,11 @@ const translations: Translations = {
   'bookings.paymentCancelled': { ru: 'Оплата отменена', en: 'Payment cancelled' },
   'bookings.paymentRefunded': { ru: 'Возврат', en: 'Refunded' },
   'bookings.paymentProcessing': { ru: 'Оплата обрабатывается', en: 'Payment processing' },
-  'bookings.paymentFailed': { ru: 'Оплата не прошла', en: 'Payment failed' },
+  'bookings.paymentFailed': { ru: 'Не прошла', en: 'Payment failed' },
+  'bookings.paidAwaitingConfirmation': {
+    ru: 'Оплата получена. Заявка обрабатывается менеджером.',
+    en: 'Payment received. Your booking request is being processed.',
+  },
   'bookings.cancelOnlyPending': { ru: 'Отменить можно только бронь без начатой оплаты', en: 'You can only cancel before payment starts' },
   'bookings.docVoucher': { ru: 'Ваучер', en: 'Voucher' },
   'bookings.docTicket': { ru: 'Билет', en: 'Ticket' },
@@ -309,6 +406,7 @@ const translations: Translations = {
   'common.loading': { ru: 'Загрузка...', en: 'Loading...' },
   'common.save': { ru: 'Сохранить', en: 'Save' },
   'common.back': { ru: 'Назад', en: 'Back' },
+  'common.next': { ru: 'Далее', en: 'Next' },
   'common.deleteFailed': { ru: 'Не удалось удалить аккаунт', en: 'Failed to delete account' },
 
   // Theme switcher
@@ -357,10 +455,10 @@ const translations: Translations = {
   'search.staleCacheHint': { ru: 'Показаны сохранённые результаты, обновляем…', en: 'Showing saved results, refreshing…' },
   'search.cacheCorrupted': { ru: 'Сохранённые результаты повреждены. Выполняем новый поиск…', en: 'Saved results are corrupted. Running a new search…' },
   'tours.notFoundShort': { ru: 'Туры не найдены', en: 'No tours found' },
-  'tours.adultsShort': { ru: 'взр.', en: 'adults' },
-  'tours.childrenShort': { ru: 'дет.', en: 'ch.' },
+  'tours.adultsShort': { ru: 'взрослых', en: 'adults' },
+  'tours.childrenShort': { ru: 'детей', en: 'children' },
   'tours.loading': { ru: 'Загрузка тура...', en: 'Loading tour...' },
-  'tours.nightsShort': { ru: 'н.', en: 'n.' },
+  'tours.nightsShort': { ru: 'ночей', en: 'nights' },
 
   // Hot tours
   'hotTours.title': { ru: 'Туры', en: 'Tours' },
@@ -382,8 +480,8 @@ const translations: Translations = {
   'hotTours.from': { ru: 'от', en: 'from' },
 
   // Favorites
-  'favorites.authRequired': { ru: 'Требуется авторизация', en: 'Sign in required' },
-  'favorites.authRequiredDesc': { ru: 'Для просмотра избранного необходимо войти в систему или зарегистрироваться.', en: 'To view favorites, please sign in or register.' },
+  'favorites.authRequired': { ru: 'Нужно войти в аккаунт', en: 'Sign in required' },
+  'favorites.authRequiredDesc': { ru: 'Чтобы смотреть избранное, войдите или создайте профиль.', en: 'To view favorites, sign in or create a profile.' },
 
   // Profile / Account
   'profile.notRegistered': { ru: 'Аккаунт не зарегистрирован', en: 'Account not registered' },
@@ -492,6 +590,9 @@ const translations: Translations = {
   'search.selectDateRange': { ru: 'Выберите диапазон', en: 'Select range' },
   'search.anyMeal': { ru: 'Любая', en: 'Any' },
   'search.findTours': { ru: 'Найти туры', en: 'Find tours' },
+  'search.wizardStepFrom': { ru: 'Откуда летим?', en: 'Where from?' },
+  'search.wizardStepTo': { ru: 'Куда летим?', en: 'Where to?' },
+  'search.wizardStepWhen': { ru: 'Когда летим?', en: 'When?' },
   'search.findHotels': { ru: 'Найти отели', en: 'Find hotels' },
   'search.selectDepartureCity': { ru: 'Выберите город вылета', en: 'Select departure city' },
   'search.selectTripDates': { ru: 'Выберите даты поездки', en: 'Select trip dates' },
@@ -556,9 +657,13 @@ const translations: Translations = {
   },
   'booking.invalidEmail': { ru: 'Некорректный email', en: 'Invalid email' },
   'booking.exampleCity': { ru: 'Например: Москва', en: 'e.g. Moscow' },
-  'booking.authRequiredDesc': { ru: 'Для бронирования туров необходимо войти в систему. Хотите войти или зарегистрироваться?', en: 'To book tours you need to sign in. Would you like to sign in or register?' },
+  'booking.authRequiredDesc': { ru: 'Чтобы забронировать тур, войдите или создайте профиль. Это займёт около 2 минут.', en: 'To book a tour, sign in or create a profile. It takes about 2 minutes.' },
+  'booking.payLater': { ru: 'Забронировать, оплачу позже', en: 'Book now, pay later' },
+  'booking.payNow': { ru: 'Забронировать и оплатить сейчас', en: 'Book and pay now' },
   'booking.hotelAuthRequiredDesc': { ru: 'Для бронирования отеля необходимо войти в систему.', en: 'To book a hotel you need to sign in.' },
   'booking.requirePersonalData': { ru: 'Для бронирования заполните личные данные', en: 'Complete personal data to book' },
+  'booking.agreeTermsPrefix': { ru: 'Я согласен с ', en: 'I agree to the ' },
+  'booking.agreeTermsLink': { ru: 'условиями использования', en: 'terms of use' },
   'booking.requirePersonalDataDesc': { ru: 'Укажите телефон и паспортные данные (серия и номер) в разделе «Личные данные» в профиле. Без этого бронирование невозможно.', en: 'Enter your phone number and passport details (series and number) in Profile → Personal Data. Booking is not possible without this.' },
   'booking.invalidPhone': { ru: 'Введите корректный номер телефона (например +7 999 123-45-67)', en: 'Enter a valid phone number (e.g. +7 999 123-45-67)' },
   'hotel.notFound': { ru: 'Отель не найден', en: 'Hotel not found' },
@@ -587,6 +692,14 @@ const translations: Translations = {
   'payment.failedBanner': { ru: 'Ошибка оплаты, попробуйте позже', en: 'Payment failed, please try again later' },
   'payment.pendingBanner': { ru: 'Оплата обрабатывается, ждите подтверждения', en: 'Payment is processing, please wait' },
   'payment.cancelledBanner': { ru: 'Оплата отменена', en: 'Payment cancelled' },
+  'payment.failedRetryMessage': {
+    ru: 'Оплата не прошла или была отменена. Можно оплатить снова в списке бронирований.',
+    en: 'Payment failed or was cancelled. You can pay again in My Bookings.',
+  },
+  'payment.retryAvailable': {
+    ru: 'Можно оплатить снова — нажмите «Оплатить» на бронировании.',
+    en: 'You can pay again — tap Pay on the booking.',
+  },
   'payment.secureNote': { ru: 'Оплата на защищённой странице. После оплаты нажмите «Вернуться в приложение».', en: 'Payment on secure page. After paying, tap "Return to app".' },
   'notification.dailyHotToursTitle': { ru: 'Новые туры!', en: 'New tours!' },
   'notification.dailyHotToursBody': {
@@ -607,7 +720,7 @@ const translations: Translations = {
   'form.dateFrom': { ru: 'С', en: 'From' },
   'form.dateTo': { ru: 'По', en: 'To' },
   'form.passengers': { ru: 'Пассажиры', en: 'Passengers' },
-  'form.adultsShort': { ru: 'взр.', en: 'adults' },
+  'form.adultsShort': { ru: 'взрослых', en: 'adults' },
   'form.country': { ru: 'Страна', en: 'Country' },
   'form.resortOptional': { ru: 'Курорт (необязательно)', en: 'Resort (optional)' },
   'form.stayDates': { ru: 'Даты пребывания', en: 'Stay dates' },
@@ -631,6 +744,7 @@ const translations: Translations = {
   'form.manualInput': { ru: 'Ручной ввод', en: 'Manual' },
   'form.children': { ru: 'Дети', en: 'Children' },
   'form.age': { ru: 'Возраст', en: 'Age' },
+  'form.selectChildAge': { ru: 'Выберите возраст: 0–17', en: 'Select age: 0–17' },
 
   'calendar.loadingCalendar': { ru: 'Загрузка календаря…', en: 'Loading calendar…' },
   'calendar.clear': { ru: 'Очистить', en: 'Clear' },
@@ -655,6 +769,51 @@ const translations: Translations = {
   },
 
   'promo.sectionTitle': { ru: 'Акции и предложения', en: 'Promotions & offers' },
+
+  // UX (plain language)
+  'ux.authRequiredTitle': { ru: 'Чтобы забронировать, нужен профиль', en: 'Profile required to book' },
+  'ux.authRequiredMessage': {
+    ru: 'Это займёт около 2 минут. Без профиля можно только смотреть туры.',
+    en: 'It takes about 2 minutes. Without a profile you can only browse tours.',
+  },
+  'ux.createProfile': { ru: 'Создать профиль', en: 'Create profile' },
+  'ux.later': { ru: 'Позже', en: 'Later' },
+  'ux.guestBannerTitle': { ru: 'Вы смотрите без аккаунта', en: 'You are browsing without an account' },
+  'ux.guestBannerBody': {
+    ru: 'Чтобы забронировать тур — создайте профиль.',
+    en: 'Create a profile to book a tour.',
+  },
+  'ux.wizardStepAuth': { ru: 'Вход', en: 'Sign in' },
+  'ux.wizardStepPassport': { ru: 'Паспорт', en: 'Passport' },
+  'ux.wizardStepConfirm': { ru: 'Бронь', en: 'Booking' },
+  'ux.wizardStepOf': { ru: 'Шаг {current} из {total}', en: 'Step {current} of {total}' },
+  'ux.pickDate': { ru: 'Выберите дату', en: 'Pick a date' },
+  'ux.paymentPrepareTitle': { ru: 'Сейчас откроется страница банка', en: 'Bank page will open' },
+  'ux.paymentPrepareBody': {
+    ru: 'Это нормально и безопасно. Карту вводите только на странице банка Тинькофф.',
+    en: 'This is normal and secure. Enter your card only on the Tinkoff bank page.',
+  },
+  'ux.paymentPrepareHint': {
+    ru: 'После оплаты вернитесь в приложение — статус обновится автоматически.',
+    en: 'After payment, return to the app — status will update automatically.',
+  },
+  'ux.paymentGoToBank': { ru: 'Перейти к оплате', en: 'Go to payment' },
+  'ux.paymentSuccessTitle': { ru: 'Оплата прошла!', en: 'Payment successful!' },
+  'ux.paymentSuccessBody': {
+    ru: 'Спасибо! Детали брони — в разделе «Бронирования». Документы пришлём на почту.',
+    en: 'Thank you! Booking details are in Bookings. Documents will be emailed.',
+  },
+  'ux.paymentSuccessDone': { ru: 'К моим бронированиям', en: 'Go to bookings' },
+  'ux.paymentRecoveryTitle': { ru: 'Оплата прошла?', en: 'Payment completed?' },
+  'ux.paymentRecoveryBody': {
+    ru: 'Если после возврата из банка экран завис, проверьте статус в бронированиях.',
+    en: 'If the app did not recover after returning from the bank page, check your booking status.',
+  },
+  'ux.paymentRecoveryCta': { ru: 'Проверить бронирования', en: 'Check bookings' },
+  'ux.homeStartHere': { ru: 'Начните здесь', en: 'Start here' },
+  'ux.homeMore': { ru: 'Ещё', en: 'More' },
+  'splash.subtitle': { ru: 'Поиск и бронирование туров', en: 'Tour search and booking' },
+  'welcome.ok': { ru: 'Понятно', en: 'Got it' },
 };
 
 class I18n {

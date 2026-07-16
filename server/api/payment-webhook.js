@@ -6,6 +6,7 @@ const crypto = require('crypto');
 const admin = require('../lib/firebaseAdmin').getAdmin();
 const { FieldValue } = require('firebase-admin/firestore');
 const { runPostPaymentCrmHooks } = require('../lib/sotaPaymentHooks');
+const { pushBookingPaymentMeta } = require('../lib/pushBookingPaymentMeta');
 
 function buildTinkoffToken(params, password) {
   const data = { ...params, Password: password };
@@ -87,6 +88,7 @@ async function handler(req, res) {
   try {
     let outcome = 'noop';
     let crmPayload = null;
+    let metaSyncPayload = null;
 
     if (confirmed) {
       await db.runTransaction(async (tx) => {
@@ -182,7 +184,6 @@ async function handler(req, res) {
           bookingRef,
           {
             paymentStatus: 'paid',
-            status: 'confirmed',
             paidAt: FieldValue.serverTimestamp(),
             transactionId: paymentIdStr,
             payment: {
@@ -205,11 +206,29 @@ async function handler(req, res) {
         });
         outcome = 'paid';
         crmPayload = { ...b, id: bookingId, contactInfo: b.contactInfo };
+        metaSyncPayload = {
+          userId: b.userId,
+          bookingId,
+          booking: b,
+          paymentStatus: 'paid',
+          paidAt: new Date().toISOString(),
+          payment: {
+            ...(b.payment || {}),
+            provider: 'tinkoff',
+            providerPaymentId: paymentIdStr,
+            lastWebhookStatus: statusStr,
+          },
+        };
       });
 
       if (outcome === 'paid' && crmPayload) {
         await runPostPaymentCrmHooks(crmPayload).catch((e) =>
           console.warn('[webhook] CRM hooks:', e.message),
+        );
+      }
+      if (outcome === 'paid' && metaSyncPayload) {
+        await pushBookingPaymentMeta(metaSyncPayload).catch((e) =>
+          console.warn('[webhook] bookings-meta sync:', e?.message || e),
         );
       }
 
@@ -300,7 +319,25 @@ async function handler(req, res) {
           result: 'failed',
         });
         outcome = 'failed';
+        metaSyncPayload = {
+          userId: b.userId,
+          bookingId,
+          booking: b,
+          paymentStatus: 'failed',
+          payment: {
+            ...(b.payment || {}),
+            providerPaymentId: paymentIdStr,
+            lastWebhookStatus: statusStr,
+            failureReason: String(body.ErrorCode || statusStr || 'failed'),
+          },
+        };
       });
+
+      if (outcome === 'failed' && metaSyncPayload) {
+        await pushBookingPaymentMeta(metaSyncPayload).catch((e) =>
+          console.warn('[webhook] bookings-meta sync:', e?.message || e),
+        );
+      }
 
       return res.status(200).json({ success: true, outcome });
     }

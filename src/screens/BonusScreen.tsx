@@ -16,6 +16,7 @@ import { useAppContext } from '../contexts/AppContext';
 import { i18n } from '../config/i18n';
 import { bonusService } from '../services/BonusService';
 import { BonusTransaction } from '../types';
+import { BonusRulesCard } from '../components/BonusRulesCard';
 import { logger } from '../utils/logger';
 
 function formatDate(s: string): string {
@@ -35,6 +36,8 @@ function formatDate(s: string): string {
 export default function BonusScreen({ navigation }: any) {
   const { user, theme } = useAppContext();
   const [balance, setBalance] = useState(0);
+  const [availableBalance, setAvailableBalance] = useState(0);
+  const [expiringWithin7Days, setExpiringWithin7Days] = useState(0);
   const [transactions, setTransactions] = useState<BonusTransaction[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -49,6 +52,8 @@ export default function BonusScreen({ navigation }: any) {
   const load = useCallback(async () => {
     if (isGuest || (!email && !phone)) {
       setBalance(0);
+      setAvailableBalance(0);
+      setExpiringWithin7Days(0);
       setTransactions([]);
       setLoading(false);
       return;
@@ -64,6 +69,8 @@ export default function BonusScreen({ navigation }: any) {
       ]);
       if (res.success && res.data) {
         setBalance(res.data.balance);
+        setAvailableBalance(res.data.availableBalance ?? res.data.balance);
+        setExpiringWithin7Days(res.data.expiringWithin7Days ?? 0);
         setTransactions(
           [...(res.data.transactions || [])].sort((a, b) =>
             (b.datetime || '').localeCompare(a.datetime || '')
@@ -141,9 +148,24 @@ export default function BonusScreen({ navigation }: any) {
       >
         <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
           <Text style={[styles.cardLabel, { color: theme.secondaryText }]}>{i18n.t('bonus.balance')}</Text>
-          <Text style={[styles.balance, { color: theme.primary }]}>{balance}</Text>
-          <Text style={[styles.hint, { color: theme.tertiaryText }]}>{i18n.t('bonus.fromCrm')}</Text>
+          <Text style={[styles.balance, { color: theme.primary }]}>{availableBalance}</Text>
+          {balance !== availableBalance && (
+            <Text style={[styles.hint, { color: theme.tertiaryText }]}>
+              {i18n.t('bonus.balance')}: {balance} ({i18n.t('bonus.available').toLowerCase()}: {availableBalance})
+            </Text>
+          )}
+          {(expiringWithin7Days ?? 0) > 0 && (
+            <Text style={[styles.hint, { color: theme.warning }]}>
+              {i18n.t('bonus.expiringSoon')}: {expiringWithin7Days}
+            </Text>
+          )}
         </View>
+
+        <BonusRulesCard
+          theme={theme}
+          availableBalance={availableBalance}
+          expiringWithin7Days={expiringWithin7Days}
+        />
 
         {error && (
           <View style={[styles.errorBox, { backgroundColor: `${theme.error}18`, borderColor: theme.error }]}>
@@ -210,6 +232,11 @@ export default function BonusScreen({ navigation }: any) {
                     {isIncrease ? i18n.t('bonus.accrual') : i18n.t('bonus.deduction')}
                   </Text>
                   <Text style={[styles.rowDate, { color: theme.secondaryText }]}>{formatDate(t.datetime)}</Text>
+                  {t.amount_till_date && t.increase === 1 ? (
+                    <Text style={[styles.rowReason, { color: theme.tertiaryText }]}>
+                      {i18n.t('bonus.expiresOn')} {formatDate(t.amount_till_date)}
+                    </Text>
+                  ) : null}
                   {t.reason ? (
                     <Text style={[styles.rowReason, { color: theme.tertiaryText }]} numberOfLines={2}>
                       {t.reason}

@@ -8,6 +8,11 @@ import { Tour, Hotel } from '../types';
 import { TourOutput } from '../types/tourvisor';
 import { authSession } from './AuthSession';
 import { logger } from '../utils/logger';
+import {
+  deleteFavoriteViaBackend,
+  fetchFavoritesViaBackend,
+  pushFavoriteViaBackend,
+} from './sync/UserDataBackendClient';
 
 const FAVORITES_TOURS_KEY = 'user_favorite_tours';
 const FAVORITES_HOTELS_KEY = 'user_favorite_hotels';
@@ -60,6 +65,66 @@ export class FavoritesService {
       if (!map.has(id)) map.set(id, h);
     }
     return Array.from(map.values());
+  }
+
+  private async writeLocalTours(uid: string, tours: TourOutput[]): Promise<void> {
+    await AsyncStorage.setItem(`${FAVORITES_TOURS_KEY}_${uid}`, safeJsonStringify(tours));
+  }
+
+  private async writeLocalHotels(uid: string, hotels: Hotel[]): Promise<void> {
+    await AsyncStorage.setItem(`${FAVORITES_HOTELS_KEY}_${uid}`, safeJsonStringify(hotels));
+  }
+
+  private async pushTourToServer(tour: TourOutput): Promise<void> {
+    const res = await pushFavoriteViaBackend('tour', String(tour.id), tour as unknown as Record<string, unknown>);
+    if (!res.success) logger.debug('[Favorites] push tour failed:', res.error);
+  }
+
+  private async pushHotelToServer(hotel: Hotel): Promise<void> {
+    const res = await pushFavoriteViaBackend('hotel', String(hotel.id), hotel as unknown as Record<string, unknown>);
+    if (!res.success) logger.debug('[Favorites] push hotel failed:', res.error);
+  }
+
+  async syncFromServer(): Promise<void> {
+    const uid = await this.resolveUserId();
+    if (!uid) return;
+
+    const localTours = await this.getFavoriteTours();
+    const localHotels = await this.getFavoriteHotels();
+
+    const remoteRes = await fetchFavoritesViaBackend();
+    const remoteTours: TourOutput[] = [];
+    const remoteHotels: Hotel[] = [];
+
+    if (remoteRes.success && Array.isArray(remoteRes.data)) {
+      for (const item of remoteRes.data) {
+        if (item.itemType === 'tour') {
+          remoteTours.push(item.payload as unknown as TourOutput);
+        } else if (item.itemType === 'hotel') {
+          remoteHotels.push(item.payload as unknown as Hotel);
+        }
+      }
+    }
+
+    const mergedTours = this.mergeByTourId(remoteTours, localTours);
+    const mergedHotels = this.mergeByHotelId(remoteHotels, localHotels);
+
+    await this.writeLocalTours(uid, mergedTours);
+    await this.writeLocalHotels(uid, mergedHotels);
+
+    const remoteTourIds = new Set(remoteTours.map((t) => String(t.id)));
+    const remoteHotelIds = new Set(remoteHotels.map((h) => String(h.id)));
+
+    for (const tour of localTours) {
+      if (!remoteTourIds.has(String(tour.id))) {
+        void this.pushTourToServer(tour);
+      }
+    }
+    for (const hotel of localHotels) {
+      if (!remoteHotelIds.has(String(hotel.id))) {
+        void this.pushHotelToServer(hotel);
+      }
+    }
   }
 
   async getFavoriteTours(): Promise<TourOutput[]> {
@@ -128,7 +193,8 @@ export class FavoritesService {
       }
 
       favorites.push(tour);
-      await AsyncStorage.setItem(`${FAVORITES_TOURS_KEY}_${uid}`, safeJsonStringify(favorites));
+      await this.writeLocalTours(uid, favorites);
+      void this.pushTourToServer(tour);
       return { success: true };
     } catch (error: unknown) {
       logger.error('Ошибка добавления тура в избранное:', error);
@@ -153,7 +219,8 @@ export class FavoritesService {
       }
 
       favorites.push(hotel);
-      await AsyncStorage.setItem(`${FAVORITES_HOTELS_KEY}_${uid}`, safeJsonStringify(favorites));
+      await this.writeLocalHotels(uid, favorites);
+      void this.pushHotelToServer(hotel);
       return { success: true };
     } catch (error: unknown) {
       logger.error('Ошибка добавления отеля в избранное:', error);
@@ -174,7 +241,8 @@ export class FavoritesService {
       const id = String(tourId);
       const favorites = await this.getFavoriteTours();
       const updated = favorites.filter((tour) => String(tour.id) !== id);
-      await AsyncStorage.setItem(`${FAVORITES_TOURS_KEY}_${uid}`, safeJsonStringify(updated));
+      await this.writeLocalTours(uid, updated);
+      void deleteFavoriteViaBackend('tour', id);
       return { success: true };
     } catch (error: unknown) {
       logger.error('Ошибка удаления тура из избранного:', error);
@@ -195,7 +263,8 @@ export class FavoritesService {
       const id = String(hotelId);
       const favorites = await this.getFavoriteHotels();
       const updated = favorites.filter((hotel) => String(hotel.id) !== id);
-      await AsyncStorage.setItem(`${FAVORITES_HOTELS_KEY}_${uid}`, safeJsonStringify(updated));
+      await this.writeLocalHotels(uid, updated);
+      void deleteFavoriteViaBackend('hotel', id);
       return { success: true };
     } catch (error: unknown) {
       logger.error('Ошибка удаления отеля из избранного:', error);
@@ -260,3 +329,5 @@ export class FavoritesService {
     }
   }
 }
+
+export const favoritesService = FavoritesService.getInstance();

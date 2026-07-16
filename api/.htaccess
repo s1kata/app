@@ -1,0 +1,13 @@
+RewriteEngine On
+
+# Проброс Authorization в PHP
+RewriteCond %{HTTP:Authorization} .
+RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+
+# Tourvisor proxy
+RewriteRule ^tourvisor-mobile(.*)$ /backend/api/tourvisor-mobile.php$1 [L,QSA]
+
+# Payment API
+RewriteRule ^create-payment$ create-payment.php [L,QSA]
+RewriteRule ^payment-webhook$ payment-webhook.php [L,QSA]
+RewriteRule ^payment-status/([^/]+)$ payment-status.php?transactionId=$1 [L,QSA]

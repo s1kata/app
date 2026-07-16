@@ -29,6 +29,7 @@ import type { Currency } from '../services/SettingsService';
 import { i18n } from '../config/i18n';
 import { logger } from '../utils/logger';
 import TourReviewsSection from '../components/TourReviewsSection';
+import AuthRequiredCard from '../components/ux/AuthRequiredCard';
 
 interface ApiTourDetailsScreenProps {
   navigation: any;
@@ -53,6 +54,8 @@ export default function ApiTourDetailsScreen({ navigation, route }: ApiTourDetai
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingFlights, setIsLoadingFlights] = useState(false);
   const [isFavorite, setIsFavorite] = useState(false);
+  const [showAuthCard, setShowAuthCard] = useState(false);
+  const [authCardAction, setAuthCardAction] = useState<'favorite' | 'book'>('book');
   const [activeGalleryIndex, setActiveGalleryIndex] = useState(0);
   
   // 3. Ref hooks
@@ -206,14 +209,8 @@ export default function ApiTourDetailsScreen({ navigation, route }: ApiTourDetai
     if (!tour) return;
     try {
       if (isGuest || !user) {
-        Alert.alert(
-          i18n.t('favorites.authRequired'),
-          i18n.t('auth.favoritesRequired'),
-          [
-            { text: i18n.t('common.cancel'), style: 'cancel' },
-            { text: i18n.t('auth.login'), onPress: () => navigation.navigate('Login') },
-          ]
-        );
+        setAuthCardAction('favorite');
+        setShowAuthCard(true);
         return;
       }
       const result = await FavoritesService.getInstance().toggleTourFavorite(tour);
@@ -286,6 +283,25 @@ export default function ApiTourDetailsScreen({ navigation, route }: ApiTourDetai
     return timeStr.substring(0, 5);
   };
 
+  const normalizeAreaUnit = (value?: string) => {
+    if (!value) return '';
+    return value
+      .replace(/\bм2\b/gi, 'м²')
+      .replace(/\bm2\b/gi, 'm²')
+      .replace(/\bкв\.?\s*м\b/gi, 'м²')
+      .replace(/&#178;|&sup2;/gi, '²');
+  };
+
+  const normalizeHotelDescription = (value?: string) => {
+    if (!value) return '';
+    return normalizeAreaUnit(value)
+      .replace(/&nbsp;/gi, ' ')
+      .replace(/&ndash;/gi, '–')
+      .replace(/&mdash;/gi, '—')
+      .replace(/&quot;/gi, '"')
+      .replace(/&amp;/gi, '&');
+  };
+
   const renderTourInfo = () => {
     if (!tour) return null;
 
@@ -302,7 +318,7 @@ export default function ApiTourDetailsScreen({ navigation, route }: ApiTourDetai
         label: `${tour.adults} ${i18n.t('tours.adultsShort')}${tour.childs > 0 ? ` + ${tour.childs} ${i18n.t('tours.childrenShort')}` : ''}`,
       } : null,
       tour.meal?.name ? { icon: 'restaurant-outline', label: tour.meal.name } : null,
-      tour.roomType ? { icon: 'bed-outline', label: tour.roomType } : null,
+      tour.roomType ? { icon: 'bed-outline', label: normalizeAreaUnit(tour.roomType) } : null,
       tour.departure?.name ? { icon: 'airplane-outline', label: tour.departure.name } : null,
     ].filter(Boolean) as { icon: keyof typeof Ionicons.glyphMap; label: string }[];
 
@@ -377,7 +393,7 @@ export default function ApiTourDetailsScreen({ navigation, route }: ApiTourDetai
             <View style={styles.detailSectionContent}>
               <Text style={[styles.detailSectionTitle, { color: theme.text }]}>Об отеле</Text>
               <Text style={[styles.descriptionText, { color: theme.secondaryText }]}>
-                {tour.hotelDescription}
+                {normalizeHotelDescription(tour.hotelDescription)}
               </Text>
             </View>
           </View>
@@ -398,7 +414,7 @@ export default function ApiTourDetailsScreen({ navigation, route }: ApiTourDetai
               {tour.placement && (
                 <View style={styles.paramBlock}>
                   <Text style={[styles.paramLabel, { color: theme.tertiaryText }]}>Размещение</Text>
-                  <Text style={[styles.paramValue, { color: theme.text }]}>{tour.placement}</Text>
+                  <Text style={[styles.paramValue, { color: theme.text }]}>{normalizeAreaUnit(tour.placement)}</Text>
                 </View>
               )}
               {tour.hotel.rating > 0 && (
@@ -637,15 +653,8 @@ export default function ApiTourDetailsScreen({ navigation, route }: ApiTourDetai
 
   const handleBookPress = () => {
     if (isGuest || !user) {
-      Alert.alert(
-        i18n.t('favorites.authRequired'),
-        i18n.t('booking.authRequiredDesc'),
-        [
-          { text: i18n.t('common.cancel'), style: 'cancel' },
-          { text: i18n.t('auth.login'), onPress: () => navigation.navigate('Login') },
-          { text: i18n.t('auth.register'), onPress: () => navigation.navigate('Register') },
-        ]
-      );
+      setAuthCardAction('book');
+      setShowAuthCard(true);
       return;
     }
     navigation.navigate('TourBooking', { tour, searchParams });
@@ -732,24 +741,44 @@ export default function ApiTourDetailsScreen({ navigation, route }: ApiTourDetai
           <TourReviewsSection
             tourId={String(tourId)}
             hotelId={tour?.hotel?.id}
+            hotelName={tour?.hotel?.name}
+            countryName={tour?.hotel?.country?.name}
             navigation={navigation}
           />
         ) : null}
       </ScrollView>
 
-      {/* Sticky кнопка «Оставить заявку» */}
+      {/* Sticky кнопка «Забронировать» */}
       <View style={[styles.stickyFooter, { 
         backgroundColor: theme.card, 
         borderTopColor: theme.border,
         paddingBottom: stickyBottom,
       }]}>
         <PrimaryButton
-          title="Оставить заявку"
+          title={i18n.t('tours.book')}
           onPress={handleBookPress}
           variant="cta"
           style={styles.bookingButton}
         />
       </View>
+      <AuthRequiredCard
+        visible={showAuthCard}
+        title={i18n.t('ux.authRequiredTitle')}
+        message={
+          authCardAction === 'book'
+            ? i18n.t('booking.authRequiredDesc')
+            : i18n.t('auth.favoritesRequired')
+        }
+        onLater={() => setShowAuthCard(false)}
+        onLogin={() => {
+          setShowAuthCard(false);
+          navigation.navigate('Login');
+        }}
+        onRegister={() => {
+          setShowAuthCard(false);
+          navigation.navigate('Register');
+        }}
+      />
     </ScreenContainer>
   );
 }

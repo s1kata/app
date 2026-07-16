@@ -16,7 +16,6 @@ import { tourvisorApi } from '../services/TourvisorApiService';
 import { dictionaryService } from '../services/DictionaryService';
 import { Country } from '../types/tourvisor';
 import { useAppContext } from '../contexts/AppContext';
-import { Alert } from 'react-native';
 import { logger } from '../utils/logger';
 
 interface CountryInfoScreenProps {
@@ -30,14 +29,11 @@ interface CountryInfoScreenProps {
 
 export default function CountryInfoScreen({ navigation, route }: CountryInfoScreenProps) {
   const { countrySlug } = route.params;
-  const { user, theme, isDark } = useAppContext();
+  const { theme, isDark } = useAppContext();
   const { width } = useWindowDimensions();
   const [country, setCountry] = useState<CountryData | null>(null);
   const [tourvisorCountry, setTourvisorCountry] = useState<Country | null>(null);
   const [loading, setLoading] = useState(true);
-  
-  // Проверка, является ли пользователь гостем
-  const isGuest = user?.uid?.startsWith('guest_') || user?.isAnonymous === true;
 
   useEffect(() => {
     loadCountryData();
@@ -71,25 +67,8 @@ export default function CountryInfoScreen({ navigation, route }: CountryInfoScre
   };
 
   const handleBookTour = () => {
-    // Проверка на гостевой режим
-    if (isGuest) {
-      Alert.alert(
-        'Требуется авторизация',
-        'Для бронирования туров необходимо войти в систему. Хотите войти или зарегистрироваться?',
-        [
-          {
-            text: 'Отмена',
-            style: 'cancel',
-          },
-          {
-            text: 'Войти',
-            onPress: () => navigation.navigate('Login'),
-          },
-        ]
-      );
-      return;
-    }
-
+    // Browse/search без аккаунта (App Store 5.1.1(v)).
+    // Логин нужен только при реальном бронировании на карточке тура.
     if (tourvisorCountry) {
       navigation.navigate('ApiTourSearch', {
         initialParams: {
@@ -297,7 +276,7 @@ export default function CountryInfoScreen({ navigation, route }: CountryInfoScre
         >
           <View style={[styles.bookButtonGradient, { backgroundColor: '#0066CC' }]}>
             <Ionicons name="airplane" size={24} color="#FFFFFF" />
-            <Text style={styles.bookButtonText}>Забронировать тур</Text>
+            <Text style={styles.bookButtonText}>Смотреть туры</Text>
           </View>
         </TouchableOpacity>
       </View>

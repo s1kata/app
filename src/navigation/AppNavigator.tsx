@@ -106,8 +106,13 @@ function CustomTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
           }
         }}
         activeOpacity={0.8}
+        accessibilityLabel={i18n.t('profile.favorites')}
+        accessibilityRole="button"
       >
         <Ionicons name="heart" size={20} color={theme.primary} />
+        <Text style={[customTabBarStyles.favoritesLabel, { color: theme.secondaryText }]}>
+          {i18n.t('profile.favorites')}
+        </Text>
       </TouchableOpacity>
 
       <View style={[customTabBarStyles.container, { backgroundColor: theme.card, paddingBottom: safeBottom + 8 }]}>
@@ -206,7 +211,7 @@ function CustomTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
                 customTabBarStyles.label,
                 { 
                   color: isFocused ? theme.primary : theme.inactive,
-                  fontSize: Math.round(9 * Math.min(fontScale, 1.2)),
+                  fontSize: Math.round(14 * Math.min(fontScale, 1.3)),
                 },
               ]}
               numberOfLines={1}
@@ -301,17 +306,24 @@ const customTabBarStyles = StyleSheet.create({
   favoritesMarker: {
     position: 'absolute',
     left: 16,
-    width: 56,
-    height: 56,
+    width: 72,
+    minHeight: 56,
     borderRadius: 28,
     justifyContent: 'center',
     alignItems: 'center',
+    paddingVertical: 6,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.12,
     shadowRadius: 16,
     elevation: 8,
     borderWidth: 2,
     zIndex: 1000,
+  },
+  favoritesLabel: {
+    fontSize: 10,
+    fontWeight: '600',
+    marginTop: 2,
+    textAlign: 'center',
   },
 });
 
@@ -343,6 +355,7 @@ import TourBookingScreen from '../screens/TourBookingScreen';
 import HelperChatScreen from '../screens/HelperChatScreen';
 import BonusScreen from '../screens/BonusScreen';
 import PurchaseHistoryScreen from '../screens/PurchaseHistoryScreen';
+import AboutScreen from '../screens/AboutScreen';
 
 const Tab = createBottomTabNavigator();
 const Stack = createStackNavigator();
@@ -415,6 +428,7 @@ function ProfileStack() {
       <Stack.Screen name="Bonus" component={BonusScreen} />
       <Stack.Screen name="PurchaseHistory" component={PurchaseHistoryScreen} />
       <Stack.Screen name="HelperChat" component={HelperChatScreen} />
+      <Stack.Screen name="About" component={AboutScreen} />
     </Stack.Navigator>
   );
 }

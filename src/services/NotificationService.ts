@@ -1230,8 +1230,7 @@ class NotificationService {
       }
       const { status } = await Notifications.getPermissionsAsync();
       if (status !== 'granted') {
-        const r = await Notifications.requestPermissionsAsync();
-        if (r.status !== 'granted') return;
+        return;
       }
       await Notifications.scheduleNotificationAsync({
         content: {

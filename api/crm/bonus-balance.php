@@ -30,6 +30,7 @@ $CONFIG = require $configPath;
 
 require_once dirname(__DIR__) . '/lib/auth-jwt.php';
 require_once dirname(__DIR__) . '/lib/crm-read-helpers.php';
+require_once dirname(__DIR__) . '/lib/bonus-engine.php';
 crm_maybe_cors($CONFIG);
 
 $claims = auth_jwt_require_bearer($CONFIG);
@@ -75,11 +76,21 @@ try {
     }
 
     $transactions = $bonusRes['data'] ?? [];
-    $balance = crm_compute_bonus_balance($transactions);
+    $balance = function_exists('crm_compute_bonus_balance')
+        ? crm_compute_bonus_balance($transactions)
+        : bonus_compute_balance_stats($transactions)['balance'];
+    $stats = bonus_compute_balance_stats($transactions);
 
     echo json_encode([
         'success' => true,
-        'data' => ['balance' => $balance, 'transactions' => $transactions],
+        'data' => [
+            'balance' => $balance,
+            'availableBalance' => $stats['availableBalance'],
+            'expiringWithin7Days' => $stats['expiringWithin7Days'],
+            'bcId' => $stats['bcId'],
+            'transactions' => $transactions,
+            'rules' => bonus_rules_for_client(),
+        ],
     ], JSON_UNESCAPED_UNICODE);
 } catch (Throwable $e) {
     error_log('[crm/bonus-balance] ' . $e->getMessage());

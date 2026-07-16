@@ -1,5 +1,5 @@
 /**
- * Тело заявки U-ON request/create — логика синхронизирована с SotaCrmService.sendBookingToCrm.
+ * Тело обращения U-ON lead/create — логика синхронизирована с SotaCrmService.sendBookingToCrm.
  */
 function normalizePhone(phone) {
   const s = String(phone || '')
@@ -27,11 +27,11 @@ function toDatetime(s) {
 /**
  * @param {Record<string, unknown>} payload — как в CrmBookingQueuePayload + idempotencyKey
  */
-function buildRequestCreateBody(payload) {
+function buildLeadCreateBody(payload) {
   const phone = normalizePhone(payload.contactInfo?.phone || '');
   const email = String(payload.contactInfo?.email || '').trim();
   if (!phone && !email) {
-    throw new Error('Для создания заявки нужен телефон или email клиента');
+    throw new Error('Для создания обращения нужен телефон или email клиента');
   }
 
   const nameParts = String(payload.contactInfo?.name || '')
@@ -81,9 +81,14 @@ function buildRequestCreateBody(payload) {
   const body = {
     r_id_internal: payload.idempotencyKey,
     r_dat: now,
-    r_dat_lead: now,
-    r_dat_begin: rDatBegin,
-    r_dat_end: rDatEnd,
+    date_from: rDatBegin.slice(0, 10),
+    date_to: rDatEnd.slice(0, 10),
+    nights_from: nights ? String(nights) : undefined,
+    nights_to: nights ? String(nights) : undefined,
+    tourist_count: String(adults),
+    tourist_child_count: String(childrenCount),
+    budget: Math.max(0, Math.round(Number(payload.totalPrice) || 0)),
+    requirements_note: note,
     source: isHotel ? 'TravelHub App (Отель)' : 'TravelHub App',
     ...(tourOperator && { r_tour_operator: tourOperator }),
     ...(payload.tourSnapshot?.tourPackageUrl && { r_tour_operator_link: payload.tourSnapshot.tourPackageUrl }),
@@ -92,30 +97,10 @@ function buildRequestCreateBody(payload) {
     u_phone: phone || undefined,
     u_phone_mobile: phone || undefined,
     u_email: email || undefined,
-    note,
-    price: String(payload.totalPrice),
-    services: [
-      {
-        type_id: 1,
-        description: [
-          serviceDescription,
-          payload.departureCity?.trim() ? `Вылет: ${payload.departureCity.trim()}` : undefined,
-          nights ? `Ночей: ${nights}` : undefined,
-          `Состав: ${partyText}`,
-          tourOperator ? `Туроператор: ${tourOperator}` : undefined,
-        ]
-          .filter(Boolean)
-          .join(' | '),
-        date_begin: rDatBegin,
-        date_end: rDatEnd,
-        price: payload.totalPrice,
-        ...(payload.tourSnapshot?.countryName && { country: payload.tourSnapshot.countryName }),
-        ...(payload.tourSnapshot?.hotelName && { hotel: payload.tourSnapshot.hotelName }),
-      },
-    ],
+    note: [serviceDescription ? `Подбор: ${serviceDescription}` : undefined, note].filter(Boolean).join('\n'),
   };
 
   return body;
 }
 
-module.exports = { buildRequestCreateBody };
+module.exports = { buildLeadCreateBody };

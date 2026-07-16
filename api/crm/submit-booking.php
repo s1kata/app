@@ -1,7 +1,7 @@
 <?php
 /**
  * POST /api/crm/submit-booking (или /api/crm/submit-booking.php)
- * Создание заявки в U-ON. Авторизация: JWT из auth-mobile.php (не Firebase).
+ * Создание обращения в U-ON. Авторизация: JWT из auth-mobile.php (не Firebase).
  *
  * Тело: { "idempotencyKey": "...", "payload": { ... CrmBookingQueuePayload } }
  */
@@ -55,12 +55,12 @@ if ($payloadUserId === '' || $payloadUserId !== $userId) {
 }
 
 try {
-    $requestBody = crm_build_request_create_body(array_merge($payload, ['idempotencyKey' => $idempotencyKey]));
+    $requestBody = crm_build_lead_create_body(array_merge($payload, ['idempotencyKey' => $idempotencyKey]));
 } catch (InvalidArgumentException $e) {
     auth_jwt_json_error($e->getMessage(), 400);
 }
 
-$response = uon_request('request/create.json', $CONFIG, [
+$response = uon_request('lead/create.json', $CONFIG, [
     'method' => 'POST',
     'body' => json_encode($requestBody, JSON_UNESCAPED_UNICODE),
 ]);

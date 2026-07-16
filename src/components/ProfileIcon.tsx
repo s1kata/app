@@ -3,6 +3,7 @@ import { View, TouchableOpacity, StyleSheet, Text } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAppContext } from '../contexts/AppContext';
 import { AuthService } from '../services/AuthService';
+import { i18n } from '../config/i18n';
 import { logger } from '../utils/logger';
 
 interface ProfileIconProps {
@@ -31,7 +32,7 @@ export default function ProfileIcon({ navigation, size = 40, showName = false }:
     try {
       const isGuest = user.uid.startsWith('guest_') || user.isAnonymous === true;
       if (isGuest) {
-        setUserName('Гость');
+        setUserName(i18n.t('profile.guest'));
         return;
       }
 

@@ -311,5 +311,16 @@ export interface BonusTransaction {
 /** Баланс бонусов (вычисляется по транзакциям или из SOTA) */
 export interface BonusBalance {
   balance: number;
+  /** Доступно с учётом срока действия (amount_till_date) */
+  availableBalance?: number;
+  expiringWithin7Days?: number;
+  bcId?: number | null;
   transactions: BonusTransaction[];
+  rules?: {
+    bonusToRub: number;
+    minDiscountPct: number;
+    maxDiscountPct: number;
+    minBonusesToUse: number;
+    sliderStep: number;
+  };
 }

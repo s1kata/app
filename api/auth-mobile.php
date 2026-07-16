@@ -109,7 +109,7 @@ function handle_health(array $config): void
 {
     $expected = trim((string) ($config['health_check_token'] ?? ''));
     $provided = trim((string) ($_SERVER['HTTP_X_HEALTH_TOKEN'] ?? ''));
-    if ($expected === '' || $provided === '' || !hash_equals($expected, $provided)) {
+    if ($expected !== '' && ($provided === '' || !hash_equals($expected, $provided))) {
         json_error('Forbidden', 403, 'FORBIDDEN');
     }
 

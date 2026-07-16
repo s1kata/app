@@ -33,6 +33,14 @@ export default function LoginScreen({ navigation, route }: any) {
   const [loaderProgress, setLoaderProgress] = useState(0);
   const progressInterval = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  useEffect(() => {
+    if (route?.params?.initialTab === 'register') {
+      navigation.replace('Register', {
+        returnTo: route?.params?.returnTo,
+      });
+    }
+  }, [navigation, route?.params?.initialTab, route?.params?.returnTo]);
+
   // Диагностика входа в dev-сборке (сеть, Firebase, опционально тестовый login)
   useEffect(() => {
     if (!__DEV__) return;
@@ -114,7 +122,7 @@ export default function LoginScreen({ navigation, route }: any) {
     setShowLoader(false);
     setLoading(false);
     const returnTo = route?.params?.returnTo as { name: string; params?: { tour?: unknown; searchParams?: unknown } } | undefined;
-    if (returnTo?.name && returnTo.params) {
+    if (returnTo?.name) {
       navigation.reset({
         index: 0,
         routes: [
@@ -122,9 +130,9 @@ export default function LoginScreen({ navigation, route }: any) {
             name: 'MainTabs',
             state: {
               routes: [
-                { name: 'Home', state: { routes: [{ name: 'HomeMain' }, { name: returnTo.name, params: returnTo.params }], index: 1 } },
+                { name: 'Home', state: { routes: [{ name: 'HomeMain' }, { name: returnTo.name, params: returnTo.params ?? {} }], index: 1 } },
                 { name: 'Bookings' },
-                { name: 'Settings' },
+                { name: 'Profile' },
               ],
               index: 0,
             },

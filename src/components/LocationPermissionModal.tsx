@@ -19,12 +19,14 @@ interface LocationPermissionModalProps {
   visible: boolean;
   onConfirm: (location: LocationData) => void;
   onLocationIncorrect: () => void;
+  onSkip?: () => void;
 }
 
 export default function LocationPermissionModal({
   visible,
   onConfirm,
   onLocationIncorrect,
+  onSkip,
 }: LocationPermissionModalProps) {
   const { theme } = useAppContext();
   const [isLoading, setIsLoading] = useState(false);
@@ -43,24 +45,16 @@ export default function LocationPermissionModal({
       
       // Проверяем разрешение
       const permissionStatus = await locationService.checkPermission();
-      
+
       if (permissionStatus !== Location.PermissionStatus.GRANTED) {
-        // Запрашиваем разрешение
+        // Запрашиваем разрешение только один раз из модалки.
         const newStatus = await locationService.requestPermission();
-        
+
         if (newStatus !== Location.PermissionStatus.GRANTED) {
-          Alert.alert(
-            'Доступ к местоположению',
-            'Для работы приложения необходим доступ к вашему местоположению. Пожалуйста, разрешите доступ в настройках устройства.',
-            [
-              {
-                text: 'Понятно',
-                onPress: () => {
-                  setIsLoading(false);
-                },
-              },
-            ]
-          );
+          // Пользователь отказался — не блокируем приложение.
+          setDetectedLocation(null);
+          setLocationText('');
+          setIsLoading(false);
           return;
         }
       }
@@ -86,18 +80,11 @@ export default function LocationPermissionModal({
         
         setLocationText(text);
       } else {
-        Alert.alert(
-          'Ошибка',
-          'Не удалось определить ваше местоположение. Пожалуйста, проверьте настройки GPS.',
-          [
-            {
-              text: 'Понятно',
-              onPress: () => {
-                setIsLoading(false);
-              },
-            },
-          ]
-        );
+        // Не удалось получить местоположение — показываем состояние ошибки,
+        // но даём пользователю возможность продолжить без геолокации.
+        setDetectedLocation(null);
+        setLocationText('');
+        setIsLoading(false);
       }
     } catch (error) {
       logger.error('Error requesting location:', error);
@@ -133,7 +120,7 @@ export default function LocationPermissionModal({
       visible={visible}
       transparent
       animationType="fade"
-      onRequestClose={() => {}}
+      onRequestClose={() => onSkip?.()}
     >
       <View style={styles.overlay}>
         <View style={[styles.container, { backgroundColor: theme.card }]}>
@@ -141,7 +128,7 @@ export default function LocationPermissionModal({
             <Ionicons name="location" size={48} color={theme.primary} />
             <Text style={[styles.title, { color: theme.text }]}>Определение местоположения</Text>
             <Text style={[styles.subtitle, { color: theme.secondaryText }]}>
-              Мы используем ваше местоположение для показа актуальной погоды и персонализации поиска туров
+              Мы используем ваше местоположение для показа актуальной погоды, часового пояса и персонализации поиска туров поблизости. Приложение будет работать и без доступа к геолокации.
             </Text>
           </View>
 
@@ -185,6 +172,18 @@ export default function LocationPermissionModal({
               <Text style={[styles.errorText, { color: theme.error }]}>
                 Не удалось определить местоположение
               </Text>
+              <Text style={[styles.subtitle, { color: theme.secondaryText, marginTop: 8 }]}>
+                Вы можете продолжить использование приложения без доступа к геолокации.
+              </Text>
+              <TouchableOpacity
+                style={[styles.skipButton, { borderColor: theme.border }]}
+                onPress={() => onSkip?.()}
+                activeOpacity={0.8}
+              >
+                <Text style={[styles.skipButtonText, { color: theme.text }]}>
+                  Продолжить без геолокации
+                </Text>
+              </TouchableOpacity>
             </View>
           )}
         </View>
@@ -291,10 +290,22 @@ const styles = StyleSheet.create({
   errorContainer: {
     alignItems: 'center',
     paddingVertical: 40,
+    gap: 12,
   },
   errorText: {
     fontSize: 16,
     marginTop: 16,
     textAlign: 'center',
+  },
+  skipButton: {
+    marginTop: 16,
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  skipButtonText: {
+    fontSize: 15,
+    fontWeight: '600',
   },
 });

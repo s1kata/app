@@ -23,6 +23,8 @@ interface DateRangeCalendarProps {
   initialDateTo?: string;
   minDate?: Date;
   maxDate?: Date;
+  /** Одна дата — выбор завершается одним нажатием */
+  singleDateMode?: boolean;
 }
 
 const DateRangeCalendar = memo(function DateRangeCalendar({
@@ -32,6 +34,7 @@ const DateRangeCalendar = memo(function DateRangeCalendar({
   initialDateTo,
   minDate,
   maxDate,
+  singleDateMode = false,
 }: DateRangeCalendarProps) {
   const { theme, themeMode, isDark } = useAppContext();
   const { width: windowWidth } = useWindowDimensions();
@@ -108,6 +111,16 @@ const DateRangeCalendar = memo(function DateRangeCalendar({
 
   const handleDatePress = (date: Date) => {
     const dateStr = formatDateToString(date);
+
+    if (singleDateMode) {
+      setSelectedStartDate(dateStr);
+      setSelectedEndDate(dateStr);
+      onDateRangeSelect(dateStr, dateStr);
+      if (onClose) {
+        setTimeout(() => onClose(), 150);
+      }
+      return;
+    }
     
     // Плавная логика выбора с немедленным обновлением состояния
     if (!selectedStartDate || (selectedStartDate && selectedEndDate)) {

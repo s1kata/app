@@ -12,7 +12,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useAppContext } from '../contexts/AppContext';
 import { i18n } from '../config/i18n';
-import { sotaCrmService } from '../services/SotaCrmService';
+import { bookingService } from '../services/BookingService';
+import { mapLocalBookingToSota } from '../services/sync/bookingMapper';
 import { SotaBooking } from '../types';
 import { PrimaryButton } from '../components/ui';
 
@@ -32,38 +33,30 @@ export default function PurchaseHistoryScreen({ navigation }: any) {
   const [error, setError] = useState<string | null>(null);
 
   const isGuest = user?.uid?.startsWith('guest_') || user?.isAnonymous === true;
-  const email = (user as any)?.email || undefined;
-  const phone = (user as any)?.phoneNumber || (user as any)?.phone || undefined;
 
   const load = useCallback(async () => {
-    if (isGuest || (!email && !phone)) {
+    if (isGuest || !user?.uid) {
       setBookings([]);
       setLoading(false);
       return;
     }
     setError(null);
     try {
-      const res = await sotaCrmService.getBookings({
-        clientEmail: email,
-        clientPhone: phone,
-      });
-      if (res.success && res.data) {
-        setBookings(res.data);
-      } else {
-        setError(res.error || i18n.t('purchaseHistory.unavailable'));
+      const merged = await bookingService.getUserBookings(user.uid);
+      const mapped = merged.map(mapLocalBookingToSota);
+      setBookings(mapped);
+      if (mapped.length === 0) {
+        setError(null);
       }
-    } catch (e: any) {
-      const msg = String(e?.message || '');
-      setError(
-        msg.toLowerCase().includes('404') || msg.toLowerCase().includes('not found')
-          ? i18n.t('purchaseHistory.unavailable')
-          : msg || i18n.t('purchaseHistory.unavailable')
-      );
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setError(msg || i18n.t('purchaseHistory.unavailable'));
+      setBookings([]);
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [isGuest, email, phone]);
+  }, [isGuest, user?.uid]);
 
   useEffect(() => {
     load();

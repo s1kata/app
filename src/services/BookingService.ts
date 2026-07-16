@@ -24,6 +24,11 @@ import type { CrmBookingQueuePayload } from '../types/crmQueue';
 import { networkService } from './NetworkService';
 import { bookingLocalStore } from './BookingLocalStore';
 import { getValidAccessToken } from './AuthApiClient';
+import { bookingSyncService } from './sync/BookingSyncService';
+import {
+  canTransitionBookingStatus,
+  canTransitionPaymentStatus,
+} from '../utils/bookingStatusTransitions';
 
 /**
  * Бронирования: очередь → CRM (сайт) → локальный кэш (AsyncStorage) или Firestore (legacy).
@@ -92,6 +97,10 @@ class BookingService {
         crmRequestId,
         idempotencyKey,
       );
+      const saved = await bookingLocalStore.getById(localId);
+      if (saved) {
+        void bookingSyncService.pushMeta(saved);
+      }
       return { firestoreBookingId: localId };
     }
 
@@ -218,18 +227,7 @@ class BookingService {
       }
 
       const task = await crmOutboundQueue.enqueue(queuePayload);
-
-      const online = await networkService.ensureOnlineVerified();
-
-      if (!online) {
-        void crmOutboundQueue.drain();
-        return {
-          success: true,
-          queued: true,
-          idempotencyKey: task.idempotencyKey,
-          crmSent: false,
-        };
-      }
+      void networkService.refreshConnection();
 
       const processed = await crmOutboundQueue.processTaskNow(task.id);
       if (processed.queuedOffline) {
@@ -285,7 +283,7 @@ class BookingService {
     }
   }
 
-  async getUserBookings(userId: string): Promise<Booking[]> {
+  async getUserBookings(userId: string, options?: { skipSync?: boolean }): Promise<Booking[]> {
     try {
       if (this.useFirestore()) {
         const q = query(collection(db!, this.COLLECTION_NAME), where('userId', '==', userId));
@@ -302,6 +300,19 @@ class BookingService {
         });
         bookings.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
         return BookingService.dedupeBookingsForDisplay(bookings);
+      }
+
+      if (!options?.skipSync && !userId.startsWith('guest_')) {
+        const profile = await authSession.getStoredUser();
+        const contact =
+          profile?.id === userId
+            ? { email: profile.email, phone: profile.phone }
+            : undefined;
+        try {
+          await bookingSyncService.syncForUser(userId, contact);
+        } catch (syncErr) {
+          logger.warn('[BookingService] sync before read:', syncErr);
+        }
       }
 
       const local = await bookingLocalStore.getByUserId(userId);
@@ -433,17 +444,74 @@ class BookingService {
     }
   }
 
-  /** Обновить статус оплаты локально после poll / deep link (без Firestore). */
+  /** Общий патч брони (локально или Firestore). */
+  private async patchBooking(bookingId: string, patch: Partial<Booking>): Promise<void> {
+    const updatedAt = new Date().toISOString();
+    if (this.useFirestore()) {
+      try {
+        await updateDoc(doc(db!, this.COLLECTION_NAME, bookingId), {
+          ...patch,
+          updatedAt: serverTimestamp(),
+        });
+      } catch (e) {
+        logger.warn('[BookingService] patchBooking firestore:', e);
+      }
+      return;
+    }
+    await bookingLocalStore.update(bookingId, { ...patch, updatedAt });
+    const saved = await bookingLocalStore.getById(bookingId);
+    if (saved) {
+      void bookingSyncService.pushMeta(saved);
+    }
+  }
+
+  /** Обновить статус заявки (CRM / отмена). Не трогает оплату. */
+  async updateBookingStatus(bookingId: string, status: BookingStatus): Promise<boolean> {
+    try {
+      const existing = await this.getBookingById(bookingId);
+      if (!existing) return false;
+      if (!canTransitionBookingStatus(existing.status, status)) {
+        logger.warn(
+          `[BookingService] updateBookingStatus blocked: ${existing.status} → ${status}`,
+        );
+        return false;
+      }
+      await this.patchBooking(bookingId, { status });
+      return true;
+    } catch (e) {
+      logger.warn('[BookingService] updateBookingStatus:', e);
+      return false;
+    }
+  }
+
+  /** Обновить статус оплаты после poll / deep link / webhook (клиент). */
   async markPaymentStatus(
     bookingId: string,
     paymentStatus: Booking['paymentStatus'],
     extra?: Partial<Booking>,
   ): Promise<void> {
+    const existing = await this.getBookingById(bookingId);
+    if (existing && !canTransitionPaymentStatus(existing.paymentStatus, paymentStatus)) {
+      logger.warn(
+        `[BookingService] markPaymentStatus blocked: ${existing.paymentStatus} → ${paymentStatus}`,
+      );
+      return;
+    }
+
+    const { status: _ignoredStatus, ...paymentExtra } = extra || {};
+    if (extra?.status != null) {
+      logger.warn('[BookingService] markPaymentStatus: status in extra ignored — use updateBookingStatus');
+    }
+
+    const patch: Partial<Booking> = {
+      paymentStatus,
+      ...paymentExtra,
+    };
+
     if (this.useFirestore()) {
       try {
         await updateDoc(doc(db!, this.COLLECTION_NAME, bookingId), {
-          paymentStatus,
-          ...extra,
+          ...patch,
           updatedAt: serverTimestamp(),
         });
       } catch (e) {
@@ -451,11 +519,15 @@ class BookingService {
       }
       return;
     }
+    const updatedAt = new Date().toISOString();
     await bookingLocalStore.update(bookingId, {
-      paymentStatus,
-      ...extra,
-      updatedAt: new Date().toISOString(),
+      ...patch,
+      updatedAt,
     });
+    const saved = await bookingLocalStore.getById(bookingId);
+    if (saved) {
+      void bookingSyncService.pushMeta(saved);
+    }
   }
 }
 

@@ -9,17 +9,43 @@ import {
   Alert,
   ActivityIndicator,
   KeyboardTypeOptions,
+  Modal,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import type { Theme } from '../config/theme';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
+import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import { AuthService } from '../services/AuthService';
 import { UserProfile } from '../types/firestore';
 import { useAppContext } from '../contexts/AppContext';
 import { i18n } from '../config/i18n';
 import { logger } from '../utils/logger';
 import { normalizeDigits, validatePassportData } from '../utils/validation';
+import { platform } from '../utils/platform';
+
+function parseDDMMYYYY(value: string): Date | null {
+  const raw = String(value || '').trim();
+  if (!/^\d{2}\.\d{2}\.\d{4}$/.test(raw)) return null;
+  const [dd, mm, yyyy] = raw.split('.').map(Number);
+  const date = new Date(yyyy, mm - 1, dd);
+  if (
+    !Number.isFinite(date.getTime()) ||
+    date.getFullYear() !== yyyy ||
+    date.getMonth() !== mm - 1 ||
+    date.getDate() !== dd
+  ) {
+    return null;
+  }
+  return date;
+}
+
+function formatDDMMYYYY(date: Date): string {
+  const dd = String(date.getDate()).padStart(2, '0');
+  const mm = String(date.getMonth() + 1).padStart(2, '0');
+  const yyyy = String(date.getFullYear());
+  return `${dd}.${mm}.${yyyy}`;
+}
 
 // Локальный тип для формы (все поля обязательные)
 interface FormData {
@@ -145,6 +171,41 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 20,
   },
+  dateFieldRow: {
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  dateFieldValue: {
+    fontSize: 16,
+    flex: 1,
+    marginRight: 8,
+  },
+  iosPickerSheet: {
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    paddingBottom: 12,
+  },
+  iosPickerToolbar: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  iosPickerDone: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  iosPickerBackdrop: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(0,0,0,0.35)',
+  },
 });
 
 /** Вне компонента экрана: иначе при каждом setState создаётся новый тип и TextInput размонтируется (клавиатура закрывается). */
@@ -189,6 +250,126 @@ function PersonalDataInputField({
   );
 }
 
+function PersonalDataDateField({
+  label,
+  value,
+  onChange,
+  placeholder,
+  editable = true,
+  theme,
+  isDark = false,
+  maximumDate,
+  minimumDate,
+}: {
+  label: string;
+  value: string;
+  onChange: (next: string) => void;
+  placeholder: string;
+  editable?: boolean;
+  theme: Theme;
+  isDark?: boolean;
+  maximumDate?: Date;
+  minimumDate?: Date;
+}) {
+  const [open, setOpen] = useState(false);
+  const parsed = parseDDMMYYYY(value);
+  const [draft, setDraft] = useState<Date>(() => parsed || new Date(1990, 0, 1));
+
+  useEffect(() => {
+    if (open) {
+      setDraft(parseDDMMYYYY(value) || new Date(1990, 0, 1));
+    }
+  }, [open, value]);
+
+  const commit = (date: Date) => {
+    onChange(formatDDMMYYYY(date));
+  };
+
+  const onAndroidChange = (event: DateTimePickerEvent, selected?: Date) => {
+    setOpen(false);
+    if (event.type === 'set' && selected) {
+      commit(selected);
+    }
+  };
+
+  const onIosChange = (_event: DateTimePickerEvent, selected?: Date) => {
+    if (selected) setDraft(selected);
+  };
+
+  return (
+    <View style={styles.inputContainer}>
+      <Text style={[styles.inputLabel, { color: theme.secondaryText }]}>{label}</Text>
+      <TouchableOpacity
+        style={[
+          styles.dateFieldRow,
+          {
+            backgroundColor: theme.secondaryBackground,
+            borderColor: theme.border,
+            opacity: editable ? 1 : 0.85,
+          },
+        ]}
+        activeOpacity={editable ? 0.7 : 1}
+        disabled={!editable}
+        onPress={() => setOpen(true)}
+      >
+        <Text
+          style={[
+            styles.dateFieldValue,
+            { color: value ? theme.text : theme.tertiaryText },
+          ]}
+        >
+          {value || placeholder}
+        </Text>
+        <Ionicons name="calendar-outline" size={20} color={theme.primary} />
+      </TouchableOpacity>
+
+      {open && platform.isAndroid ? (
+        <DateTimePicker
+          value={draft}
+          mode="date"
+          display="calendar"
+          onChange={onAndroidChange}
+          maximumDate={maximumDate}
+          minimumDate={minimumDate}
+        />
+      ) : null}
+
+      {platform.isIOS ? (
+        <Modal visible={open} transparent animationType="slide" onRequestClose={() => setOpen(false)}>
+          <View style={styles.iosPickerBackdrop}>
+            <TouchableOpacity style={{ flex: 1 }} activeOpacity={1} onPress={() => setOpen(false)} />
+            <View style={[styles.iosPickerSheet, { backgroundColor: theme.card }]}>
+              <View style={[styles.iosPickerToolbar, { borderBottomColor: theme.border }]}>
+                <TouchableOpacity
+                  onPress={() => {
+                    commit(draft);
+                    setOpen(false);
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <Text style={[styles.iosPickerDone, { color: theme.primary }]}>
+                    {i18n.t('common.ok')}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+              <DateTimePicker
+                value={draft}
+                mode="date"
+                display="spinner"
+                onChange={onIosChange}
+                maximumDate={maximumDate}
+                minimumDate={minimumDate}
+                themeVariant={isDark ? 'dark' : 'light'}
+                style={{ height: 216 }}
+              />
+            </View>
+          </View>
+        </Modal>
+      ) : null}
+    </View>
+  );
+}
+
 export default function PersonalDataScreen({ navigation }: any) {
   const { theme, isDark, user } = useAppContext();
   const [profile, setProfile] = useState<UserProfile | null>(null);
@@ -223,7 +404,18 @@ export default function PersonalDataScreen({ navigation }: any) {
     try {
       setLoading(true);
       if (!user?.uid || user.isAnonymous || user.uid.startsWith('guest_')) {
-        Alert.alert('Ошибка', 'Для доступа к личным данным необходимо войти в систему.');
+        Alert.alert('Ошибка', 'Для доступа к личным данным необходимо войти в систему.', [
+          {
+            text: 'OK',
+            onPress: () => {
+              if (navigation.canGoBack?.()) {
+                navigation.goBack();
+              } else {
+                navigation.navigate('Login');
+              }
+            },
+          },
+        ]);
         return;
       }
 
@@ -453,24 +645,28 @@ export default function PersonalDataScreen({ navigation }: any) {
               theme={theme}
             />
 
-            <PersonalDataInputField
+            <PersonalDataDateField
               label={i18n.t('personal.issuedDate')}
               value={formData.passportIssuedDate}
-              onChangeText={(text) => setFormData((prev) => ({ ...prev, passportIssuedDate: text }))}
+              onChange={(text) => setFormData((prev) => ({ ...prev, passportIssuedDate: text }))}
               placeholder={i18n.t('personal.placeholderDate')}
-              keyboardType="numeric"
               editable={editing}
               theme={theme}
+              isDark={isDark}
+              maximumDate={new Date()}
+              minimumDate={parseDDMMYYYY(formData.birthDate) || new Date(1950, 0, 1)}
             />
 
-            <PersonalDataInputField
+            <PersonalDataDateField
               label={i18n.t('personal.birthDate')}
               value={formData.birthDate}
-              onChangeText={(text) => setFormData((prev) => ({ ...prev, birthDate: text }))}
+              onChange={(text) => setFormData((prev) => ({ ...prev, birthDate: text }))}
               placeholder={i18n.t('personal.placeholderDate')}
-              keyboardType="numeric"
               editable={editing}
               theme={theme}
+              isDark={isDark}
+              maximumDate={new Date()}
+              minimumDate={new Date(1920, 0, 1)}
             />
 
             <PersonalDataInputField

@@ -4,5 +4,5 @@
  */
 export const RELEASE_HIDE_NEXT_PATCH_UI = true;
 
-/** История покупок через CRM client-bookings — отложена до деплоя прокси на сайте */
-export const RELEASE_HIDE_PURCHASE_HISTORY = true;
+/** История покупок: CRM client-bookings + локальные брони на устройстве */
+export const RELEASE_HIDE_PURCHASE_HISTORY = false;

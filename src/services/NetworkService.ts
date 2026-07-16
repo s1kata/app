@@ -1,9 +1,9 @@
 /**
- * Мониторинг сети: быстрый баннер при проблемах, фоновые ретраи до HTTP 200 от бэкенда.
+ * Мониторинг сети: баннер только при реальных проблемах, без ложного офлайна через apple.com.
  */
 import { AppState, AppStateStatus } from 'react-native';
 import NetInfo from '@react-native-community/netinfo';
-import { pingBackendHealth, pingGeneralInternet } from '../utils/backendHealth';
+import { isDeviceOffline, pingBackendHealth, pingSiteReachable } from '../utils/backendHealth';
 import { getNetworkIssueMessage } from '../utils/networkMessages';
 import { logger } from '../utils/logger';
 
@@ -28,9 +28,9 @@ type ConnectionListener = (state: NetworkConnectionState, prev: NetworkConnectio
 type RecoveryListener = () => void;
 type LegacyListener = () => void;
 
-const FAST_FAIL_MS = 2500;
 const RETRY_BASE_MS = 5000;
 const RETRY_MAX_MS = 30000;
+const CONSECUTIVE_FAILS_FOR_BANNER = 3;
 
 class NetworkService {
   private static instance: NetworkService;
@@ -44,8 +44,8 @@ class NetworkService {
   private _pendingRecheck = false;
   private _retryAttempt = 0;
   private _retryTimer: ReturnType<typeof setTimeout> | null = null;
-  private _fastFailTimer: ReturnType<typeof setTimeout> | null = null;
   private _isOffline = false;
+  private _backendFailStreak = 0;
 
   static getInstance(): NetworkService {
     if (!NetworkService.instance) {
@@ -99,11 +99,10 @@ class NetworkService {
       return this._state;
     }
     this._checkInProgress = true;
-    this._armFastFail();
     try {
-      const hasInternet = await pingGeneralInternet();
-      if (!hasInternet) {
-        this._disarmFastFail();
+      const offline = await isDeviceOffline();
+      if (offline) {
+        this._backendFailStreak = 0;
         this._setOffline(true);
         this._applyState({ status: 'offline', issue: 'offline' });
         return this._state;
@@ -111,18 +110,35 @@ class NetworkService {
       this._setOffline(false);
 
       const backendOk = await pingBackendHealth();
-      this._disarmFastFail();
-      if (!backendOk) {
-        this._applyState({ status: 'degraded', issue: 'backend_unreachable' });
+      if (backendOk) {
+        this._backendFailStreak = 0;
+        this._applyState({ status: 'ok', issue: null });
         return this._state;
       }
 
-      this._applyState({ status: 'ok', issue: null });
+      // На части Wi-Fi/роутеров POST health может флапать, хотя хост доступен.
+      // Если базовый хост отвечает, не показываем тревожный баннер.
+      const siteReachable = await pingSiteReachable();
+      if (siteReachable) {
+        this._backendFailStreak = 0;
+        this._applyState({ status: 'ok', issue: null });
+        return this._state;
+      }
+
+      this._backendFailStreak += 1;
+      if (this._backendFailStreak >= CONSECUTIVE_FAILS_FOR_BANNER || this._state.status === 'degraded') {
+        this._applyState({ status: 'degraded', issue: 'backend_unreachable' });
+      } else if (this._state.status === 'checking') {
+        // Первая неудача — не пугаем баннером (мог быть cold start / таймаут).
+        this._applyState({ status: 'ok', issue: null });
+      }
       return this._state;
     } catch (error) {
       logger.error('[NetworkService] checkConnection error:', error);
-      this._disarmFastFail();
-      this._applyState({ status: 'degraded', issue: 'backend_unreachable' });
+      this._backendFailStreak += 1;
+      if (this._backendFailStreak >= CONSECUTIVE_FAILS_FOR_BANNER) {
+        this._applyState({ status: 'degraded', issue: 'backend_unreachable' });
+      }
       return this._state;
     } finally {
       this._checkInProgress = false;
@@ -133,7 +149,6 @@ class NetworkService {
     }
   }
 
-  /** Актуальная проверка перед действием (не блокирует UI). */
   async refreshConnection(): Promise<NetworkConnectionState> {
     return this.checkConnection();
   }
@@ -176,7 +191,6 @@ class NetworkService {
     this.appStateSubscription?.remove();
     this.appStateSubscription = null;
     this._cancelRetry();
-    this._disarmFastFail();
   }
 
   private _toLegacyPolicy(): NetworkPolicyState {
@@ -186,24 +200,6 @@ class NetworkService {
       reason: this._state.issue,
       canProceed: !blocked,
     };
-  }
-
-  private _armFastFail(): void {
-    if (this._state.status === 'ok') return;
-    if (this._fastFailTimer) return;
-    this._fastFailTimer = setTimeout(() => {
-      this._fastFailTimer = null;
-      if (this._checkInProgress && this._state.status === 'checking') {
-        this._applyState({ status: 'degraded', issue: 'backend_unreachable' });
-      }
-    }, FAST_FAIL_MS);
-  }
-
-  private _disarmFastFail(): void {
-    if (this._fastFailTimer) {
-      clearTimeout(this._fastFailTimer);
-      this._fastFailTimer = null;
-    }
   }
 
   private _applyState(next: NetworkConnectionState): void {
@@ -257,10 +253,11 @@ class NetworkService {
       logger.log(`📶 Сеть: ${offline ? 'офлайн' : 'онлайн'}`);
     }
   }
-  /** @deprecated — используйте isBackendOk / refreshConnection */
+
+  /** Для CRM: не блокируем отправку — только информируем UI. */
   async ensureOnlineVerified(): Promise<boolean> {
     await this.checkConnection();
-    return this.isBackendOk;
+    return true;
   }
 }
 

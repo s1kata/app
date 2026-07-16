@@ -8,6 +8,7 @@ import { AuthService } from '../services/AuthService';
 import { authSession, profileToAppUser } from '../services/AuthSession';
 import { authApiClient } from '../services/AuthApiClient';
 import type { AppUser } from '../types/auth';
+import { userDataSyncService } from '../services/sync/UserDataSyncService';
 
 /** Свой ключ только для гостя / явного локального fallback — не для Firebase User. */
 const CURRENT_USER_STORAGE_KEY = 'currentUser';
@@ -419,6 +420,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         if (stillHasSession && appUser) {
           logger.debug('Auth session restored, uid:', appUser.uid);
           setUser(appUser);
+          void userDataSyncService.syncOnLogin(appUser);
           await AsyncStorage.removeItem(CURRENT_USER_STORAGE_KEY);
           setAuthReady(true);
           return;
@@ -437,7 +439,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         await AsyncStorage.removeItem(CURRENT_USER_STORAGE_KEY);
       }
 
-      logger.debug('No persisted user, showing login');
+      logger.debug('No persisted user, splash will enter guest browse mode');
       setUser(null);
       setAuthReady(true);
     } catch (error) {
@@ -489,6 +491,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (appUser) {
         logger.debug('Login successful, user:', appUser.uid);
         setUser(appUser);
+        void userDataSyncService.syncOnLogin(appUser);
       }
     } catch (error: unknown) {
       if (error instanceof Error && error.message) {
@@ -530,6 +533,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (appUser) {
         logger.debug('Registration successful, user:', appUser.uid);
         setUser(appUser);
+        void userDataSyncService.syncOnLogin(appUser);
       }
     } catch (error: unknown) {
       if (error instanceof Error && error.message) {
@@ -689,7 +693,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           }
           if (outcome === 'ok') {
             const appUser = await AuthService.getAppUserFromSession();
-            if (appUser) setUser(appUser);
+            if (appUser) {
+              setUser(appUser);
+              void userDataSyncService.syncOnForeground(appUser);
+            }
           }
         } finally {
           sessionRefreshInFlight.current = false;
@@ -699,6 +706,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const sub = AppState.addEventListener('change', onAppState);
     return () => sub.remove();
   }, []);
+
+  useEffect(() => {
+    const onAppState = (next: AppStateStatus) => {
+      if (next !== 'active' || !user?.uid || user.uid.startsWith('guest_') || user.isAnonymous) {
+        return;
+      }
+      void userDataSyncService.syncOnForeground(user);
+    };
+    const sub = AppState.addEventListener('change', onAppState);
+    return () => sub.remove();
+  }, [user]);
 
   const contextValue: AppContextType = {
     theme: theme || defaultTheme,

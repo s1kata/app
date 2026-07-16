@@ -36,6 +36,7 @@ const ProfileSettings: React.FC =({ navigation }: any) => {
     setLanguage,
     refreshTheme,
     logout,
+    loginAsGuest,
     user,
   } = useAppContext();
 
@@ -145,10 +146,11 @@ const ProfileSettings: React.FC =({ navigation }: any) => {
           onPress: async () => {
             try {
               await logout();
+              await loginAsGuest();
               if (navigation.reset) {
-                navigation.reset({ index: 0, routes: [{ name: 'Login' }] });
+                navigation.reset({ index: 0, routes: [{ name: 'MainTabs' }] });
               } else {
-                navigation.navigate('Login');
+                navigation.navigate('MainTabs');
               }
             } catch (e) {
               Alert.alert(i18n.t('common.error'), i18n.t('common.error'));
@@ -157,6 +159,16 @@ const ProfileSettings: React.FC =({ navigation }: any) => {
         },
       ]
     );
+  };
+
+  const enterGuestBrowseMode = async () => {
+    await logout();
+    await loginAsGuest();
+    if (navigation.reset) {
+      navigation.reset({ index: 0, routes: [{ name: 'MainTabs' }] });
+    } else {
+      navigation.navigate('MainTabs');
+    }
   };
 
   const handleDeleteAccount = () => {
@@ -172,23 +184,13 @@ const ProfileSettings: React.FC =({ navigation }: any) => {
             try {
               const isGuest = user?.uid?.startsWith('guest_') || user?.isAnonymous === true;
               if (isGuest) {
-                await logout();
-                if (navigation.reset) {
-                  navigation.reset({ index: 0, routes: [{ name: 'Login' }] });
-                } else {
-                  navigation.navigate('Login');
-                }
+                await enterGuestBrowseMode();
                 return;
               }
               const { AuthService } = await import('../services/AuthService');
               const result = await AuthService.deleteAccount(user!.uid);
               if (result.success) {
-                await logout();
-                if (navigation.reset) {
-                  navigation.reset({ index: 0, routes: [{ name: 'Login' }] });
-                } else {
-                  navigation.navigate('Login');
-                }
+                await enterGuestBrowseMode();
                 Alert.alert('Аккаунт удалён', 'Ваш аккаунт успешно удалён.');
               } else {
                 Alert.alert(i18n.t('common.error'), result.error || i18n.t('common.deleteFailed'));

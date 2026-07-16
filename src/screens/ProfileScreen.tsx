@@ -7,9 +7,11 @@ import {
   ScrollView,
   Alert,
   Modal,
+  Linking,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
+import Constants from 'expo-constants';
 import { Ionicons } from '@expo/vector-icons';
 import { AuthService } from '../services/AuthService';
 import { bonusService } from '../services/BonusService';
@@ -22,9 +24,10 @@ import { radius, shadows, spacing, typography, surfaces } from '../config/design
 import { RELEASE_HIDE_PURCHASE_HISTORY } from '../config/releaseUiFlags';
 import { PrimaryButton } from '../components/ui';
 import AppLogo from '../components/AppLogo';
+import { openSupportChat } from '../config/support';
 
 export default function ProfileScreen({ navigation }: any) {
-  const { logout, user, theme, isDark } = useAppContext();
+  const { logout, loginAsGuest, user, theme, isDark } = useAppContext();
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [bonusBalance, setBonusBalance] = useState(0);
   const [purchaseCount, setPurchaseCount] = useState(0);
@@ -137,9 +140,10 @@ export default function ProfileScreen({ navigation }: any) {
           style: 'destructive',
           onPress: async () => {
             await logout();
+            await loginAsGuest();
             navigation.reset({
               index: 0,
-              routes: [{ name: 'Login' }],
+              routes: [{ name: 'MainTabs' }],
             });
           },
         },
@@ -148,16 +152,63 @@ export default function ProfileScreen({ navigation }: any) {
   };
 
   const menuItems = [
-    { id: 'personal', title: i18n.t('profile.personalData'), icon: 'id-card-outline', onPress: () => navigation.navigate('PersonalData') },
+    ...(!isGuest
+      ? [{
+          id: 'personal',
+          title: i18n.t('profile.personalData'),
+          icon: 'id-card-outline',
+          onPress: () => navigation.navigate('PersonalData'),
+        }]
+      : []),
+    {
+      id: 'favorites',
+      title: i18n.t('profile.favorites'),
+      icon: 'heart-outline',
+      onPress: () => navigation.navigate('Home', { screen: 'Favorites' }),
+    },
     {
       id: 'bookings',
       title: i18n.t('profile.myBookings'),
       icon: 'calendar-outline',
       onPress: () => navigation.navigate('MainTabs', { screen: 'Bookings' }),
     },
+    ...(!RELEASE_HIDE_PURCHASE_HISTORY && !isGuest
+      ? [{
+          id: 'purchases',
+          title: i18n.t('profile.purchaseHistory'),
+          icon: 'receipt-outline',
+          onPress: () => navigation.navigate('PurchaseHistory'),
+        }]
+      : []),
     { id: 'settings', title: i18n.t('settings.title'), icon: 'settings-outline', onPress: () => navigation.navigate('Settings') },
     { id: 'help', title: i18n.t('profile.help'), icon: 'help-circle-outline', onPress: () => navigation.navigate('HelperChat') },
+    {
+      id: 'supportChat',
+      title: i18n.t('profile.supportChat'),
+      icon: 'chatbubble-ellipses-outline',
+      onPress: () => openSupportChat(Linking.openURL),
+    },
+    {
+      id: 'about',
+      title: i18n.t('profile.aboutUs'),
+      icon: 'information-circle-outline',
+      onPress: () => navigation.navigate('About'),
+    },
+    {
+      id: 'privacy',
+      title: i18n.t('settings.privacyPolicy'),
+      icon: 'shield-checkmark-outline',
+      onPress: () => navigation.navigate('LegalDocument', { type: 'privacy' }),
+    },
+    {
+      id: 'terms',
+      title: i18n.t('settings.termsOfUse'),
+      icon: 'document-text-outline',
+      onPress: () => navigation.navigate('LegalDocument', { type: 'terms' }),
+    },
   ];
+
+  const appVersion = Constants.expoConfig?.version || '1.0.1';
 
   return (
     <SafeAreaView
@@ -174,11 +225,15 @@ export default function ProfileScreen({ navigation }: any) {
         </View>
 
         <Text style={[styles.name, { color: theme.text }]}>
-          {profile?.fullName === i18n.t('profile.guest') || profile?.fullName === 'Guest' || profile?.fullName === 'Гость'
-            ? i18n.t('profile.guest')
+          {isGuest
+            ? i18n.t('profile.guestModeLabel')
             : profile?.fullName || i18n.t('profile.user')}
         </Text>
-        <Text style={[styles.email, { color: theme.secondaryText }]}>{profile?.email || profile?.phone}</Text>
+        {isGuest ? (
+          <Text style={[styles.email, { color: theme.secondaryText }]}>{i18n.t('ux.guestBannerBody')}</Text>
+        ) : (
+          <Text style={[styles.email, { color: theme.secondaryText }]}>{profile?.email || profile?.phone}</Text>
+        )}
 
         {profile && (
           <View style={[styles.statsContainer, { backgroundColor: theme.secondaryBackground }]}>
@@ -253,7 +308,7 @@ export default function ProfileScreen({ navigation }: any) {
       </View>
 
         <View style={[styles.footer, { backgroundColor: theme.background }]}>
-          <Text style={[styles.footerText, { color: theme.tertiaryText }]}>TravelHub v1.0.0</Text>
+          <Text style={[styles.footerText, { color: theme.tertiaryText }]}>TravelHub v{appVersion}</Text>
         </View>
       </ScrollView>
 

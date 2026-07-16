@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   View,
   Text,
@@ -17,9 +17,10 @@ import { useAppContext } from '../contexts/AppContext';
 import { i18n } from '../config/i18n';
 import { dictionaryService } from '../services/DictionaryService';
 import { tourvisorApi } from '../services/TourvisorApiService';
-import { TourSearchParams, Country, Departure, Region, Meal } from '../types/tourvisor';
+import { TourSearchParams, Country, Departure, Region, Meal, Operator } from '../types/tourvisor';
 import { platform } from '../utils/platform';
 import { filterMealsForUi, sanitizeTourMealParam } from '../utils/tourvisorMeals';
+import { getAllowedOperators } from '../config/tourOperators';
 import { logger } from '../utils/logger';
 import { radius, shadows } from '../config/designSystem';
 
@@ -57,6 +58,7 @@ export default function ApiTourSearchScreen({ navigation, route }: ApiTourSearch
   const [countries, setCountries] = useState<Country[]>([]);
   const [regions, setRegions] = useState<Region[]>([]);
   const [meals, setMeals] = useState<Meal[]>([]);
+  const [operators, setOperators] = useState<Operator[]>([]);
   const [availableDates, setAvailableDates] = useState<string[]>([]);
 
   // Modal states
@@ -144,6 +146,46 @@ export default function ApiTourSearchScreen({ navigation, route }: ApiTourSearch
       loadAvailableDates();
     }
   }, [searchParams.departureId, searchParams.countryId]);
+
+  // Загрузка справочника операторов для выбранной страны (для фильтра операторов)
+  useEffect(() => {
+    if (!apiReady || !searchParams.departureId || !searchParams.countryId) {
+      setOperators([]);
+      return;
+    }
+    let cancelled = false;
+    dictionaryService
+      .getOperators(searchParams.departureId, searchParams.countryId)
+      .then((list) => {
+        if (!cancelled) setOperators(Array.isArray(list) ? list : []);
+      })
+      .catch(() => {
+        if (!cancelled) setOperators([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [apiReady, searchParams.departureId, searchParams.countryId]);
+
+  // Название выбранной страны (для выбора списка операторов Турция/Египет vs остальные)
+  const selectedCountryName = useMemo(
+    () => countries.find((c) => c.id === searchParams.countryId)?.name,
+    [countries, searchParams.countryId],
+  );
+
+  // Допустимые операторы для выбранной страны (пересечение справочника и списка-конфига)
+  const allowedOperators = useMemo(
+    () => getAllowedOperators(operators, selectedCountryName),
+    [operators, selectedCountryName],
+  );
+
+  // При смене страны фильтр операторов переключается автоматически (все допустимые выбраны)
+  useEffect(() => {
+    setSearchParams((prev) => ({
+      ...prev,
+      operatorIds: allowedOperators.length ? allowedOperators.map((o) => o.id) : undefined,
+    }));
+  }, [allowedOperators]);
 
   // Автоматический расчет nightsFrom/nightsTo на основе выбранных дат
   // Согласно документации API: nightsFrom и nightsTo - обязательные параметры типа integer
@@ -299,6 +341,9 @@ export default function ApiTourSearchScreen({ navigation, route }: ApiTourSearch
       currency: searchParams.currency || currency || 'RUB',
       onlyCharter: searchParams.onlyCharter !== undefined ? searchParams.onlyCharter : false,
       ...(searchParams.regionIds && { regionIds: searchParams.regionIds }),
+      ...(searchParams.operatorIds && searchParams.operatorIds.length > 0
+        ? { operatorIds: searchParams.operatorIds }
+        : {}),
       ...(sanitizeTourMealParam(searchParams.meal) !== undefined
         ? { meal: sanitizeTourMealParam(searchParams.meal) }
         : {}),

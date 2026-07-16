@@ -1,12 +1,20 @@
 /**
  * Платёжная система TravelHub: приложение → travelhub63.ru → Tinkoff Т-касса → банк.
- * Клиент только запрашивает ссылку на оплату и открывает её в WebView (expo-web-browser).
+ * Клиент только запрашивает ссылку на оплату и открывает её в системном браузере (Safari/Chrome)
+ * или, при useExternalPaymentBrowser=0, в in-app браузере (expo-web-browser).
  * Данные карт всегда вводятся на стороне банка по HTTPS — приложение и ваш сервер
  * НЕ видят и НЕ хранят реквизиты карты.
  */
 
+import { Linking } from 'react-native';
+import Constants from 'expo-constants';
 import * as WebBrowser from 'expo-web-browser';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import {
+  markPaymentOpenedInAppBrowser,
+  markPaymentOpenedInExternalBrowser,
+  markExternalPaymentSession,
+} from './PaymentRelinkState';
 import { getValidAccessToken } from './AuthApiClient';
 import { authSession } from './AuthSession';
 import { getPaymentApiBaseUrl } from '../config/apiEndpoints';
@@ -45,6 +53,7 @@ export interface PaymentStatusResult {
   status?: 'pending' | 'success' | 'failed' | 'cancelled';
   amount?: number;
   paidAt?: string | null;
+  bookingId?: string | null;
   error?: string;
   /** true если статус pending держится дольше порога (опрос с сервера) — показать «ещё обрабатывается» + повтор */
   pendingLong?: boolean;
@@ -195,16 +204,49 @@ export async function createPaymentIntent(params: CreatePaymentParams): Promise<
   return { success: false, error: friendlyMessage || 'Не удалось создать платёж' };
 }
 
+function useExternalPaymentBrowser(): boolean {
+  const extra = Constants.expoConfig?.extra as Record<string, unknown> | undefined;
+  const flag = extra?.useExternalPaymentBrowser;
+  if (flag === '0' || flag === false) return false;
+  if (flag === '1' || flag === true) return true;
+  // По умолчанию — системный Safari/Chrome (стабильнее deep link return, чем in-app browser).
+  return true;
+}
+
 /**
- * Открывает paymentUrl в in-app браузере (expo-web-browser).
- * Возвращает результат закрытия (success / dismiss / cancel).
+ * Открывает страницу оплаты: по умолчанию в системном браузере (Linking),
+ * опционально in-app (expo-web-browser) при useExternalPaymentBrowser=0.
  */
 export async function openPaymentInBrowser(paymentUrl: string): Promise<{ type: string }> {
+  const url = String(paymentUrl || '').trim();
+  if (!url) {
+    return { type: 'cancel' };
+  }
+
+  if (useExternalPaymentBrowser()) {
+    try {
+      const canOpen = await Linking.canOpenURL(url);
+      if (!canOpen) {
+        logger.error('[PaymentService] openPaymentInBrowser: cannot open URL', { url: url.slice(0, 80) });
+        return { type: 'cancel' };
+      }
+      markPaymentOpenedInExternalBrowser();
+      markExternalPaymentSession(true);
+      await Linking.openURL(url);
+      logger.info('[PaymentService] Payment opened in external browser');
+      return { type: 'opened_external' };
+    } catch (error: unknown) {
+      logger.error('[PaymentService] openPaymentInBrowser external:', error);
+      return { type: 'cancel' };
+    }
+  }
+
   try {
-    const result = await WebBrowser.openBrowserAsync(paymentUrl);
+    markPaymentOpenedInAppBrowser();
+    const result = await WebBrowser.openBrowserAsync(url);
     return { type: result?.type ?? 'dismiss' };
   } catch (error: unknown) {
-    logger.error('[PaymentService] openPaymentInBrowser:', error);
+    logger.error('[PaymentService] openPaymentInBrowser in-app:', error);
     return { type: 'cancel' };
   }
 }
@@ -246,11 +288,13 @@ export async function checkPaymentStatus(transactionId: string): Promise<Payment
         throw new Error(errText);
       }
 
-      const status = (data?.status ?? data?.Status)?.toLowerCase();
+      // paid только при явном success от API (бэкенд подтверждает Tinkoff CONFIRMED).
+      // Не маппим "completed"/прочие строки в success — риск ложного «Оплачено».
+      const status = String(data?.status ?? data?.Status ?? '').toLowerCase();
       const mapped: PaymentStatusResult['status'] =
-        status === 'success' || status === 'completed'
+        status === 'success'
           ? 'success'
-          : status === 'cancelled'
+          : status === 'cancelled' || status === 'canceled'
             ? 'cancelled'
             : status === 'failed'
               ? 'failed'
@@ -259,7 +303,8 @@ export async function checkPaymentStatus(transactionId: string): Promise<Payment
         success: true,
         status: mapped,
         amount: data?.amount,
-        paidAt: data?.paidAt ?? data?.paid_at ?? null,
+        paidAt: mapped === 'success' ? data?.paidAt ?? data?.paid_at ?? null : null,
+        bookingId: data?.bookingId ?? data?.booking_id ?? null,
       };
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : 'Ошибка сети';

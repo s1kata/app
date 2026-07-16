@@ -7,6 +7,8 @@ import { authApiClient, getValidAccessToken } from '../AuthApiClient';
 import { navigateToLoginAfterSessionExpired } from '../../auth/authNavigation';
 import { getBonusApiBaseUrl, getCrmApiBaseUrl } from '../../config/apiEndpoints';
 import type { CrmBookingQueuePayload } from '../../types/crmQueue';
+import type { BonusBalance } from '../../types';
+import type { BonusQuote } from '../../config/bonusRules';
 import { logger } from '../../utils/logger';
 
 /** Порядок важен: сначала прямой .php (работает на travelhub63.ru), затем rewrite без .php */
@@ -19,6 +21,11 @@ const CRM_SUBMIT_PATHS = [
 const CRM_BONUS_BALANCE_PATHS = [
   '/api/crm/bonus-balance.php',
   '/api/crm/bonus-balance',
+] as const;
+
+const CRM_BONUS_QUOTE_PATHS = [
+  '/api/crm/bonus-quote.php',
+  '/api/crm/bonus-quote',
 ] as const;
 
 const CRM_BCARD_ACTIVATE_PATHS = [
@@ -187,7 +194,7 @@ export async function fetchClientBookingsViaBackend(
 export async function fetchBonusBalanceViaBackend(
   email?: string,
   phone?: string,
-): Promise<{ success: boolean; data?: { balance: number; transactions: unknown[] }; error?: string }> {
+): Promise<{ success: boolean; data?: BonusBalance; error?: string }> {
   const base = getBonusBackendBaseUrl();
   if (!base) return { success: false, error: 'no_backend' };
   const bearer = await getBearer();
@@ -213,12 +220,35 @@ export async function fetchBonusBalanceViaBackend(
         continue;
       }
       if (!res.ok) return { success: false, error: data?.error || `HTTP ${res.status}` };
-      return { success: !!data.success, data: data.data, error: data.error };
+      return { success: !!data.success, data: data.data as BonusBalance, error: data.error };
     }
     return { success: false, error: lastError };
   } catch (e: unknown) {
     return { success: false, error: e instanceof Error ? e.message : 'Network error' };
   }
+}
+
+export async function fetchBonusQuoteViaBackend(params: {
+  tourPrice: number;
+  bonusesToSpend: number;
+  email?: string;
+  phone?: string;
+}): Promise<{ success: boolean; data?: BonusQuote; error?: string }> {
+  const result = await postCrmJson(
+    CRM_BONUS_QUOTE_PATHS,
+    {
+      tourPrice: Math.floor(params.tourPrice),
+      bonusesToSpend: Math.floor(params.bonusesToSpend),
+      ...(params.email ? { email: params.email } : {}),
+      ...(params.phone ? { phone: params.phone } : {}),
+    },
+    getBonusBackendBaseUrl,
+  );
+  return {
+    success: result.success,
+    data: result.data as BonusQuote | undefined,
+    error: result.error,
+  };
 }
 
 async function postCrmJson(
