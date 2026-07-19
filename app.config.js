@@ -80,7 +80,7 @@ module.exports = {
     name: "TravelHub",
     slug: "travelhub",
     owner: (process.env.EXPO_OWNER || "s1kata12").trim(),
-    version: "1.0.2",
+    version: "1.0.3",
     scheme: "travelhub",
     orientation: "portrait",
     userInterfaceStyle: "automatic",

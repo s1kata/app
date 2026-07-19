@@ -28,7 +28,7 @@ import {
 
 export default function AboutScreen({ navigation }: any) {
   const { theme, isDark } = useAppContext();
-  const appVersion = Constants.expoConfig?.version || '1.0.1';
+  const appVersion = Constants.expoConfig?.version || '1.0.3';
 
   const openLink = async (url: string) => {
     try {

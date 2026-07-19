@@ -95,7 +95,7 @@ export default function CountryInfoScreen({ navigation, route }: CountryInfoScre
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]} edges={['top', 'bottom']}>
       <ScrollView showsVerticalScrollIndicator={false}>
         {/* Hero Image */}
-        <View style={styles.heroContainer}>
+        <View style={[styles.heroContainer, { height: Math.max(280, Math.min(350, width * 0.85)) }]}>
           <Image
             source={{ uri: country.images[0] }}
             style={styles.heroImage}
@@ -309,7 +309,7 @@ const styles = StyleSheet.create({
     top: 0,
     left: 0,
     right: 0,
-    paddingTop: 50,
+    paddingTop: 12,
     paddingHorizontal: 20,
     zIndex: 10,
   },

@@ -208,7 +208,7 @@ export default function ProfileScreen({ navigation }: any) {
     },
   ];
 
-  const appVersion = Constants.expoConfig?.version || '1.0.1';
+  const appVersion = Constants.expoConfig?.version || '1.0.3';
 
   return (
     <SafeAreaView

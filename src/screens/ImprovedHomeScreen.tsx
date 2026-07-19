@@ -8,7 +8,6 @@ import {
   ScrollView,
   Alert,
   Image,
-  Dimensions,
   useWindowDimensions,
   Animated,
   Modal,
@@ -59,7 +58,7 @@ export default function ImprovedHomeScreen({ navigation }: any) {
 
   // Адаптивные размеры (useWindowDimensions для реакции на поворот экрана)
   const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = useWindowDimensions();
-  const isMediumScreen = adaptive.isMedium();
+  const isMediumScreen = SCREEN_WIDTH >= 375 && SCREEN_WIDTH < 414;
   
   // Анимации для интерактивности
   const heroOpacity = scrollY.interpolate({
@@ -228,7 +227,11 @@ export default function ImprovedHomeScreen({ navigation }: any) {
   };
 
 
-  const cardWidth = adaptive.isCompact() ? adaptive.screenWidth - 48 : isMediumScreen ? adaptive.screenWidth - 56 : adaptive.screenWidth - 64;
+  const cardWidth = SCREEN_WIDTH < 375
+    ? SCREEN_WIDTH - 48
+    : isMediumScreen
+      ? SCREEN_WIDTH - 56
+      : SCREEN_WIDTH - 64;
   const dynamicStyles = getStyles(SCREEN_WIDTH, isMediumScreen);
 
   // Высота навигационного бара для правильного отступа

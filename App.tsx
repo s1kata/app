@@ -1,5 +1,5 @@
 import React, { useRef, useState } from 'react';
-import { View, Platform, Alert, Linking } from 'react-native';
+import { View, Platform, Alert, Linking, AppState } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { NavigationContainer, NavigationContainerRef } from '@react-navigation/native';
@@ -72,6 +72,14 @@ export default function App() {
     }
   }, [markPermissionChecked]);
 
+  const bootstrapNotifications = React.useCallback(async () => {
+    try {
+      await notificationService.bootstrapAfterConsent();
+    } catch (error) {
+      logger.warn('notification bootstrap failed:', error);
+    }
+  }, []);
+
   React.useEffect(() => {
     appMountedRef.current = true;
     if (!gatesReady || !ageGateAccepted || !consentAccepted) {
@@ -79,11 +87,33 @@ export default function App() {
         appMountedRef.current = false;
       };
     }
-    void checkLocationPermission();
+    void bootstrapNotifications();
+    const locationTimer = setTimeout(() => {
+      void checkLocationPermission();
+    }, 1500);
     return () => {
       appMountedRef.current = false;
+      clearTimeout(locationTimer);
     };
-  }, [checkLocationPermission, gatesReady, ageGateAccepted, consentAccepted]);
+  }, [
+    bootstrapNotifications,
+    checkLocationPermission,
+    gatesReady,
+    ageGateAccepted,
+    consentAccepted,
+  ]);
+
+  React.useEffect(() => {
+    if (!gatesReady || !ageGateAccepted || !consentAccepted) {
+      return;
+    }
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active') {
+        void notificationService.scheduleDailyHotToursNotification();
+      }
+    });
+    return () => subscription.remove();
+  }, [gatesReady, ageGateAccepted, consentAccepted]);
 
   React.useEffect(() => {
     let active = true;
@@ -142,6 +172,7 @@ export default function App() {
     await launchGateService.acceptConsent();
     setConsentAccepted(true);
     setShowConsent(false);
+    void notificationService.bootstrapAfterConsent();
   };
 
   const openExternal = React.useCallback(async (url: string) => {

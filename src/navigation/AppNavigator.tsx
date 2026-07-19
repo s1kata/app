@@ -1,28 +1,14 @@
 import React from 'react';
 import type { ComponentType } from 'react';
-import { View, StyleSheet, Dimensions, PixelRatio, TouchableOpacity, Text } from 'react-native';
+import { View, StyleSheet, TouchableOpacity, Text, useWindowDimensions } from 'react-native';
 import { createBottomTabNavigator, BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { createStackNavigator } from '@react-navigation/stack';
 import type { NavigationState } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { platform } from '../utils/platform';
-import { adaptive } from '../utils/adaptive';
 import { useAppContext } from '../contexts/AppContext';
 import { i18n } from '../config/i18n';
-
-const { height: SCREEN_HEIGHT, width: SCREEN_WIDTH } = Dimensions.get('window');
-const PIXEL_RATIO = PixelRatio.get();
-
-// Минимальный отступ для Android с жестовой/кнопочной навигацией
-const getLegacyBottomInset = () => {
-  if (platform.isIOS) {
-    const aspectRatio = SCREEN_HEIGHT / SCREEN_WIDTH;
-    if (aspectRatio > 2.1) return 34;
-    if (aspectRatio > 2) return 20;
-  }
-  return 0;
-};
 
 // Табы для навигации
 const TAB_ROUTES = ['Home', 'Bookings', 'Profile'];
@@ -50,10 +36,11 @@ const SCREENS_TO_HIDE_TAB_BAR = [
 function CustomTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
   const { theme, themeMode, fontScale } = useAppContext();
   const insets = useSafeAreaInsets();
+  const { width: screenWidth } = useWindowDimensions();
   // На Android учитываем нижнюю безопасную зону (жесты/кнопки навигации)
   const safeBottom = platform.isAndroid
     ? Math.max(insets.bottom, 16)
-    : Math.max(insets.bottom, getLegacyBottomInset());
+    : insets.bottom;
   
   // Проверяем, нужно ли скрыть таб бар на основе активного экрана в стеке
   const shouldHideTabBar = React.useMemo(() => {
@@ -115,8 +102,26 @@ function CustomTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
         </Text>
       </TouchableOpacity>
 
-      <View style={[customTabBarStyles.container, { backgroundColor: theme.card, paddingBottom: safeBottom + 8 }]}>
-        <View style={[customTabBarStyles.topLine, { backgroundColor: `${theme.primary}26` }]} />
+      <View
+        style={[
+          customTabBarStyles.container,
+          {
+            backgroundColor: theme.card,
+            paddingBottom: safeBottom + 8,
+            paddingHorizontal: Math.max(12, Math.min(20, screenWidth * 0.05)),
+          },
+        ]}
+      >
+        <View
+          style={[
+            customTabBarStyles.topLine,
+            {
+              backgroundColor: `${theme.primary}26`,
+              width: screenWidth * 0.6,
+              marginLeft: -screenWidth * 0.3,
+            },
+          ]}
+        />
 
       {state.routes.map((route, index) => {
         const { options } = descriptors[route.key];
@@ -236,7 +241,6 @@ const customTabBarStyles = StyleSheet.create({
     flexDirection: 'row',
     // paddingBottom задаётся динамически в компоненте для учёта safe area
     paddingTop: 4, // Уменьшили padding сверху
-    paddingHorizontal: adaptive.getHorizontalPadding(),
     shadowColor: '#000',
     shadowOffset: {
       width: 0,
@@ -296,8 +300,6 @@ const customTabBarStyles = StyleSheet.create({
     position: 'absolute',
     top: 0,
     left: '50%',
-    transform: [{ translateX: -SCREEN_WIDTH * 0.3 }],
-    width: SCREEN_WIDTH * 0.6,
     height: 3,
     backgroundColor: 'rgba(0, 102, 204, 0.15)',
     borderTopLeftRadius: 28,

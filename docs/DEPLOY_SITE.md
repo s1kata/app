@@ -53,6 +53,7 @@ sql/reviews_schema.sql
 | Файл в репозитории | Куда на сервере |
 |--------------------|-----------------|
 | `auth-mobile.php` | `/api/auth-mobile.php` |
+| `api/health.php` | `/api/health.php` |
 | `auth-mobile.config.example.php` → копия | `/api/auth-mobile.config.php` |
 | `api/lib/auth-jwt.php` | `/api/lib/auth-jwt.php` |
 | `api/lib/reviews-helpers.php` | `/api/lib/reviews-helpers.php` |
@@ -134,6 +135,13 @@ curl -X POST https://travelhub63.ru/api/auth-mobile.php \
   -d '{"action":"health"}'
 ```
 
+Отдельный endpoint для проверки маршрута и БД:
+
+```bash
+curl https://travelhub63.ru/api/health.php \
+  -H "X-Health-Token: ВАШ_health_check_token"
+```
+
 Ожидание: HTTP 200. Без заголовка — 403.
 
 ### Приложение (.env / EAS)
@@ -190,7 +198,7 @@ npm run eas:env-push:production
 
 - [ ] SQL: users (+ токены) в phpMyAdmin
 - [ ] SQL: `reviews_schema.sql`
-- [ ] `/api/auth-mobile.php` + `auth-mobile.config.php` (`refresh_ttl` 365 дней)
+- [ ] `/api/auth-mobile.php` + `/api/health.php` + `auth-mobile.config.php` (`refresh_ttl` 365 дней)
 - [ ] `/api/lib/auth-jwt.php`, `/api/lib/reviews-helpers.php`
 - [ ] `/api/crm/reviews.php`, `/api/crm/review-helpful.php`
 - [ ] curl login/register OK

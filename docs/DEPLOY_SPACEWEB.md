@@ -53,6 +53,7 @@ public_html/
 ├── frontend/               ← уже на сайте (favicon и т.д.)
 └── api/
     ├── auth-mobile.php
+    ├── health.php
     ├── auth-mobile.config.php   ← секреты, только на сервере
     ├── tourvisor-mobile/        ← прокси туров (уже есть)
     ├── create-payment             ← оплата (уже есть)
@@ -116,6 +117,7 @@ public_html/
 | Локально (репозиторий) | На сервере (от `public_html`) |
 |------------------------|-------------------------------|
 | `api/auth-mobile.php` | `api/auth-mobile.php` |
+| `api/health.php` | `api/health.php` |
 | `api/auth-mobile.config.example.php` → скопировать и переименовать | `api/auth-mobile.config.php` |
 | `api/lib/auth-jwt.php` | `api/lib/auth-jwt.php` |
 | `api/lib/reviews-helpers.php` | `api/lib/reviews-helpers.php` |
@@ -250,7 +252,7 @@ curl -s -o /dev/null -w "%{http_code}" "https://travelhub63.ru/api/tourvisor-mob
 ## 8. Мини-чеклист «сделал на SpaceWeb»
 
 - [ ] `public_html/privacy.html`, `terms.html`, `security.html` — открываются в браузере
-- [ ] `public_html/api/auth-mobile.php` + `auth-mobile.config.php` с `refresh_ttl` 365 дней
+- [ ] `public_html/api/auth-mobile.php` + `health.php` + `auth-mobile.config.php` с `refresh_ttl` 365 дней
 - [ ] `public_html/api/lib/auth-jwt.php`
 - [ ] `public_html/api/crm/reviews.php` + `review-helpful.php` + SQL `reviews_schema.sql`
 - [ ] curl login → success

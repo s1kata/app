@@ -51,13 +51,23 @@ export async function isDeviceOffline(): Promise<boolean> {
   }
 }
 
-/** Лёгкий ping своего хоста (без health-токена — может быть 403, это ок для «есть маршрут»). */
+/** Лёгкий ping своего хоста. 401/403 означают, что маршрут и сервер доступны. */
 export async function pingSiteReachable(): Promise<boolean> {
   const base = getSiteBaseUrl();
   if (!base) return false;
   try {
-    const res = await fetchWithTimeout(`${base}/api/health.php`, { method: 'GET' }, FETCH_TIMEOUT_MS);
-    return res.ok || res.status === 403 || res.status === 401;
+    const token = getHealthCheckToken();
+    const headers = token ? { 'X-Health-Token': token } : undefined;
+    const res = await fetchWithTimeout(`${base}/api/health.php`, { method: 'GET', headers }, FETCH_TIMEOUT_MS);
+    if (res.ok || res.status === 403 || res.status === 401) return true;
+
+    // Старые серверные релизы могли не содержать health.php. Проверяем сам хост,
+    // чтобы не показывать ложный баннер при рабочем API и HTTP 404 health-маршрута.
+    if (res.status === 404) {
+      const root = await fetchWithTimeout(base, { method: 'HEAD' }, FETCH_TIMEOUT_MS);
+      return root.status > 0 && root.status < 500;
+    }
+    return false;
   } catch (e) {
     logger.debug('[backendHealth] site ping failed:', (e as Error)?.message || e);
     return false;
@@ -77,7 +87,18 @@ export async function pingBackendHealth(): Promise<boolean> {
       },
       BACKEND_TIMEOUT_MS,
     );
-    if (response.ok) return true;
+    if (response.ok) {
+      try {
+        const payload = (await response.json()) as {
+          success?: boolean;
+          db?: { connected?: boolean };
+        };
+        return payload.success === true && payload.db?.connected !== false;
+      } catch {
+        logger.debug('[backendHealth] health returned invalid JSON');
+        return false;
+      }
+    }
     logger.debug('[backendHealth] health HTTP', response.status, 'tokenConfigured', !!getHealthCheckToken());
     return false;
   } catch (e) {

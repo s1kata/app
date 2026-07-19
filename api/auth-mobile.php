@@ -139,6 +139,7 @@ function handle_health(array $config): void
         if (!empty($config['debug'])) {
             $report['debug'] = $e->getMessage();
         }
+        http_response_code(503);
     }
 
     json_ok($report);

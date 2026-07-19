@@ -247,6 +247,11 @@ const translations: Translations = {
   'settings.languageInterface': { ru: 'Язык интерфейса', en: 'Interface language' },
   'settings.currencyAndPrices': { ru: 'Валюта и цены', en: 'Currency & prices' },
   'settings.notifications': { ru: 'Уведомления', en: 'Notifications' },
+  'settings.dailyHotTours': { ru: 'Напоминание в 12:00', en: 'Daily reminder at 12:00' },
+  'settings.dailyHotToursDesc': {
+    ru: 'Каждый день — подборка новых туров',
+    en: 'Daily digest of new tours',
+  },
   'settings.tripReminders': { ru: 'Напоминания о поездках', en: 'Trip reminders' },
   'settings.tripRemindersDesc': { ru: 'Уведомления перед вылетом', en: 'Notifications before departure' },
   'settings.promotions': { ru: 'Акции и скидки', en: 'Promotions & discounts' },

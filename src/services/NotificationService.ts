@@ -50,6 +50,8 @@ export interface NotificationSettings {
   hotDeals: boolean;
   bookingReminders: boolean;
   promotions: boolean;
+  /** Ежедневное напоминание о турах в 12:00 (локальное). */
+  dailyHotTours: boolean;
   sound: boolean;
   vibration: boolean;
   quietHoursEnabled: boolean;
@@ -94,6 +96,32 @@ class NotificationService {
   // Установка ссылки на навигацию для deep linking
   setNavigationRef(ref: RefObject<any>) {
     this.navigationRef = ref;
+  }
+
+  private defaultSettings(): NotificationSettings {
+    return {
+      enabled: true,
+      hotDeals: true,
+      bookingReminders: true,
+      promotions: true,
+      dailyHotTours: true,
+      sound: true,
+      vibration: true,
+      quietHoursEnabled: false,
+      quietHoursStart: '22:00',
+      quietHoursEnd: '08:00',
+      maxNotificationsPerDay: 5,
+      geolocationEnabled: false,
+    };
+  }
+
+  /**
+   * После age-gate и consent: инициализация, обработчики кликов, планирование 12:00.
+   */
+  async bootstrapAfterConsent(): Promise<void> {
+    await this.initialize();
+    this.setupNotificationHandlers();
+    await this.scheduleDailyHotToursNotification();
   }
 
   async initialize(): Promise<void> {
@@ -212,38 +240,18 @@ class NotificationService {
     try {
       const stored = await AsyncStorage.getItem('notificationSettings');
       if (stored) {
-        return JSON.parse(stored);
+        const parsed = JSON.parse(stored) as Partial<NotificationSettings>;
+        return {
+          ...this.defaultSettings(),
+          ...parsed,
+          dailyHotTours: parsed.dailyHotTours ?? true,
+        };
       }
 
-      // Настройки по умолчанию
-      return {
-        enabled: true,
-        hotDeals: true,
-        bookingReminders: true,
-        promotions: true,
-        sound: true,
-        vibration: true,
-        quietHoursEnabled: false,
-        quietHoursStart: '22:00',
-        quietHoursEnd: '08:00',
-        maxNotificationsPerDay: 5,
-        geolocationEnabled: false,
-      };
+      return this.defaultSettings();
     } catch (error) {
       logger.error('❌ Ошибка загрузки настроек уведомлений:', error);
-      return {
-        enabled: true,
-        hotDeals: true,
-        bookingReminders: true,
-        promotions: true,
-        sound: true,
-        vibration: true,
-        quietHoursEnabled: false,
-        quietHoursStart: '22:00',
-        quietHoursEnd: '08:00',
-        maxNotificationsPerDay: 5,
-        geolocationEnabled: false,
-      };
+      return this.defaultSettings();
     }
   }
 
@@ -253,6 +261,14 @@ class NotificationService {
       const updatedSettings = { ...currentSettings, ...settings };
       await AsyncStorage.setItem('notificationSettings', JSON.stringify(updatedSettings));
       logger.debug('✅ Настройки уведомлений обновлены');
+
+      if (
+        settings.dailyHotTours !== undefined ||
+        settings.enabled !== undefined ||
+        settings.promotions !== undefined
+      ) {
+        await this.scheduleDailyHotToursNotification();
+      }
     } catch (error) {
       logger.error('❌ Ошибка сохранения настроек уведомлений:', error);
     }
@@ -535,6 +551,7 @@ class NotificationService {
           break;
 
         case 'promotion':
+        case 'daily_hot_tours':
           // Навигация к главной или горящим турам
           navigation.navigate('MainTabs', {
             screen: 'Home',
@@ -1174,6 +1191,18 @@ class NotificationService {
 
   private static readonly DAILY_HOT_TOURS_ID = 'daily-hot-tours-12';
 
+  async cancelDailyHotToursNotification(): Promise<void> {
+    try {
+      if (!Notifications || typeof Notifications.cancelScheduledNotificationAsync !== 'function') {
+        return;
+      }
+      await Notifications.cancelScheduledNotificationAsync(NotificationService.DAILY_HOT_TOURS_ID);
+      logger.info('[Notifications] Daily 12:00 cancelled');
+    } catch (e) {
+      logger.warn('cancelDailyHotToursNotification:', (e as Error)?.message);
+    }
+  }
+
   /**
    * Ежедневное локальное уведомление в 12:00 (не дублируется при перезапуске).
    */
@@ -1182,6 +1211,13 @@ class NotificationService {
       if (!Notifications || typeof Notifications.scheduleNotificationAsync !== 'function') {
         return;
       }
+
+      const settings = await this.getSettings();
+      if (!settings.enabled || !settings.dailyHotTours) {
+        await this.cancelDailyHotToursNotification();
+        return;
+      }
+
       let { status } = await Notifications.getPermissionsAsync();
       if (status !== 'granted') {
         const r = await Notifications.requestPermissionsAsync();

@@ -11,8 +11,7 @@ import {
   FlatList,
   useWindowDimensions,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { platform } from '../utils/platform';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { getCountryBySlug, CountryData } from '../data/countriesData';
 import { WebsiteTourService, WebsiteTour } from '../services/WebsiteTourService';
@@ -32,6 +31,7 @@ interface CountryDetailScreenProps {
 export default function CountryDetailScreen({ navigation, route }: CountryDetailScreenProps) {
   const { countrySlug } = route.params;
   const { width, height } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const { theme, isDark } = useAppContext();
   
   const [country, setCountry] = useState<CountryData | null>(null);
@@ -182,7 +182,7 @@ export default function CountryDetailScreen({ navigation, route }: CountryDetail
     <SafeAreaView edges={['top', 'bottom']} style={[styles.safeArea, { backgroundColor: theme.background }]}>
       <ScrollView showsVerticalScrollIndicator={false}>
         {/* Hero Section */}
-        <View style={styles.heroSection}>
+        <View style={[styles.heroSection, { height: Math.max(280, Math.min(350, width * 0.85)) }]}>
           <Image
             source={{ uri: country.images[0] || 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=800' }}
             style={styles.heroImage}
@@ -190,7 +190,7 @@ export default function CountryDetailScreen({ navigation, route }: CountryDetail
           />
           <View style={[styles.heroGradient, { backgroundColor: isDark ? 'rgba(0,0,0,0.46)' : 'rgba(0,0,0,0.32)' }]} />
           <TouchableOpacity
-            style={styles.backButton}
+            style={[styles.backButton, { top: 12 }]}
             onPress={() => navigation.goBack()}
           >
             <Ionicons name="arrow-back" size={24} color="#fff" />
@@ -385,7 +385,7 @@ export default function CountryDetailScreen({ navigation, route }: CountryDetail
       >
         <View style={styles.galleryModal}>
           <TouchableOpacity
-            style={styles.galleryCloseButton}
+            style={[styles.galleryCloseButton, { top: insets.top + 12 }]}
             onPress={() => setGalleryVisible(false)}
           >
             <Ionicons name="close" size={32} color="#fff" />
@@ -456,7 +456,7 @@ const styles = StyleSheet.create({
   },
   backButton: {
     position: 'absolute',
-    top: platform.isIOS ? 50 : 20,
+    top: 12,
     left: 16,
     width: 44,
     height: 44,
@@ -773,7 +773,7 @@ const styles = StyleSheet.create({
   },
   galleryCloseButton: {
     position: 'absolute',
-    top: platform.isIOS ? 50 : 20,
+    top: 20,
     right: 16,
     zIndex: 10,
     padding: 8,

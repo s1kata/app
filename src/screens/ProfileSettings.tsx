@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
+import Constants from 'expo-constants';
 import { useAppContext } from '../contexts/AppContext';
 import { ThemeSwitcher } from '../components/ThemeSwitcher';
 import { notificationService } from '../services/NotificationService';
@@ -45,6 +46,7 @@ const ProfileSettings: React.FC =({ navigation }: any) => {
     hotDeals: true,
     bookingReminders: true,
     promotions: true,
+    dailyHotTours: true,
     quietHoursEnabled: false,
     quietHoursStart: '22:00',
     quietHoursEnd: '08:00',
@@ -70,6 +72,7 @@ const ProfileSettings: React.FC =({ navigation }: any) => {
         // Для состояния экрана используем безопасные дефолты, чтобы избежать `undefined`.
         setNotificationSettings({
           ...settings,
+          dailyHotTours: settings.dailyHotTours ?? true,
           quietHoursStart: settings.quietHoursStart ?? '22:00',
           quietHoursEnd: settings.quietHoursEnd ?? '08:00',
           maxNotificationsPerDay: settings.maxNotificationsPerDay ?? 5,
@@ -96,6 +99,7 @@ const ProfileSettings: React.FC =({ navigation }: any) => {
       // Для состояния экрана используем безопасные дефолты, чтобы избежать `undefined`.
       setNotificationSettings({
         ...settings,
+        dailyHotTours: settings.dailyHotTours ?? true,
         quietHoursStart: settings.quietHoursStart ?? '22:00',
         quietHoursEnd: settings.quietHoursEnd ?? '08:00',
         maxNotificationsPerDay: settings.maxNotificationsPerDay ?? 5,
@@ -279,10 +283,35 @@ const ProfileSettings: React.FC =({ navigation }: any) => {
           </TouchableOpacity>
         </View>
 
+        <View style={styles.section}>
+          <Text style={[styles.sectionTitle, { color: theme.text }]}>{i18n.t('settings.notifications')}</Text>
+
+          <View style={[styles.settingCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+            <View style={styles.settingLeft}>
+              <View style={[styles.iconGradient, { backgroundColor: theme.primary }]}>
+                <Ionicons name="notifications" size={20} color="#FFFFFF" />
+              </View>
+              <View style={styles.settingTextContainer}>
+                <Text style={[styles.settingTitle, { color: theme.text }]}>
+                  {i18n.t('settings.dailyHotTours')}
+                </Text>
+                <Text style={[styles.settingValue, { color: theme.secondaryText }]}>
+                  {i18n.t('settings.dailyHotToursDesc')}
+                </Text>
+              </View>
+            </View>
+            <Switch
+              value={notificationSettings.dailyHotTours}
+              onValueChange={(value) => updateNotificationSetting('dailyHotTours', value)}
+              trackColor={{ false: theme.secondaryBackground, true: theme.primary }}
+              thumbColor="#FFFFFF"
+              ios_backgroundColor={theme.secondaryBackground}
+            />
+          </View>
+        </View>
+
         {!RELEASE_HIDE_NEXT_PATCH_UI && (
           <View style={styles.section}>
-            <Text style={[styles.sectionTitle, { color: theme.text }]}>{i18n.t('settings.notifications')}</Text>
-
             <View style={[styles.settingCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
               <View style={styles.settingLeft}>
                 <View style={[styles.iconGradient, { backgroundColor: theme.success }]}>
@@ -341,7 +370,9 @@ const ProfileSettings: React.FC =({ navigation }: any) => {
               </View>
               <View style={styles.settingTextContainer}>
                 <Text style={[styles.settingTitle, { color: theme.text }]}>{i18n.t('settings.appVersion')}</Text>
-                <Text style={[styles.settingValue, { color: theme.secondaryText }]}>1.0.0</Text>
+                <Text style={[styles.settingValue, { color: theme.secondaryText }]}>
+                  {Constants.expoConfig?.version || '1.0.3'}
+                </Text>
               </View>
             </View>
             <Ionicons name="chevron-forward" size={20} color={theme.secondaryText} />
