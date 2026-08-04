@@ -10,7 +10,7 @@
  * пунктуация, ё→е игнорируются), поэтому и латиница, и кириллица матчатся.
  */
 
-import type { Operator } from '../types/tourvisor';
+import type { Operator, Tour, TourHotel } from '../types/tourvisor';
 
 /** Общий список операторов (все страны, кроме Турции и Египта). */
 export const OPERATORS_GENERAL: string[] = [
@@ -39,6 +39,22 @@ export const OPERATORS_TURKEY_EGYPT: string[] = [
   'Библио глобус',
 ];
 
+/** Дополнительные токены для сопоставления с названиями в Tourvisor (латиница/кириллица). */
+const OPERATOR_SEARCH_TOKENS: Partial<Record<string, string[]>> = {
+  'Fun Sun': ['funsun', 'funandsun'],
+  Anex: ['anex', 'анекс'],
+  Coral: ['coral', 'coraltravel'],
+  Sunmar: ['sunmar'],
+  Pegas: ['pegas', 'pegastouristik'],
+  'Русский экспресс': ['русскийэкспресс', 'russianexpress'],
+  Loti: ['loti'],
+  'Библио глобус': ['библиоглобус', 'biblioglobus', 'biblioglobal'],
+  Paks: ['paks', 'paksglobus'],
+  "Let's fly": ['letsfly'],
+  Интурист: ['интурист', 'intourist'],
+  Амботис: ['амботис', 'ambotis'],
+};
+
 /** Нормализует название оператора для нечёткого сравнения. */
 function normalizeOperatorName(value: string | null | undefined): string {
   return String(value ?? '')
@@ -47,18 +63,42 @@ function normalizeOperatorName(value: string | null | undefined): string {
     .replace(/[^a-zа-я0-9]/gi, '');
 }
 
-/** Турция/Египет определяются по названию страны (RU/EN). */
-export function isTurkeyOrEgypt(countryName: string | null | undefined): boolean {
+function getSearchTokensForAllowedName(name: string): string[] {
+  const normalized = normalizeOperatorName(name);
+  const extra = OPERATOR_SEARCH_TOKENS[name] ?? [];
+  return [normalized, ...extra];
+}
+
+function getOperatorNameCandidates(operator: Operator): string[] {
+  return [operator.name, operator.russianName, operator.fullName]
+    .map(normalizeOperatorName)
+    .filter(Boolean);
+}
+
+/** Турция определяется по названию страны (RU/EN). */
+export function isTurkey(countryName: string | null | undefined): boolean {
   const n = normalizeOperatorName(countryName);
   return (
     n.includes('турция') ||
     n.includes('turkey') ||
     n.includes('turkiye') ||
     n.includes('türkiye') ||
-    n.includes('trkiye') ||
-    n.includes('египет') ||
-    n.includes('egypt')
+    n.includes('trkiye')
   );
+}
+
+/** Турция/Египет определяются по названию страны (RU/EN). */
+export function isTurkeyOrEgypt(countryName: string | null | undefined): boolean {
+  const n = normalizeOperatorName(countryName);
+  return isTurkey(countryName) || n.includes('египет') || n.includes('egypt');
+}
+
+/**
+ * operatorIds на старте поиска Tourvisor сильно сужает выдачу и зависит от города вылета.
+ * Allowlist применяется на клиенте по названию оператора (filterTourHotelsByCountryOperators).
+ */
+export function shouldSendOperatorIdsInSearchRequest(_countryName?: string | null): boolean {
+  return false;
 }
 
 /** Возвращает список допустимых названий операторов для страны. */
@@ -68,12 +108,33 @@ export function getAllowedOperatorNames(countryName: string | null | undefined):
 
 /** Проверяет, входит ли оператор из справочника в список допустимых названий. */
 function operatorMatchesAllowed(operator: Operator, allowedNormalized: string[]): boolean {
-  const candidates = [operator.name, operator.russianName, operator.fullName]
-    .map(normalizeOperatorName)
-    .filter(Boolean);
+  const candidates = getOperatorNameCandidates(operator);
   return candidates.some((cand) =>
     allowedNormalized.some((allowed) => cand.includes(allowed) || allowed.includes(cand)),
   );
+}
+
+/** Проверяет, допустим ли оператор тура для выбранной страны. */
+export function isTourOperatorAllowed(operator: Operator, countryName: string | null | undefined): boolean {
+  const allowedNormalized = getAllowedOperatorNames(countryName).flatMap(getSearchTokensForAllowedName);
+  return getOperatorNameCandidates(operator).some((cand) =>
+    allowedNormalized.some((allowed) => cand.includes(allowed) || allowed.includes(cand)),
+  );
+}
+
+/** Фильтрует туры в результатах поиска по allowlist операторов для страны отеля. */
+export function filterTourHotelsByCountryOperators(hotels: TourHotel[]): TourHotel[] {
+  if (!Array.isArray(hotels) || hotels.length === 0) return [];
+
+  return hotels
+    .map((hotel) => {
+      const countryName = hotel.country?.name;
+      const filteredTours = hotel.tours.filter((tour: Tour) =>
+        isTourOperatorAllowed(tour.operator, countryName),
+      );
+      return filteredTours.length > 0 ? { ...hotel, tours: filteredTours } : null;
+    })
+    .filter((hotel): hotel is TourHotel => hotel !== null);
 }
 
 /**
@@ -86,7 +147,7 @@ export function getAllowedOperators(
 ): Operator[] {
   if (!Array.isArray(operators) || operators.length === 0) return [];
   const allowedNames = getAllowedOperatorNames(countryName);
-  const allowedNormalized = allowedNames.map(normalizeOperatorName);
+  const allowedNormalized = allowedNames.flatMap(getSearchTokensForAllowedName);
 
   const matched = operators.filter((op) => operatorMatchesAllowed(op, allowedNormalized));
 

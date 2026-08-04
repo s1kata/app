@@ -8,6 +8,7 @@
 
 import NetInfo from '@react-native-community/netinfo';
 import { TourSearchParams, TourHotel } from '../types/tourvisor';
+import { isTourOperatorAllowed } from '../config/tourOperators';
 import { sanitizeTourMealParam } from './tourvisorMeals';
 
 /** Показываем и ищем столько туров, сколько вернёт API (без пагинации) */
@@ -58,6 +59,13 @@ export function normalizeTourSearchParams(params: TourSearchParams): TourSearchP
   if (Array.isArray(p.subregionIds)) p.subregionIds = [...p.subregionIds].sort((a, b) => a - b);
   if (Array.isArray(p.operatorIds)) p.operatorIds = [...p.operatorIds].sort((a, b) => a - b);
   return p;
+}
+
+/** Параметры для запроса к Tourvisor API — без operatorIds (allowlist только на клиенте). */
+export function getTourSearchApiParams(params: TourSearchParams): TourSearchParams {
+  const normalized = normalizeTourSearchParams(params);
+  const { operatorIds: _ignored, ...apiParams } = normalized;
+  return apiParams;
 }
 
 /**
@@ -139,9 +147,7 @@ export function filterToursByParamsFromCache(
       if (params.hotelRating && hotel.rating < params.hotelRating) return false;
       if (params.priceFrom && tour.price < params.priceFrom) return false;
       if (params.priceTo && tour.price > params.priceTo) return false;
-      if (params.operatorIds && params.operatorIds.length > 0) {
-        if (!params.operatorIds.includes(tour.operator.id)) return false;
-      }
+      if (!isTourOperatorAllowed(tour.operator, hotel.country?.name)) return false;
       if (params.onlyCharter && !tour.isCharter) return false;
       return true;
     });
@@ -160,9 +166,7 @@ export function filterToursByParamsFromCache(
       if (params.meal && tour.meal.id < params.meal) return false;
       if (params.priceFrom && tour.price < params.priceFrom) return false;
       if (params.priceTo && tour.price > params.priceTo) return false;
-      if (params.operatorIds && params.operatorIds.length > 0) {
-        if (!params.operatorIds.includes(tour.operator.id)) return false;
-      }
+      if (!isTourOperatorAllowed(tour.operator, hotel.country?.name)) return false;
       if (params.onlyCharter && !tour.isCharter) return false;
       return true;
     });
@@ -210,7 +214,14 @@ export function sanitizeTourHotelsFromCache(raw: unknown): TourHotel[] {
         typeof t.id === 'number' ||
         (typeof t.id === 'string' && t.id.trim().length > 0);
       if (!hasTourId) return false;
-      if (!t.operator?.name || !t.meal?.name) return false;
+      if (!t.operator?.name) return false;
+      const meal = t.meal;
+      const hasMeal =
+        Boolean(meal?.name?.trim()) ||
+        Boolean(meal?.fullName?.trim()) ||
+        Boolean(meal?.fullRussianName?.trim()) ||
+        (typeof meal?.id === 'number' && meal.id > 0);
+      if (!hasMeal) return false;
       if (typeof t.price !== 'number' || !t.date) return false;
       return true;
     });
@@ -237,8 +248,25 @@ export async function getTourSearchPollIntervalMs(): Promise<number> {
   return TOUR_SEARCH_POLL_INTERVAL_MS;
 }
 
+/** Диапазон ночей из календарного окна dateFrom–dateTo (±2 ночи, как в Tourvisor UI). */
+export function computeNightsRangeFromDates(
+  dateFrom: string,
+  dateTo: string,
+): { nightsFrom: number; nightsTo: number } {
+  const dateFromParts = dateFrom.split('-').map(Number);
+  const dateToParts = dateTo.split('-').map(Number);
+  const dateFromObj = new Date(dateFromParts[0], dateFromParts[1] - 1, dateFromParts[2]);
+  const dateToObj = new Date(dateToParts[0], dateToParts[1] - 1, dateToParts[2]);
+  const diffDays = Math.round((dateToObj.getTime() - dateFromObj.getTime()) / (1000 * 60 * 60 * 24));
+  const calculatedNights = Math.max(1, Math.min(diffDays, 30));
+  const nightsFrom = Math.max(1, calculatedNights - 2);
+  let nightsTo = Math.min(30, calculatedNights + 2);
+  if (nightsTo <= nightsFrom) nightsTo = nightsFrom + 1;
+  return { nightsFrom, nightsTo };
+}
+
 /** Максимальное ожидание завершения поиска на Tourvisor (мс) — важно для медленного LTE */
-export const TOUR_SEARCH_MAX_WAIT_MS = 120_000;
+export const TOUR_SEARCH_MAX_WAIT_MS = 180_000;
 
 /** Tourvisor отдаёт status: "complete" или "completed" */
 export function isTourSearchStatusFinished(status?: string, progress?: number): boolean {

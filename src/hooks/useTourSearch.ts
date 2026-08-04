@@ -10,6 +10,7 @@ import Constants from 'expo-constants';
 import { Alert } from 'react-native';
 import { TourSearchParams, TourHotel } from '../types/tourvisor';
 import {
+  getTourSearchApiParams,
   getTourSearchCacheKey,
   isTransientTourvisorError,
   normalizeTourSearchParams,
@@ -24,6 +25,7 @@ import { tourvisorApi } from '../services/TourvisorApiService';
 import { freshCacheService } from '../services/FreshCacheService';
 import { logger } from '../utils/logger';
 import { cacheService, CacheType } from '../services/CacheService';
+import { filterTourHotelsByCountryOperators } from '../config/tourOperators';
 
 const FRESH_CACHE_ASYNC_PREFIX = 'fresh_cache_';
 
@@ -103,7 +105,7 @@ async function fetchTourSearch(params: TourSearchParams, limit: number): Promise
     ?.tourvisorWorkerUrl as string | undefined;
   const tourvisorUrl = tourvisorApi.getBaseUrl();
   const token = tourvisorApi.getJwtToken();
-  const normalized = normalizeTourSearchParams(params);
+  const normalized = getTourSearchApiParams(params);
   const baseIsTourvisorMobileProxy = /\/api\/tourvisor-mobile\b/i.test(tourvisorUrl);
   const isApiPassthroughWorker =
     (typeof workerUrl === 'string' && /tourvisor-mobile/i.test(workerUrl)) || baseIsTourvisorMobileProxy;
@@ -152,7 +154,7 @@ async function fetchTourSearch(params: TourSearchParams, limit: number): Promise
         throw new Error('Invalid worker response');
       }
       logger.debug('[useTourSearch] worker response', { count: data.length });
-      return data;
+      return filterTourHotelsByCountryOperators(data);
     } catch (e) {
       throw new Error(`Worker search failed: ${(e as Error)?.message || String(e)}`);
     }

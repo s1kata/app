@@ -38,6 +38,7 @@ import {
   TOUR_SEARCH_MAX_WAIT_MS,
   TOUR_SEARCH_POLL_INTERVAL_MS,
 } from '../utils/tourSearchCache';
+import { filterTourHotelsByCountryOperators } from '../config/tourOperators';
 
 const RATE_LIMIT_COOLDOWN_KEY = 'tourvisor_429_cooldown_until';
 /** Справочники (departures, countries) — быстрые ответы */
@@ -820,8 +821,8 @@ class TourvisorApiService {
       params.onlyCharter = false;
     }
 
-    const sanitized = applyTourMealToSearchParams(params);
-    const query = this.buildQueryString(sanitized);
+    const { operatorIds: _ignored, ...apiParams } = applyTourMealToSearchParams(params);
+    const query = this.buildQueryString(apiParams);
     // Для startTourSearch не делаем retry при 429 - сразу возвращаем ошибку для использования кэша
     const response = await this.request<TourSearchOutput>(
       `/tours/search?${query}`,
@@ -857,11 +858,13 @@ class TourvisorApiService {
       2 // Retry для методов поиска (300 запросов/мин)
     );
     const raw = response.data;
-    if (Array.isArray(raw)) return raw;
-    if (raw && typeof raw === 'object' && Array.isArray((raw as { data?: TourHotel[] }).data)) {
-      return (raw as { data: TourHotel[] }).data;
+    let hotels: TourHotel[] = [];
+    if (Array.isArray(raw)) {
+      hotels = raw;
+    } else if (raw && typeof raw === 'object' && Array.isArray((raw as { data?: TourHotel[] }).data)) {
+      hotels = (raw as { data: TourHotel[] }).data;
     }
-    return [];
+    return filterTourHotelsByCountryOperators(hotels);
   }
 
   async continueTourSearch(searchId: number): Promise<TourSearchContinueOutput> {
@@ -911,7 +914,7 @@ class TourvisorApiService {
   }
 
   /**
-   * Ожидает завершения поиска (до 2 мин). Повторяет опрос статуса при обрывах LTE.
+   * Ожидает завершения поиска (до 3 мин). Повторяет опрос статуса при обрывах LTE.
    */
   async pollTourSearchUntilReady(
     searchId: number,
@@ -949,10 +952,14 @@ class TourvisorApiService {
       await new Promise((r) => setTimeout(r, pollIntervalMs));
     }
 
-    if (lastStatus && (lastStatus.progress ?? 0) > 0) {
-      logger.warn('[Tourvisor API] poll timeout but progress > 0, fetching results anyway', {
+    if (
+      lastStatus &&
+      ((lastStatus.progress ?? 0) > 0 || (lastStatus.minPrice ?? 0) > 0)
+    ) {
+      logger.warn('[Tourvisor API] poll timeout but search has partial progress, fetching results anyway', {
         searchId,
         progress: lastStatus.progress,
+        minPrice: lastStatus.minPrice,
       });
       return lastStatus;
     }

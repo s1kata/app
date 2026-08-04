@@ -306,7 +306,7 @@ export default function TourBookingScreen({ navigation, route }: TourBookingScre
   };
 
   const calculateTotalPrice = (): number => {
-    return tour.price * getParticipants();
+    return tour.price;
   };
 
   const userEmail = formData.email || user?.email || '';
@@ -649,17 +649,19 @@ export default function TourBookingScreen({ navigation, route }: TourBookingScre
                 {tour.hotel.region.name}
               </Text>
             </View>
-            <View style={styles.priceRow}>
-              <Text style={[styles.priceLabel, { color: theme.secondaryText }]}>Цена за человека:</Text>
-              <Text style={[styles.priceValue, { color: theme.primary }]}>
-                {formatPrice(tour.price, tour.currency)}
-              </Text>
-            </View>
+            {getParticipants() > 1 ? (
+              <View style={styles.priceRow}>
+                <Text style={[styles.priceLabel, { color: theme.secondaryText }]}>Цена за человека:</Text>
+                <Text style={[styles.priceValue, { color: theme.primary }]}>
+                  {formatPrice(Math.round(tour.price / getParticipants()), tour.currency)}
+                </Text>
+              </View>
+            ) : null}
             <View style={[styles.divider, { backgroundColor: theme.border }]} />
             <View style={styles.totalRow}>
-              <Text style={[styles.totalLabel, { color: theme.secondaryText }]}>{i18n.t('bonus.tourPrice')}:</Text>
+              <Text style={[styles.totalLabel, { color: theme.secondaryText }]}>Итоговая стоимость:</Text>
               <Text style={[styles.totalValue, { color: theme.text }]}>
-                {formatPrice(calculateTotalPrice(), tour.currency)}
+                {formatPrice(tour.price, tour.currency)}
               </Text>
             </View>
             {getBonusDiscount() > 0 && (

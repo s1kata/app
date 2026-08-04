@@ -42,4 +42,7 @@ return [
         'pass' => 'db_password',
         'charset' => 'utf8mb4',
     ],
+    // Tourvisor proxy (tourvisor-mobile.php)
+    'tourvisor_token' => '', // JWT из кабинета Tourvisor
+    'tourvisor_api_base' => 'https://api.tourvisor.ru/search/api/v1',
 ];

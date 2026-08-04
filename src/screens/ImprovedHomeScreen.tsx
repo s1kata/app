@@ -24,7 +24,7 @@ import { i18n } from '../config/i18n';
 import { RELEASE_HIDE_NEXT_PATCH_UI } from '../config/releaseUiFlags';
 import { useAppContext } from '../contexts/AppContext';
 import { adaptive, BREAKPOINTS } from '../utils/adaptive';
-import { platform } from '../utils/platform';
+import { getTabBarHeight } from '../utils/safeAreaInsets';
 import ApiTourHotelSearch from '../components/ApiTourHotelSearch';
 import WeatherWidget from '../components/WeatherWidget';
 import { locationService, LocationData } from '../services/LocationService';
@@ -36,7 +36,7 @@ import CollapsibleSection from '../components/ux/CollapsibleSection';
 import PrimaryButton from '../components/ui/PrimaryButton';
 
 export default function ImprovedHomeScreen({ navigation }: any) {
-  const { isAuthenticated, user, theme, themeMode, updateCounter } = useAppContext();
+  const { isAuthenticated, user, theme, themeMode, updateCounter, fontScale } = useAppContext();
   const isGuest = user?.uid?.startsWith('guest_') || user?.isAnonymous === true;
   const [userName, setUserName] = useState('');
   const [userLocation, setUserLocation] = useState<LocationData | null>(null);
@@ -72,9 +72,6 @@ export default function ImprovedHomeScreen({ navigation }: any) {
     outputRange: [1, 0.95],
     extrapolate: 'clamp',
   });
-
-  // Для адаптации нижней панели (теперь используется Tab Navigator)
-  const hasNotch = platform.isIOS && SCREEN_HEIGHT / SCREEN_WIDTH > 2;
 
   const loadUserLocation = useCallback(async () => {
     try {
@@ -236,7 +233,7 @@ export default function ImprovedHomeScreen({ navigation }: any) {
 
   // Высота навигационного бара для правильного отступа
   const insets = useSafeAreaInsets();
-  const TAB_BAR_HEIGHT = 65 + (platform.isAndroid ? Math.max(insets.bottom, 16) : (platform.isIOS && SCREEN_HEIGHT / SCREEN_WIDTH > 2 ? 34 : 0));
+  const TAB_BAR_HEIGHT = getTabBarHeight(insets, fontScale);
 
   const handleHomeRefresh = useCallback(async () => {
     setHomeRefreshing(true);

@@ -6,7 +6,7 @@ import { createStackNavigator } from '@react-navigation/stack';
 import type { NavigationState } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { platform } from '../utils/platform';
+import { getTabBarBottomInset, getTabBarHeight } from '../utils/safeAreaInsets';
 import { useAppContext } from '../contexts/AppContext';
 import { i18n } from '../config/i18n';
 
@@ -37,10 +37,7 @@ function CustomTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
   const { theme, themeMode, fontScale } = useAppContext();
   const insets = useSafeAreaInsets();
   const { width: screenWidth } = useWindowDimensions();
-  // На Android учитываем нижнюю безопасную зону (жесты/кнопки навигации)
-  const safeBottom = platform.isAndroid
-    ? Math.max(insets.bottom, 16)
-    : insets.bottom;
+  const safeBottom = getTabBarBottomInset(insets);
   
   // Проверяем, нужно ли скрыть таб бар на основе активного экрана в стеке
   const shouldHideTabBar = React.useMemo(() => {
@@ -55,11 +52,10 @@ function CustomTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
     return SCREENS_TO_HIDE_TAB_BAR.includes(screenName);
   }, [state]);
   
-  const tabBarHeight = React.useMemo(() => {
-    const baseHeight = 48;
-    const scaledHeight = baseHeight * Math.min(fontScale, 1.2);
-    return Math.round(scaledHeight) + safeBottom + 6;
-  }, [fontScale, safeBottom]);
+  const tabBarHeight = React.useMemo(
+    () => getTabBarHeight(insets, fontScale),
+    [fontScale, insets],
+  );
 
   if (shouldHideTabBar) {
     return null;
