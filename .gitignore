@@ -89,5 +89,8 @@ logs
 # Temporary files
 tmp/
 temp/
+smoke-screens/
+.smoke-off-modules/
+dummy
 
 eas-secrets.template.env

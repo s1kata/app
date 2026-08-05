@@ -10,7 +10,7 @@ import {
   RefreshControl,
   StatusBar,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { TourOutput } from '../types/tourvisor';
 import { useAppContext } from '../contexts/AppContext';
@@ -20,9 +20,14 @@ import { FavoritesService } from '../services/FavoritesService';
 import { settingsService } from '../services/SettingsService';
 import type { Currency } from '../services/SettingsService';
 import AuthRequiredCard from '../components/ux/AuthRequiredCard';
+import { useTabBarMetrics } from '../utils/tabBarMetrics';
 
 export default function FavoritesScreen({ navigation }: any) {
-  const { theme, isDark, apiReady, user, isAuthenticated, currency } = useAppContext();
+  const { theme, isDark, apiReady, user, isAuthenticated, currency, fontScale } = useAppContext();
+  const insets = useSafeAreaInsets();
+  // FAB скрыт на этом экране — клиренс только под таб-бар
+  const { contentBottomPadding } = useTabBarMetrics(insets, fontScale);
+  const bottomPad = contentBottomPadding({ includeFab: false });
   const [favoriteTours, setFavoriteTours] = useState<TourOutput[]>([]);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -89,7 +94,7 @@ export default function FavoritesScreen({ navigation }: any) {
 
   if (loading && favoriteTours.length === 0) {
     return (
-      <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]} edges={['top', 'bottom']}>
+      <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]} edges={['top']}>
         <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={theme.background} />
         <View style={[styles.header, { backgroundColor: theme.card, borderBottomColor: theme.border }]}>
           <Text style={[styles.headerTitle, { color: theme.text }]}>Избранное</Text>
@@ -102,7 +107,7 @@ export default function FavoritesScreen({ navigation }: any) {
   }
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]} edges={['top', 'bottom']}>
+    <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]} edges={['top']}>
       <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={theme.card} />
       <View style={[styles.header, { backgroundColor: theme.card, borderBottomColor: theme.border }]}>
         <View style={styles.headerLeft}>
@@ -117,7 +122,7 @@ export default function FavoritesScreen({ navigation }: any) {
       </View>
 
       {favoriteTours.length === 0 ? (
-        <View style={styles.emptyContainer}>
+        <View style={[styles.emptyContainer, { paddingBottom: bottomPad }]}>
           <View style={[styles.emptyIconContainer, { backgroundColor: theme.secondaryBackground }]}>
             <Ionicons name="heart-outline" size={64} color={theme.inactive} />
           </View>
@@ -134,6 +139,7 @@ export default function FavoritesScreen({ navigation }: any) {
       ) : (
         <ScrollView
           showsVerticalScrollIndicator={false}
+          contentContainerStyle={{ paddingBottom: bottomPad }}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[theme.primary]} />}
         >
           <View style={styles.toursContainer}>

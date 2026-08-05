@@ -24,7 +24,7 @@ import { i18n } from '../config/i18n';
 import { RELEASE_HIDE_NEXT_PATCH_UI } from '../config/releaseUiFlags';
 import { useAppContext } from '../contexts/AppContext';
 import { adaptive, BREAKPOINTS } from '../utils/adaptive';
-import { getTabBarHeight } from '../utils/safeAreaInsets';
+import { useTabBarMetrics } from '../utils/tabBarMetrics';
 import ApiTourHotelSearch from '../components/ApiTourHotelSearch';
 import WeatherWidget from '../components/WeatherWidget';
 import { locationService, LocationData } from '../services/LocationService';
@@ -231,9 +231,10 @@ export default function ImprovedHomeScreen({ navigation }: any) {
       : SCREEN_WIDTH - 64;
   const dynamicStyles = getStyles(SCREEN_WIDTH, isMediumScreen);
 
-  // Высота навигационного бара для правильного отступа
+  // Высота навигационного бара для правильного отступа (измеряется в CustomTabBar)
   const insets = useSafeAreaInsets();
-  const TAB_BAR_HEIGHT = getTabBarHeight(insets, fontScale);
+  const { contentBottomPadding } = useTabBarMetrics(insets, fontScale);
+  const scrollBottomPad = contentBottomPadding({ includeFab: true });
 
   const handleHomeRefresh = useCallback(async () => {
     setHomeRefreshing(true);
@@ -261,7 +262,7 @@ export default function ImprovedHomeScreen({ navigation }: any) {
           { useNativeDriver: true }
         )}
         scrollEventThrottle={16}
-        contentContainerStyle={{ paddingBottom: TAB_BAR_HEIGHT + 20 }}
+        contentContainerStyle={{ paddingBottom: scrollBottomPad }}
       >
         {/* Header - улучшенный дизайн */}
         <View style={[dynamicStyles.headerContainer, { 

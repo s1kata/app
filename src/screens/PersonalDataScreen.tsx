@@ -11,7 +11,8 @@ import {
   KeyboardTypeOptions,
   Modal,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { getBottomSafeInset } from '../utils/safeAreaInsets';
 import type { Theme } from '../config/theme';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
@@ -372,6 +373,8 @@ function PersonalDataDateField({
 
 export default function PersonalDataScreen({ navigation }: any) {
   const { theme, isDark, user } = useAppContext();
+  const insets = useSafeAreaInsets();
+  const scrollBottomPad = getBottomSafeInset(insets, 16) + 24;
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -533,7 +536,7 @@ export default function PersonalDataScreen({ navigation }: any) {
 
   if (loading) {
     return (
-      <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
+      <SafeAreaView edges={['top', 'bottom']} style={[styles.container, { backgroundColor: theme.background }]}>
         <StatusBar
           style={isDark ? 'light' : 'dark'}
           backgroundColor={theme.background}
@@ -544,7 +547,7 @@ export default function PersonalDataScreen({ navigation }: any) {
   }
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
+    <SafeAreaView edges={['top', 'bottom']} style={[styles.container, { backgroundColor: theme.background }]}>
       <StatusBar
         style={isDark ? 'light' : 'dark'}
         backgroundColor={theme.background}
@@ -552,6 +555,7 @@ export default function PersonalDataScreen({ navigation }: any) {
       
       <ScrollView
         style={styles.scrollView}
+        contentContainerStyle={{ paddingBottom: scrollBottomPad }}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
       >

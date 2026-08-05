@@ -9,11 +9,11 @@ import {
   Alert,
   ActivityIndicator,
   Modal,
-  StatusBar,
   useWindowDimensions,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { getBottomSafeInset } from '../utils/safeAreaInsets';
 
 import { adaptive } from '../utils/adaptive';
 import { platform } from '../utils/platform';
@@ -82,6 +82,8 @@ export default function ApiTourHotelSearch({
   const enableHotelSearch = RELEASE_HIDE_NEXT_PATCH_UI ? false : enableHotelSearchProp;
   const { theme, themeMode, isDark, language, backendRefreshCounter } = useAppContext();
   const { height: windowHeight } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
+  const sheetBottomPad = getBottomSafeInset(insets, 16) + 12;
 
   const [activeTab, setActiveTab] = useState<'tours' | 'hotels'>('tours');
   const [isLoading, setIsLoading] = useState(false);
@@ -1819,7 +1821,7 @@ export default function ApiTourHotelSearch({
         >
           <TouchableOpacity
             activeOpacity={1}
-            style={[styles.bsSheet, { backgroundColor: theme.card, maxHeight: windowHeight * 0.72 }]}
+            style={[styles.bsSheet, { backgroundColor: theme.card, maxHeight: windowHeight * 0.72, paddingBottom: sheetBottomPad }]}
             onPress={() => {}}
           >
             {/* Drag handle */}
@@ -1878,7 +1880,6 @@ export default function ApiTourHotelSearch({
       </Modal>
 
       {/* Bottom Sheet — Страна */}
-      {showCountryModal && <StatusBar hidden />}
       <Modal
         visible={showCountryModal}
         {...transparentModalProps}
@@ -1892,7 +1893,7 @@ export default function ApiTourHotelSearch({
         >
           <TouchableOpacity
             activeOpacity={1}
-            style={[styles.bsSheet, { backgroundColor: theme.card, maxHeight: windowHeight * 0.72 }]}
+            style={[styles.bsSheet, { backgroundColor: theme.card, maxHeight: windowHeight * 0.72, paddingBottom: sheetBottomPad }]}
             onPress={() => {}}
           >
             {/* Drag handle */}
@@ -1963,7 +1964,7 @@ export default function ApiTourHotelSearch({
         <TouchableOpacity style={styles.bsOverlay} activeOpacity={1} onPress={() => setShowFilterSheet(false)}>
           <TouchableOpacity
             activeOpacity={1}
-            style={[styles.bsSheet, { backgroundColor: theme.card, maxHeight: windowHeight * 0.72 }]}
+            style={[styles.bsSheet, { backgroundColor: theme.card, maxHeight: windowHeight * 0.72, paddingBottom: sheetBottomPad }]}
             onPress={() => {}}
           >
             <View style={[styles.bsDragHandle, { backgroundColor: theme.border }]} />
@@ -2091,7 +2092,7 @@ export default function ApiTourHotelSearch({
         >
           <TouchableOpacity
             activeOpacity={1}
-            style={[styles.bsSheet, { backgroundColor: theme.card, maxHeight: windowHeight * 0.72 }]}
+            style={[styles.bsSheet, { backgroundColor: theme.card, maxHeight: windowHeight * 0.72, paddingBottom: sheetBottomPad }]}
             onPress={() => {}}
           >
             <View style={[styles.bsDragHandle, { backgroundColor: theme.border }]} />
@@ -2153,7 +2154,7 @@ export default function ApiTourHotelSearch({
           <View
             style={[
               styles.modalContent,
-              { backgroundColor: theme.card, height: windowHeight * 0.75 },
+              { backgroundColor: theme.card, height: windowHeight * 0.75, paddingBottom: sheetBottomPad },
             ]}
           >
             <View style={[styles.modalHeader, { borderBottomColor: theme.border }]}>
@@ -2198,7 +2199,7 @@ export default function ApiTourHotelSearch({
         <TouchableOpacity style={styles.ageOverlay} activeOpacity={1} onPress={() => setShowChildAgeModal(false)}>
           <TouchableOpacity
             activeOpacity={1}
-            style={[styles.ageSheet, { backgroundColor: theme.card, borderColor: theme.border }]}
+            style={[styles.ageSheet, { backgroundColor: theme.card, borderColor: theme.border, paddingBottom: sheetBottomPad }]}
             onPress={() => {}}
           >
             <Text style={[styles.ageTitle, { color: theme.text }]}>{i18n.t('form.selectChildAge')}</Text>

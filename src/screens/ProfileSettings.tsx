@@ -210,7 +210,7 @@ const ProfileSettings: React.FC =({ navigation }: any) => {
 
 
   return (
-    <SafeAreaView style={[styles.safeArea, { backgroundColor: theme.background }]} key={updateCounter}>
+    <SafeAreaView edges={['top', 'bottom']} style={[styles.safeArea, { backgroundColor: theme.background }]} key={updateCounter}>
       <StatusBar style={isDark ? 'light' : 'dark'} />
       <ScrollView 
         style={[styles.container, { backgroundColor: theme.background }]}

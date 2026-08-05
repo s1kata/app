@@ -11,7 +11,7 @@ import {
   RefreshControl,
   Alert,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useAppContext } from '../contexts/AppContext';
 import { i18n } from '../config/i18n';
@@ -38,6 +38,7 @@ import {
   canShowCheckPaymentStatus,
   canShowPayBooking,
 } from '../utils/paymentRetryEligibility';
+import { useTabBarMetrics } from '../utils/tabBarMetrics';
 import {
   getLastPaymentTransaction,
   pollPaymentUntilFinal,
@@ -48,7 +49,10 @@ import { bonusService } from '../services/BonusService';
 import { authSession } from '../services/AuthSession';
 
 export default function BookingsScreen({ navigation }: any) {
-  const { user, theme } = useAppContext();
+  const { user, theme, fontScale } = useAppContext();
+  const insets = useSafeAreaInsets();
+  const { contentBottomPadding } = useTabBarMetrics(insets, fontScale);
+  const bottomPad = contentBottomPadding({ includeFab: true });
   const [bookings, setBookings] = useState<Booking[]>([]);
   /* TODO: Закомментировано до получения тестовых данных от заказчика (Никита). Вернуть после настройки API.
   const [departureDocuments, setDepartureDocuments] = useState<DepartureDocument[]>([]);
@@ -548,7 +552,7 @@ export default function BookingsScreen({ navigation }: any) {
 
   if (loading && bookings.length === 0) {
     return (
-      <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]} edges={['top', 'bottom']}>
+      <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]} edges={['top']}>
         <View style={[styles.header, { backgroundColor: theme.card, borderBottomColor: theme.border }]}>
           <TouchableOpacity
             style={styles.backButton}
@@ -566,7 +570,7 @@ export default function BookingsScreen({ navigation }: any) {
   }
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]} edges={['top', 'bottom']}>
+    <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]} edges={['top']}>
       <View style={[styles.header, { backgroundColor: theme.card, borderBottomColor: theme.border }]}>
         <TouchableOpacity
           style={styles.backButton}
@@ -588,7 +592,7 @@ export default function BookingsScreen({ navigation }: any) {
 
       <ScrollView
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: bottomPad }]}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }
@@ -860,7 +864,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    paddingBottom: 112,
+    paddingBottom: 24,
   },
   header: {
     paddingHorizontal: 20,

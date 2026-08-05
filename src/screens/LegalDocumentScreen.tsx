@@ -70,7 +70,7 @@ export default function LegalDocumentScreen({ navigation, route }: LegalDocument
   const webUrl = isPrivacy ? `${siteBase}/privacy.html` : `${siteBase}/terms.html`;
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
+    <SafeAreaView edges={['top', 'bottom']} style={[styles.container, { backgroundColor: theme.background }]}>
       {/* Header */}
       <View style={[styles.header, { backgroundColor: theme.card, borderBottomColor: theme.border }]}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>

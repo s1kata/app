@@ -9,7 +9,7 @@ import {
   Modal,
   Linking,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import Constants from 'expo-constants';
 import { Ionicons } from '@expo/vector-icons';
@@ -25,9 +25,13 @@ import { RELEASE_HIDE_PURCHASE_HISTORY } from '../config/releaseUiFlags';
 import { PrimaryButton } from '../components/ui';
 import AppLogo from '../components/AppLogo';
 import { openSupportChat } from '../config/support';
+import { useTabBarMetrics } from '../utils/tabBarMetrics';
 
 export default function ProfileScreen({ navigation }: any) {
-  const { logout, loginAsGuest, user, theme, isDark } = useAppContext();
+  const { logout, loginAsGuest, user, theme, isDark, fontScale } = useAppContext();
+  const insets = useSafeAreaInsets();
+  const { contentBottomPadding } = useTabBarMetrics(insets, fontScale);
+  const bottomPad = contentBottomPadding({ includeFab: true });
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [bonusBalance, setBonusBalance] = useState(0);
   const [purchaseCount, setPurchaseCount] = useState(0);
@@ -100,8 +104,10 @@ export default function ProfileScreen({ navigation }: any) {
           setBonusBalance(0);
         }
         try {
+          // Считаем так же, как «История покупок»: все заявки пользователя,
+          // а не только paymentStatus === 'paid' (CRM/локальные часто pending).
           const bookings = await bookingService.getUserBookings(user.uid);
-          setPurchaseCount(bookings.filter((b) => b.paymentStatus === 'paid').length);
+          setPurchaseCount(bookings.length);
         } catch {
           setPurchaseCount(0);
         }
@@ -212,11 +218,11 @@ export default function ProfileScreen({ navigation }: any) {
 
   return (
     <SafeAreaView
-      edges={['top', 'bottom']}
+      edges={['top']}
       style={[styles.safeArea, { backgroundColor: theme.background }]}
     >
       <StatusBar style={isDark ? 'light' : 'dark'} />
-      <ScrollView style={[styles.scrollView, { backgroundColor: theme.background }]} showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
+      <ScrollView style={[styles.scrollView, { backgroundColor: theme.background }]} showsVerticalScrollIndicator={false} contentContainerStyle={[styles.scrollContent, { paddingBottom: bottomPad }]}>
         <View style={[styles.header, { backgroundColor: theme.card, borderColor: theme.border }]}>
         <View style={styles.avatarContainer}>
           <View style={[styles.avatar, { backgroundColor: theme.secondaryBackground, borderColor: theme.primary }]}>
@@ -370,7 +376,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    paddingBottom: 120,
+    paddingBottom: 24,
   },
   header: {
     alignItems: 'center',

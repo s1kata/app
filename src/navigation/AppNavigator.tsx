@@ -6,7 +6,12 @@ import { createStackNavigator } from '@react-navigation/stack';
 import type { NavigationState } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { getTabBarBottomInset, getTabBarHeight } from '../utils/safeAreaInsets';
+import {
+  getTabBarBottomInset,
+  getTabBarHeight,
+  TAB_BAR_FAB_GAP,
+} from '../utils/safeAreaInsets';
+import { setTabBarMetrics } from '../utils/tabBarMetrics';
 import { useAppContext } from '../contexts/AppContext';
 import { i18n } from '../config/i18n';
 
@@ -14,10 +19,22 @@ import { i18n } from '../config/i18n';
 const TAB_ROUTES = ['Home', 'Bookings', 'Profile'];
 
 // Список экранов, на которых нужно скрыть таб бар
-function stackRouteAt(state: NavigationState | undefined): { name: string } | undefined {
+function getDeepestRouteName(state: NavigationState | undefined): string | undefined {
   if (!state?.routes?.length) return undefined;
-  const i = typeof state.index === 'number' ? state.index : 0;
-  return state.routes[i] as { name: string } | undefined;
+  let current: NavigationState | undefined = state;
+  let name: string | undefined;
+  while (current?.routes?.length) {
+    const i = typeof current.index === 'number' ? current.index : 0;
+    const route = current.routes[i] as { name: string; state?: NavigationState };
+    name = route.name;
+    current = route.state;
+  }
+  return name;
+}
+
+function stackRouteAt(state: NavigationState | undefined): { name: string } | undefined {
+  const name = getDeepestRouteName(state);
+  return name ? { name } : undefined;
 }
 
 const SCREENS_TO_HIDE_TAB_BAR = [
@@ -30,6 +47,14 @@ const SCREENS_TO_HIDE_TAB_BAR = [
   'CountryInfo',
   'Countries',
   'Reviews',
+  // Профильный стек — таб-бар и FAB перекрывали формы и списки
+  'Settings',
+  'PersonalData',
+  'About',
+  'HelperChat',
+  'LegalDocument',
+  'Bonus',
+  'PurchaseHistory',
 ];
 
 // Кастомный TabBar с шариком прямо на иконке активной вкладки
@@ -43,19 +68,24 @@ function CustomTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
   const shouldHideTabBar = React.useMemo(() => {
     const activeTabRoute = state.routes[state.index];
     const nested = activeTabRoute.state as NavigationState | undefined;
-    if (!nested?.routes?.length) return false;
-
-    const activeStackRoute = stackRouteAt(nested);
-    if (!activeStackRoute) return false;
-    
-    const screenName = activeStackRoute.name;
+    const screenName = getDeepestRouteName(nested);
+    if (!screenName) return false;
     return SCREENS_TO_HIDE_TAB_BAR.includes(screenName);
   }, [state]);
   
-  const tabBarHeight = React.useMemo(
+  const estimatedTabBarHeight = React.useMemo(
     () => getTabBarHeight(insets, fontScale),
     [fontScale, insets],
   );
+  const [measuredTabBarHeight, setMeasuredTabBarHeight] = React.useState(0);
+  const tabBarHeight = measuredTabBarHeight > 0 ? measuredTabBarHeight : estimatedTabBarHeight;
+
+  const hideFavoritesFab = React.useMemo(() => {
+    const activeTabRoute = state.routes[state.index];
+    if (activeTabRoute.name !== 'Home') return false;
+    const nested = activeTabRoute.state as NavigationState | undefined;
+    return stackRouteAt(nested)?.name === 'Favorites';
+  }, [state]);
 
   if (shouldHideTabBar) {
     return null;
@@ -64,15 +94,21 @@ function CustomTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
   return (
     <View>
       {/* Маркер избранного над навигационным баром */}
+      {!hideFavoritesFab && (
       <TouchableOpacity
         style={[
           customTabBarStyles.favoritesMarker, 
           { 
             backgroundColor: theme.card,
             borderColor: theme.border,
-            bottom: tabBarHeight + 28,
+            // Высота бара уже включает safe area — поднимаем FAB на размер кнопки + зазор
+            bottom: tabBarHeight + TAB_BAR_FAB_GAP,
           }
         ]}
+        onLayout={(e) => {
+          const h = Math.ceil(e.nativeEvent.layout.height);
+          if (h > 0) setTabBarMetrics({ fabHeight: h });
+        }}
         onPress={() => {
           const currentRoute = state.routes[state.index];
           if (currentRoute.name === 'Home') {
@@ -97,6 +133,7 @@ function CustomTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
           {i18n.t('profile.favorites')}
         </Text>
       </TouchableOpacity>
+      )}
 
       <View
         style={[
@@ -107,6 +144,13 @@ function CustomTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
             paddingHorizontal: Math.max(12, Math.min(20, screenWidth * 0.05)),
           },
         ]}
+        onLayout={(e) => {
+          const h = Math.ceil(e.nativeEvent.layout.height);
+          if (h > 0) {
+            setMeasuredTabBarHeight(h);
+            setTabBarMetrics({ tabBarHeight: h });
+          }
+        }}
       >
         <View
           style={[

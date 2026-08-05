@@ -9,7 +9,7 @@ import {
   ActivityIndicator,
   useWindowDimensions,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { getCountryBySlug, CountryData } from '../data/countriesData';
 import { tourvisorApi } from '../services/TourvisorApiService';
@@ -17,6 +17,7 @@ import { dictionaryService } from '../services/DictionaryService';
 import { Country } from '../types/tourvisor';
 import { useAppContext } from '../contexts/AppContext';
 import { logger } from '../utils/logger';
+import { getBottomSafeInset } from '../utils/safeAreaInsets';
 
 interface CountryInfoScreenProps {
   navigation: any;
@@ -31,6 +32,8 @@ export default function CountryInfoScreen({ navigation, route }: CountryInfoScre
   const { countrySlug } = route.params;
   const { theme, isDark } = useAppContext();
   const { width } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
+  const stickyPad = getBottomSafeInset(insets, 16) + 20;
   const [country, setCountry] = useState<CountryData | null>(null);
   const [tourvisorCountry, setTourvisorCountry] = useState<Country | null>(null);
   const [loading, setLoading] = useState(true);
@@ -268,7 +271,7 @@ export default function CountryInfoScreen({ navigation, route }: CountryInfoScre
       </ScrollView>
 
       {/* Book Button */}
-      <View style={styles.bookButtonContainer}>
+      <View style={[styles.bookButtonContainer, { paddingBottom: stickyPad }]}>
         <TouchableOpacity
           style={styles.bookButton}
           onPress={handleBookTour}

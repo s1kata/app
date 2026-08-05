@@ -5,6 +5,15 @@ import type { EdgeInsets } from 'react-native-safe-area-context';
 export const TAB_BAR_MIN_BOTTOM = 16;
 
 /**
+ * Высота FAB «Избранное» (icon 20 + label ~12 + paddingVertical 12 + border).
+ * Точное значение подставляется через tabBarMetrics.onLayout.
+ */
+export const TAB_BAR_FAB_SIZE = 72;
+
+/** Зазор между FAB и верхней кромкой таб-бара. */
+export const TAB_BAR_FAB_GAP = 12;
+
+/**
  * Универсальный нижний отступ: iOS safe area + минимум на Android (жесты/кнопки).
  */
 export function getBottomSafeInset(insets: EdgeInsets, minFallback = 8): number {
@@ -21,10 +30,27 @@ export function getTabBarBottomInset(insets: EdgeInsets): number {
 
 /**
  * Полная высота кастомного таб-бара (контент + safe area).
- * Должна совпадать с расчётом в AppNavigator для paddingBottom на экранах.
+ * Совпадает с layout в AppNavigator: paddingTop 4 + icon 44 + label + paddingBottom (inset+8).
  */
 export function getTabBarHeight(insets: EdgeInsets, fontScale = 1): number {
-  const baseHeight = 48;
-  const scaledHeight = baseHeight * Math.min(fontScale, 1.2);
-  return Math.round(scaledHeight) + getTabBarBottomInset(insets) + 6;
+  const scale = Math.min(fontScale, 1.2);
+  // Совпадает с AppNavigator: label fontSize 9
+  const labelHeight = Math.round(9 * scale);
+  // paddingTop(4) + iconBall(44) + label marginTop(4) + label + paddingBottom(safeBottom+8)
+  const content = 4 + 44 + 4 + labelHeight;
+  return content + getTabBarBottomInset(insets) + 8;
+}
+
+/**
+ * Нижний padding контента на экранах с абсолютным таб-баром (+ опционально FAB).
+ */
+export function getTabScreenBottomPadding(
+  insets: EdgeInsets,
+  fontScale = 1,
+  options?: { includeFab?: boolean; extra?: number },
+): number {
+  const includeFab = options?.includeFab !== false;
+  const extra = options?.extra ?? 16;
+  const fabClearance = includeFab ? TAB_BAR_FAB_SIZE + TAB_BAR_FAB_GAP : 0;
+  return getTabBarHeight(insets, fontScale) + fabClearance + extra;
 }

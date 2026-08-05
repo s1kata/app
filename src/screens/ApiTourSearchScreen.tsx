@@ -681,8 +681,7 @@ export default function ApiTourSearchScreen({ navigation, route }: ApiTourSearch
         </View>
       </Modal>
 
-      {/* Country Modal — скрываем статус-бар, чтобы убрать системный индикатор (чёрный pill) */}
-      {showCountryModal && <StatusBar hidden />}
+      {/* Country Modal */}
       <Modal
         animationType="slide"
         transparent={true}
