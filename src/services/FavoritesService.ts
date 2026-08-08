@@ -8,6 +8,7 @@ import { Tour, Hotel } from '../types';
 import { TourOutput } from '../types/tourvisor';
 import { authSession } from './AuthSession';
 import { logger } from '../utils/logger';
+import { tourvisorApi } from './TourvisorApiService';
 import {
   deleteFavoriteViaBackend,
   fetchFavoritesViaBackend,
@@ -16,6 +17,28 @@ import {
 
 const FAVORITES_TOURS_KEY = 'user_favorite_tours';
 const FAVORITES_HOTELS_KEY = 'user_favorite_hotels';
+
+/** available — можно открыть; unavailable — не кликается; unknown — сеть/лимит, не блокируем */
+export type FavoriteTourAvailability = 'available' | 'unavailable' | 'unknown';
+
+function isPastTourDate(dateStr?: string): boolean {
+  if (!dateStr) return false;
+  const d = new Date(dateStr);
+  if (Number.isNaN(d.getTime())) return false;
+  const endOfDay = new Date(d);
+  endOfDay.setHours(23, 59, 59, 999);
+  return endOfDay.getTime() < Date.now();
+}
+
+function isTourNotFoundError(error: unknown): boolean {
+  const msg = String((error as Error)?.message || error || '').toLowerCase();
+  return (
+    msg.includes('404') ||
+    msg.includes('not found') ||
+    msg.includes('не найден') ||
+    msg.includes('туры не найдены')
+  );
+}
 
 function safeJsonStringify(value: unknown): string {
   return JSON.stringify(value, (_key, v) => (v === undefined ? null : v));
@@ -327,6 +350,47 @@ export class FavoritesService {
     } finally {
       this.toggleInFlight.delete(lockKey);
     }
+  }
+
+  async checkTourAvailability(tour: TourOutput): Promise<FavoriteTourAvailability> {
+    if (isPastTourDate(tour.date)) {
+      return 'unavailable';
+    }
+
+    try {
+      const currency = String(tour.currency || 'RUB').toUpperCase();
+      const fresh = await tourvisorApi.getTourDetails(String(tour.id), currency);
+      if (fresh?.id) return 'available';
+      return 'unavailable';
+    } catch (error: unknown) {
+      if (isTourNotFoundError(error)) return 'unavailable';
+      logger.debug('[Favorites] availability check unknown:', (error as Error)?.message);
+      return 'unknown';
+    }
+  }
+
+  /**
+   * Проверяет доступность избранных туров (ограниченная параллельность).
+   * Недоступные нельзя открыть; при следующем refresh могут снова стать available.
+   */
+  async checkFavoriteToursAvailability(
+    tours: TourOutput[],
+    concurrency = 3
+  ): Promise<Record<string, FavoriteTourAvailability>> {
+    const result: Record<string, FavoriteTourAvailability> = {};
+    if (!tours.length) return result;
+
+    let index = 0;
+    const workers = Array.from({ length: Math.min(concurrency, tours.length) }, async () => {
+      while (index < tours.length) {
+        const current = tours[index++];
+        const id = String(current.id);
+        result[id] = await this.checkTourAvailability(current);
+      }
+    });
+
+    await Promise.all(workers);
+    return result;
   }
 }
 

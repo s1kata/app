@@ -103,7 +103,33 @@ export default function AboutScreen({ navigation }: any) {
 
         {/* Description */}
         <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
-          <Text style={[styles.paragraph, { color: theme.text }]}>{i18n.t('about.description')}</Text>
+          {i18n
+            .t('about.description')
+            .split(/\n\n+/)
+            .map((paragraph, index, list) => (
+              <Text
+                key={`about-p-${index}`}
+                style={[
+                  styles.paragraph,
+                  { color: theme.text, marginBottom: index < list.length - 1 ? spacing.sm : 0 },
+                ]}
+              >
+                {paragraph}
+              </Text>
+            ))}
+        </View>
+
+        {/* Office */}
+        <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
+          <Text style={[styles.cardTitle, { color: theme.text }]}>{i18n.t('about.officeTitle')}</Text>
+          <View style={styles.officeRow}>
+            <View style={[styles.contactIcon, { backgroundColor: theme.primary + '15' }]}>
+              <Ionicons name="location-outline" size={20} color={theme.primary} />
+            </View>
+            <Text style={[styles.paragraph, styles.officeText, { color: theme.text }]}>
+              {i18n.t('about.officeAddress')}
+            </Text>
+          </View>
         </View>
 
         {/* Contacts */}
@@ -219,6 +245,14 @@ const styles = StyleSheet.create({
   paragraph: {
     ...typography.body,
     marginBottom: 0,
+  },
+  officeRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.sm,
+  },
+  officeText: {
+    flex: 1,
   },
   contactRow: {
     flexDirection: 'row',

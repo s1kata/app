@@ -140,19 +140,30 @@ const translations: Translations = {
   'profile.about': { ru: 'О приложении', en: 'About' },
   'profile.aboutUs': { ru: 'О нас', en: 'About Us' },
   'profile.supportChat': { ru: 'Чат поддержки', en: 'Support Chat' },
-  // About Us
+  // About Us (текст по travelhub63.ru)
   'about.title': { ru: 'О нас', en: 'About Us' },
-  'about.tagline': { ru: 'Ваш помощник в путешествиях', en: 'Your travel companion' },
+  'about.tagline': {
+    ru: 'Команда, которая предвосхищает желания',
+    en: 'A team that anticipates your wishes',
+  },
   'about.description': {
-    ru: 'TravelHub — сервис поиска и бронирования туров. Мы помогаем подобрать тур по вашим датам, бюджету и количеству туристов, оформить бронирование и оплатить его безопасно. Актуальные предложения от туроператоров — в одном приложении.',
-    en: 'TravelHub is a tour search and booking service. We help you find a tour by your dates, budget, and number of travelers, make a booking, and pay for it securely. Up-to-date offers from tour operators — all in one app.',
+    ru: 'Travel Hub — турагентство и сервис подбора туров: отели, перелёты, визы, страхование и трансферы. Путешествия по всему миру с персональным подходом — от горящих предложений до индивидуального маршрута.\n\nНайдите тур за минуту в приложении, оформите бронирование и оплатите онлайн через Т-Банк — безопасно и без скрытых платежей. Или приезжайте в наш офис: ответим за 15 минут, подготовим варианты под ваш бюджет и даты.\n\nРаботаем с надёжными туроператорами (Coral Travel, Pegas, FUN&SUN, Anex и другими). Поддержка — в мессенджерах и по телефону, до и во время поездки.',
+    en: 'Travel Hub is a travel agency and tour selection service: hotels, flights, visas, insurance, and transfers. Worldwide travel with a personal approach — from last-minute deals to custom itineraries.\n\nFind a tour in a minute in the app, book, and pay online via T-Bank — securely, with transparent pricing. Or visit our office: we reply within 15 minutes and prepare options for your budget and dates.\n\nWe partner with trusted tour operators (Coral Travel, Pegas, FUN&SUN, Anex, and others). Support is available via messengers and phone — before and during your trip.',
+  },
+  'about.officeTitle': { ru: 'Офис', en: 'Office' },
+  'about.officeAddress': {
+    ru: 'Самара, Московское шоссе, 81Б, ТЦ «Парк Хаус». Также есть офисы в Москве.',
+    en: 'Samara, Moskovskoye shosse 81B, Park House mall. We also have offices in Moscow.',
   },
   'about.contactsTitle': { ru: 'Контакты', en: 'Contacts' },
   'about.email': { ru: 'Электронная почта', en: 'Email' },
   'about.phone': { ru: 'Телефон', en: 'Phone' },
   'about.website': { ru: 'Веб-сайт', en: 'Website' },
   'about.supportTitle': { ru: 'Нужна помощь?', en: 'Need help?' },
-  'about.supportDesc': { ru: 'Напишите нам в чат поддержки — ответим и поможем с подбором и бронированием.', en: 'Message our support chat — we will help you with search and booking.' },
+  'about.supportDesc': {
+    ru: 'Напишите в чат или мессенджер — перезвоним и поможем с подбором и бронированием. Обычно отвечаем в течение 15 минут.',
+    en: 'Message us in chat or messengers — we will call back and help with search and booking. We usually reply within 15 minutes.',
+  },
   'about.openChat': { ru: 'Открыть чат поддержки', en: 'Open support chat' },
   'about.linkError': { ru: 'Не удалось открыть ссылку', en: 'Could not open the link' },
   'profile.trips': { ru: 'Поездок', en: 'Trips' },
@@ -402,6 +413,11 @@ const translations: Translations = {
   'favorites.addFirst': { ru: 'Добавьте туры в избранное', en: 'Add tours to favorites' },
   'favorites.tours': { ru: 'Туры', en: 'Tours' },
   'favorites.destinations': { ru: 'Направления', en: 'Destinations' },
+  'favorites.tourUnavailable': { ru: 'Тур недоступен', en: 'Tour unavailable' },
+  'favorites.tourUnavailableHint': {
+    ru: 'Сейчас этот тур нельзя открыть. Если он снова появится в продаже — можно будет перейти и посмотреть.',
+    en: 'This tour cannot be opened right now. If it becomes available again, you will be able to open it.',
+  },
   
   // Common
   'common.success': { ru: 'Успех', en: 'Success' },
@@ -712,6 +728,7 @@ const translations: Translations = {
   'payment.pendingMessage': { ru: 'Платёж в обработке или окно оплаты было закрыто. Проверьте статус в разделе «Мои бронирования».', en: 'Payment is processing or the payment window was closed. Check status in "My Bookings".' },
   'payment.stillProcessing': { ru: 'Платёж ещё обрабатывается. Статус обновится после подтверждения банком.', en: 'Your payment is still processing. Status will update after the bank confirms it.' },
   'payment.checkAgain': { ru: 'Проверить снова', en: 'Check again' },
+  'payment.checkStatus': { ru: 'Проверить оплату', en: 'Check payment' },
   'payment.failedMessage': { ru: 'Не удалось проверить статус оплаты. Проверьте раздел «Мои бронирования».', en: 'Could not verify payment status. Check "My Bookings".' },
   'payment.successBanner': { ru: 'Оплата прошла успешно!', en: 'Payment successful!' },
   'payment.failedBanner': { ru: 'Ошибка оплаты, попробуйте позже', en: 'Payment failed, please try again later' },

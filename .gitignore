@@ -92,5 +92,8 @@ temp/
 smoke-screens/
 .smoke-off-modules/
 dummy
-
-eas-secrets.template.env
+smoke_test_*.png
+smoke_test_logcat.txt
+ui_dump*.xml
+builds.json
+travelhub-preview.apk

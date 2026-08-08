@@ -459,22 +459,12 @@ export default function BookingsScreen({ navigation }: any) {
       });
       const stored = await authSession.getStoredUser();
       const uid = stored?.id;
+      // Пока банк не прислал failed/cancelled/success — остаёмся в payment_processing.
+      // «Оплатить» не показываем только из‑за таймаута опроса.
       presentPaymentPollOutcome({
         transactionId: last.transactionId,
         result: statusResult,
         onStatusResolved: async (result) => {
-          // После ручной проверки: pending = можно оплатить снова, не «вечный processing».
-          if (result.success && result.status === 'pending') {
-            await bookingService.markPaymentStatus(booking.id, 'pending');
-            setBookings((prev) =>
-              prev.map((b) =>
-                b.id === booking.id
-                  ? { ...b, paymentStatus: 'pending', updatedAt: new Date().toISOString() }
-                  : b,
-              ),
-            );
-            return;
-          }
           await applyPollResultToBooking(booking.id, result);
         },
         onReload: async () => {
@@ -491,6 +481,7 @@ export default function BookingsScreen({ navigation }: any) {
             );
           }
         },
+        // OK — остановить цикл проверки; повтор только по кнопке на карточке или «Проверить снова».
         onPendingOk: () => undefined,
         alertSuccess: () => {
           paymentUxBus.showPaymentSuccess(() => undefined);
@@ -752,7 +743,7 @@ export default function BookingsScreen({ navigation }: any) {
                             <>
                               <Ionicons name="refresh-outline" size={20} color={theme.accent} />
                               <Text style={[styles.payButtonText, { color: theme.accent }]}>
-                                {i18n.t('payment.checkAgain')}
+                                {i18n.t('payment.checkStatus')}
                               </Text>
                             </>
                           )}

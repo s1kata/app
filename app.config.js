@@ -51,11 +51,13 @@ const easProjectId = (process.env.EAS_PROJECT_ID || "0f6984f9-e3d1-46f5-ae15-dd0
 /** OTA: URL в конфиге нужен и для `eas update` с локальной машины (без APP_ENV=production). */
 const otaUpdatesConfig = easProjectId
   ? {
+      enabled: true,
       url: `https://u.expo.dev/${easProjectId}`,
       requestHeaders: {
         "expo-channel-name": updateChannel,
       },
       fallbackToCacheTimeout: 0,
+      checkAutomatically: "ON_LOAD",
     }
   : null;
 
@@ -124,6 +126,7 @@ module.exports = {
       "expo-font",
       "expo-secure-store",
       "expo-web-browser",
+      "expo-updates",
       "@react-native-community/datetimepicker",
       ...(enableIosPush
         ? [[

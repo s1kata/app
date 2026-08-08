@@ -124,16 +124,12 @@ export function usePaymentDeepLinks(navigationRef: Ref) {
     const applyPollToBooking = async (
       orderId: string,
       result: Parameters<typeof resolvePaymentStatusFromPoll>[0],
-      opts?: { unlockPendingOnPending?: boolean },
     ) => {
-      if (opts?.unlockPendingOnPending && result.success && result.status === 'pending') {
-        await bookingService.markPaymentStatus(orderId, 'pending');
-        return;
-      }
       const paymentStatus = resolvePaymentStatusFromPoll(result);
       if (!paymentStatus) return;
       // Клиент никогда не ставит paid «на глаз» — только если банк/API вернули success.
       if (paymentStatus === 'paid' && result.status !== 'success') return;
+      // pending от API → payment_processing: «Оплатить» только после failed/cancelled (webhook).
       const extra: { paidAt?: string } = {};
       if (paymentStatus === 'paid') {
         extra.paidAt = result.paidAt || new Date().toISOString();
@@ -145,17 +141,14 @@ export function usePaymentDeepLinks(navigationRef: Ref) {
       transactionId: string;
       orderId: string;
       statusResult: Awaited<ReturnType<typeof pollPaymentUntilFinal>>;
-      unlockPendingOnPending: boolean;
     }) => {
-      const { transactionId, orderId, statusResult, unlockPendingOnPending } = params;
+      const { transactionId, orderId, statusResult } = params;
       const stored = await authSession.getStoredUser();
       const uid = stored?.id;
 
-      // Success-URL без CONFIRMED у банка → не success-модалка.
+      // Success-URL без CONFIRMED у банка → не success-модалка, а «ещё обрабатывается».
       const safeResult =
-        unlockPendingOnPending &&
-        statusResult.success &&
-        statusResult.status === 'pending'
+        statusResult.success && statusResult.status === 'pending'
           ? { ...statusResult, pendingLong: true }
           : statusResult;
 
@@ -163,7 +156,7 @@ export function usePaymentDeepLinks(navigationRef: Ref) {
         transactionId,
         result: safeResult,
         onStatusResolved: async (result) => {
-          await applyPollToBooking(orderId, result, { unlockPendingOnPending });
+          await applyPollToBooking(orderId, result);
         },
         onReload: reloadBookingsAfterPayment,
         onBeforeSuccessAlert: async () => {
@@ -259,14 +252,10 @@ export function usePaymentDeepLinks(navigationRef: Ref) {
         });
         if (cancelledRef.current) return;
 
-        // Fail-URL или success-URL без подтверждения банка → разблокировать оплату.
-        const unlockPendingOnPending = true;
-
         await presentForSession({
           transactionId: last.transactionId,
           orderId: last.orderId,
           statusResult,
-          unlockPendingOnPending,
         });
       } catch (e) {
         logger.warn('[DeepLink] payment return:', e);
@@ -374,7 +363,6 @@ export function usePaymentDeepLinks(navigationRef: Ref) {
               transactionId: last.transactionId,
               orderId: last.orderId,
               statusResult,
-              unlockPendingOnPending: true,
             });
           } catch (e) {
             logger.warn('[DeepLink] external return recover:', e);

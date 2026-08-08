@@ -4,7 +4,8 @@ import type { Booking } from '../types';
 /**
  * Маппинг результата опроса платёжного API → paymentStatus брони.
  * paid ТОЛЬКО при status === 'success' (банк CONFIRMED через API).
- * pending → payment_processing (или вызывающий код может unlock в pending).
+ * pending → payment_processing (без авто-разблокировки «Оплатить»).
+ * failed / cancelled → можно снова показать «Оплатить».
  */
 export function resolvePaymentStatusFromPoll(
   result: PaymentStatusResult,

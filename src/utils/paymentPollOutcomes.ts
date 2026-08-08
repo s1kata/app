@@ -17,16 +17,19 @@ export type PresentPaymentPollOutcomeParams = {
   /** Синхронизация локального статуса брони с итогом опроса оплаты */
   onStatusResolved?: (result: PaymentStatusResult) => Promise<void> | void;
   onBeforeSuccessAlert?: () => Promise<void>;
-  /** После «OK» при pending (короткий или длинный сценарий) */
+  /** После «OK» при pending — цикл проверки останавливается до явного «Проверить снова» / кнопки на экране */
   onPendingOk?: () => void;
   alertSuccess: () => void;
   alertFailed: () => void;
   alertFallbackError: () => void;
   alertNetworkError: (message: string) => void;
+  /** Внутренний флаг сессии: не продолжать опрос после OK */
+  _sessionAborted?: { current: boolean };
 };
 
 /**
  * Единая реакция на результат опроса оплаты: успех / отказ / pending (короткий или «ещё обрабатывается» + «Проверить снова»).
+ * После нажатия OK цикл останавливается — повторный опрос только по «Проверить снова» или кнопке в бронированиях.
  */
 export function presentPaymentPollOutcome(params: PresentPaymentPollOutcomeParams): void {
   const {
@@ -42,7 +45,11 @@ export function presentPaymentPollOutcome(params: PresentPaymentPollOutcomeParam
     alertNetworkError,
   } = params;
 
+  const sessionAborted = params._sessionAborted ?? { current: false };
+
   const run = async () => {
+    if (sessionAborted.current) return;
+
     try {
       if (result.success && result.status === 'success') {
         await onStatusResolved?.(result);
@@ -67,25 +74,48 @@ export function presentPaymentPollOutcome(params: PresentPaymentPollOutcomeParam
         return;
       }
       if (result.success && result.status === 'pending') {
+        // pending / таймаут опроса → оставляем processing (маппинг в onStatusResolved),
+        // не разблокируем «Оплатить» только из‑за долгого ответа.
         await onStatusResolved?.(result);
         showPaymentStatusBar(i18n.t('payment.pendingBanner'), 'info');
         await onReload?.();
+        if (sessionAborted.current) return;
+
         if (result.pendingLong) {
           Alert.alert(i18n.t('payment.pendingTitle'), i18n.t('payment.stillProcessing'), [
-            { text: i18n.t('common.ok'), style: 'cancel', onPress: () => onPendingOk?.() },
+            {
+              text: i18n.t('common.ok'),
+              style: 'cancel',
+              onPress: () => {
+                sessionAborted.current = true;
+                onPendingOk?.();
+              },
+            },
             {
               text: i18n.t('payment.checkAgain'),
               onPress: () => {
+                if (sessionAborted.current) return;
                 void (async () => {
                   const r2 = await recheckPaymentUntilFinal(transactionId);
-                  presentPaymentPollOutcome({ ...params, result: r2 });
+                  if (sessionAborted.current) return;
+                  presentPaymentPollOutcome({
+                    ...params,
+                    result: r2,
+                    _sessionAborted: sessionAborted,
+                  });
                 })();
               },
             },
           ]);
         } else {
           Alert.alert(i18n.t('payment.pendingTitle'), i18n.t('payment.pendingMessage'), [
-            { text: i18n.t('common.ok'), onPress: () => onPendingOk?.() },
+            {
+              text: i18n.t('common.ok'),
+              onPress: () => {
+                sessionAborted.current = true;
+                onPendingOk?.();
+              },
+            },
           ]);
         }
         return;
