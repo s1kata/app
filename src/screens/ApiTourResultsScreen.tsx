@@ -23,6 +23,7 @@ import type { Currency } from '../services/SettingsService';
 import { i18n } from '../config/i18n';
 import {
   getTourSearchCacheKey,
+  applyTourSearchPriceFilter,
   isTourSearchStatusError,
   isTourSearchStatusFinished,
   isTransientTourvisorError,
@@ -199,12 +200,14 @@ export default function ApiTourResultsScreen({ navigation, route }: ApiTourResul
   const applyTourList = useCallback(
     (raw: unknown, currencyCode: string): TourHotel[] => {
       const valid = sanitizeTourHotelsFromCache(raw);
-      setTours(valid);
+      // В кэш кладём полную выдачу; на экран — с учётом бюджета (priceTo/priceFrom).
+      const shown = applyTourSearchPriceFilter(valid, searchParams);
+      setTours(shown);
       setHasMore(false);
-      if (valid.length > 0) schedulePreCache(valid, currencyCode);
+      if (shown.length > 0) schedulePreCache(shown, currencyCode);
       return valid;
     },
-    [schedulePreCache],
+    [schedulePreCache, searchParams],
   );
 
   const fetchResultsForSearchId = useCallback(async (id: number): Promise<TourHotel[]> => {
@@ -287,9 +290,11 @@ export default function ApiTourResultsScreen({ navigation, route }: ApiTourResul
         setLoadError(i18n.t('search.cacheCorrupted'));
         return false;
       }
-      setTours(valid);
+      const shown = applyTourSearchPriceFilter(valid, searchParams);
+      setTours(shown);
       setHasMore(false);
-      if (valid.length) schedulePreCache(valid, searchParams.currency || 'RUB');
+      if (shown.length) schedulePreCache(shown, searchParams.currency || 'RUB');
+      // Кэш найден (даже если бюджет отсёк всё) — не дергаем API повторно.
       return valid.length > 0;
     } catch {
       if (mountedRef.current) setTours([]);
@@ -311,11 +316,13 @@ export default function ApiTourResultsScreen({ navigation, route }: ApiTourResul
       if (!mountedRef.current || !cached?.length) return false;
       const valid = sanitizeTourHotelsFromCache(cached);
       if (valid.length === 0) return false;
-      setTours(valid);
+      const shown = applyTourSearchPriceFilter(valid, searchParams);
+      if (shown.length === 0) return false;
+      setTours(shown);
       setHasMore(false);
       setShowingStaleHint(true);
       setIsLoading(false);
-      schedulePreCache(valid, searchParams.currency || 'RUB');
+      schedulePreCache(shown, searchParams.currency || 'RUB');
       return true;
     } catch {
       return false;

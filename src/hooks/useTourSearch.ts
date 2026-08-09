@@ -13,7 +13,6 @@ import {
   getTourSearchApiParams,
   getTourSearchCacheKey,
   isTransientTourvisorError,
-  normalizeTourSearchParams,
   TOUR_SEARCH_LIMIT,
 } from '../utils/tourSearchCache';
 import type { CacheEntry } from '../services/FreshCacheService';
@@ -213,6 +212,7 @@ async function fetchTourSearch(params: TourSearchParams, limit: number): Promise
 
 /**
  * Поиск с кэшем по свежести: AsyncStorage → Firestore → API. TTL 14 дней.
+ * Бюджет (priceTo/priceFrom) не уходит в API и не в ключ кэша — режется на экране результатов.
  */
 export async function searchTours(
   params: TourSearchParams,

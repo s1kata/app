@@ -4,10 +4,13 @@
  *
  * ВАЖНО: Нормализация и стабильный хэш — одинаковые параметры
  * (разный порядок полей, пробелы в строках) дают один и тот же ключ.
+ *
+ * Бюджет (priceFrom/priceTo): НЕ уходит в Tourvisor и НЕ входит в ключ кэша —
+ * иначе «до 150 тыс.» часто даёт пустую выдачу API. Фильтр — только на клиенте.
  */
 
 import NetInfo from '@react-native-community/netinfo';
-import { TourSearchParams, TourHotel } from '../types/tourvisor';
+import { TourSearchParams, TourHotel, Tour } from '../types/tourvisor';
 import { isTourOperatorAllowed } from '../config/tourOperators';
 import { sanitizeTourMealParam } from './tourvisorMeals';
 
@@ -15,11 +18,11 @@ import { sanitizeTourMealParam } from './tourvisorMeals';
 export const TOUR_SEARCH_LIMIT = 30;
 const DEFAULT_LIMIT = TOUR_SEARCH_LIMIT;
 
-/** Порядок полей для стабильной сериализации (алфавитный) */
+/** Порядок полей для стабильной сериализации (алфавитный). price* исключены — см. getTourSearchApiParams. */
 const PARAM_KEYS = [
   'adults', 'arrivalId', 'childs', 'countryId', 'currency', 'dateFrom', 'dateTo',
   'departureId', 'hotelCategory', 'hotelRating', 'hotelIds', 'hotelServices', 'hotelTypes',
-  'meal', 'nightsFrom', 'nightsTo', 'onlyCharter', 'operatorIds', 'priceFrom', 'priceTo',
+  'meal', 'nightsFrom', 'nightsTo', 'onlyCharter', 'operatorIds',
   'regionIds', 'subregionIds',
 ] as const;
 
@@ -51,8 +54,16 @@ export function normalizeTourSearchParams(params: TourSearchParams): TourSearchP
   if (p.arrivalId != null) p.arrivalId = Number(p.arrivalId);
   if (p.hotelCategory != null) p.hotelCategory = Number(p.hotelCategory);
   if (p.hotelRating != null) p.hotelRating = Number(p.hotelRating);
-  if (p.priceFrom != null) p.priceFrom = Number(p.priceFrom);
-  if (p.priceTo != null) p.priceTo = Number(p.priceTo);
+  if (p.priceFrom != null) {
+    const n = Number(p.priceFrom);
+    if (Number.isFinite(n) && n > 0) p.priceFrom = n;
+    else delete p.priceFrom;
+  }
+  if (p.priceTo != null) {
+    const n = Number(p.priceTo);
+    if (Number.isFinite(n) && n > 0) p.priceTo = n;
+    else delete p.priceTo;
+  }
   // Массивы — копия, сортировка
   if (Array.isArray(p.childs)) p.childs = [...p.childs].sort((a, b) => a - b);
   if (Array.isArray(p.regionIds)) p.regionIds = [...p.regionIds].sort((a, b) => a - b);
@@ -61,18 +72,94 @@ export function normalizeTourSearchParams(params: TourSearchParams): TourSearchP
   return p;
 }
 
-/** Параметры для запроса к Tourvisor API — без operatorIds (allowlist только на клиенте). */
+/** Параметры для Tourvisor API: без operatorIds и без бюджета (бюджет — клиентский пост-фильтр). */
 export function getTourSearchApiParams(params: TourSearchParams): TourSearchParams {
   const normalized = normalizeTourSearchParams(params);
-  const { operatorIds: _ignored, ...apiParams } = normalized;
+  const {
+    operatorIds: _ignoredOps,
+    priceFrom: _ignoredFrom,
+    priceTo: _ignoredTo,
+    ...apiParams
+  } = normalized;
   return apiParams;
+}
+
+/** Цена тура для фильтра бюджета (tour.price → hotel.price → legacy поля). */
+export function resolveTourListPrice(tour: Tour, hotel?: TourHotel): number {
+  const rawHotel = hotel as (TourHotel & { minPrice?: number; minprice?: number }) | undefined;
+  const rawTour = tour as Tour & { totalPrice?: number; priceRub?: number; cost?: number };
+  const candidates = [
+    rawTour?.price,
+    rawTour?.totalPrice,
+    rawTour?.priceRub,
+    rawTour?.cost,
+    rawHotel?.price,
+    rawHotel?.priceFrom,
+    rawHotel?.minPrice,
+    rawHotel?.minprice,
+  ];
+  for (const c of candidates) {
+    const n = typeof c === 'number' ? c : parseFloat(String(c ?? ''));
+    if (Number.isFinite(n) && n > 0) return Math.round(n);
+  }
+  return 0;
+}
+
+export function tourMatchesPriceBounds(
+  tour: Tour,
+  hotel: TourHotel | undefined,
+  priceFrom?: number,
+  priceTo?: number,
+): boolean {
+  const from = priceFrom && priceFrom > 0 ? priceFrom : 0;
+  const to = priceTo && priceTo > 0 ? priceTo : 0;
+  if (!from && !to) return true;
+  const price = resolveTourListPrice(tour, hotel);
+  if (price <= 0) {
+    // Нет цены: «до N» не выкидываем (иначе пустой список на битых данных);
+    // «от N» без цены не проходит.
+    if (from > 0) return false;
+    return true;
+  }
+  if (from > 0 && price < from) return false;
+  if (to > 0 && price > to) return false;
+  return true;
+}
+
+/** Пост-фильтр бюджета по отелям/турам после ответа API или кэша. */
+export function filterHotelsByPriceBounds(
+  hotels: TourHotel[],
+  priceFrom?: number,
+  priceTo?: number,
+): TourHotel[] {
+  const from = priceFrom && priceFrom > 0 ? priceFrom : 0;
+  const to = priceTo && priceTo > 0 ? priceTo : 0;
+  if (!from && !to) return hotels;
+  const out: TourHotel[] = [];
+  for (const hotel of hotels) {
+    if (!hotel || !Array.isArray(hotel.tours)) continue;
+    const tours = hotel.tours.filter((t) => tourMatchesPriceBounds(t, hotel, from, to));
+    if (tours.length === 0) continue;
+    out.push({ ...hotel, tours });
+  }
+  return out;
+}
+
+/** Применить budget-фильтр из searchParams к выдаче. */
+export function applyTourSearchPriceFilter(
+  hotels: TourHotel[],
+  params: TourSearchParams | null | undefined,
+): TourHotel[] {
+  if (!params || !hotels?.length) return hotels ?? [];
+  return filterHotelsByPriceBounds(hotels, params.priceFrom, params.priceTo);
 }
 
 /**
  * Сериализует нормализованные параметры в стабильную строку (отсортированные ключи).
+ * priceFrom/priceTo не участвуют — один кэш на поиск, бюджет режется локально.
  */
 function paramsToCanonicalString(params: TourSearchParams, limit: number): string {
-  const p = normalizeTourSearchParams(params);
+  const p = getTourSearchApiParams(params);
   const parts: string[] = [];
   for (const k of PARAM_KEYS) {
     const v = (p as unknown as Record<string, unknown>)[k];
@@ -117,6 +204,25 @@ export function getTourSearchCacheKeyFull(params: TourSearchParams, limit: numbe
   return `search_params_${canonical.replace(/\|/g, '_').replace(/=/g, '')}`;
 }
 
+function tourMatchesSearchCore(tour: Tour, hotel: TourHotel, params: TourSearchParams): boolean {
+  const tourDate = new Date(tour.date);
+  const dateFrom = new Date(params.dateFrom);
+  const dateTo = new Date(params.dateTo);
+  if (tourDate < dateFrom || tourDate > dateTo) return false;
+  if (tour.nights < params.nightsFrom || tour.nights > params.nightsTo) return false;
+  if (tour.adults !== params.adults) return false;
+  if (params.childs && params.childs.length > 0) {
+    if (tour.childs !== params.childs.length) return false;
+  } else if (tour.childs > 0) return false;
+  if (params.meal && tour.meal.id < params.meal) return false;
+  if (params.hotelCategory && hotel.category < params.hotelCategory) return false;
+  if (params.hotelRating && hotel.rating < params.hotelRating) return false;
+  if (!tourMatchesPriceBounds(tour, hotel, params.priceFrom, params.priceTo)) return false;
+  if (!isTourOperatorAllowed(tour.operator, hotel.country?.name)) return false;
+  if (params.onlyCharter && !tour.isCharter) return false;
+  return true;
+}
+
 /**
  * Фильтрует туры из кэша (например ALL_TOURS) по параметрам поиска.
  */
@@ -132,44 +238,9 @@ export function filterToursByParamsFromCache(
     if (params.subregionIds && params.subregionIds.length > 0 && hotel.subRegion) {
       if (!params.subregionIds.includes(hotel.subRegion.id)) return false;
     }
-    const matchingTours = hotel.tours.filter(tour => {
-      const tourDate = new Date(tour.date);
-      const dateFrom = new Date(params.dateFrom);
-      const dateTo = new Date(params.dateTo);
-      if (tourDate < dateFrom || tourDate > dateTo) return false;
-      if (tour.nights < params.nightsFrom || tour.nights > params.nightsTo) return false;
-      if (tour.adults !== params.adults) return false;
-      if (params.childs && params.childs.length > 0) {
-        if (tour.childs !== params.childs.length) return false;
-      } else if (tour.childs > 0) return false;
-      if (params.meal && tour.meal.id < params.meal) return false;
-      if (params.hotelCategory && hotel.category < params.hotelCategory) return false;
-      if (params.hotelRating && hotel.rating < params.hotelRating) return false;
-      if (params.priceFrom && tour.price < params.priceFrom) return false;
-      if (params.priceTo && tour.price > params.priceTo) return false;
-      if (!isTourOperatorAllowed(tour.operator, hotel.country?.name)) return false;
-      if (params.onlyCharter && !tour.isCharter) return false;
-      return true;
-    });
-    return matchingTours.length > 0;
+    return hotel.tours.some((tour) => tourMatchesSearchCore(tour, hotel, params));
   }).map(hotel => {
-    const filteredTours = hotel.tours.filter(tour => {
-      const tourDate = new Date(tour.date);
-      const dateFrom = new Date(params.dateFrom);
-      const dateTo = new Date(params.dateTo);
-      if (tourDate < dateFrom || tourDate > dateTo) return false;
-      if (tour.nights < params.nightsFrom || tour.nights > params.nightsTo) return false;
-      if (tour.adults !== params.adults) return false;
-      if (params.childs && params.childs.length > 0) {
-        if (tour.childs !== params.childs.length) return false;
-      } else if (tour.childs > 0) return false;
-      if (params.meal && tour.meal.id < params.meal) return false;
-      if (params.priceFrom && tour.price < params.priceFrom) return false;
-      if (params.priceTo && tour.price > params.priceTo) return false;
-      if (!isTourOperatorAllowed(tour.operator, hotel.country?.name)) return false;
-      if (params.onlyCharter && !tour.isCharter) return false;
-      return true;
-    });
+    const filteredTours = hotel.tours.filter((tour) => tourMatchesSearchCore(tour, hotel, params));
     return { ...hotel, tours: filteredTours };
   });
 }

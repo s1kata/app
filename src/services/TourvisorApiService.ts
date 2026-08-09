@@ -33,6 +33,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { mapTourvisorHttpError } from '../utils/tourvisorErrors';
 import { applyTourMealToSearchParams } from '../utils/tourvisorMeals';
 import {
+  getTourSearchApiParams,
   isTourSearchStatusError,
   isTourSearchStatusFinished,
   TOUR_SEARCH_MAX_WAIT_MS,
@@ -821,7 +822,10 @@ class TourvisorApiService {
       params.onlyCharter = false;
     }
 
-    const { operatorIds: _ignored, ...apiParams } = applyTourMealToSearchParams(params);
+    // Бюджет (priceFrom/priceTo) не шлём в Tourvisor — ломает выдачу; фильтр на клиенте.
+    const { operatorIds: _ignored, ...apiParams } = applyTourMealToSearchParams(
+      getTourSearchApiParams(params),
+    );
     const query = this.buildQueryString(apiParams);
     // Для startTourSearch не делаем retry при 429 - сразу возвращаем ошибку для использования кэша
     const response = await this.request<TourSearchOutput>(
