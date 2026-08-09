@@ -265,6 +265,11 @@ const translations: Translations = {
   },
   'settings.tripReminders': { ru: 'Напоминания о поездках', en: 'Trip reminders' },
   'settings.tripRemindersDesc': { ru: 'Уведомления перед вылетом', en: 'Notifications before departure' },
+  'settings.favoritePriceAlerts': { ru: 'Снижение цен в избранном', en: 'Favorite price drops' },
+  'settings.favoritePriceAlertsDesc': {
+    ru: 'Пуш, если цена избранного тура упала на 5% и больше',
+    en: 'Notify when a favorite tour drops by 5% or more',
+  },
   'settings.promotions': { ru: 'Акции и скидки', en: 'Promotions & discounts' },
   'settings.promotionsDesc': { ru: 'Специальные предложения', en: 'Special offers' },
   'settings.aboutApp': { ru: 'О приложении', en: 'About' },
@@ -315,6 +320,18 @@ const translations: Translations = {
   'recommendations.emptyDesc': { ru: 'Начните просматривать туры, чтобы получить персональные рекомендации', en: 'Start browsing tours to get personal recommendations' },
   'recommendations.view': { ru: 'Посмотреть', en: 'View' },
   'recommendations.footer': { ru: 'Рекомендации обновляются на основе ваших предпочтений', en: 'Recommendations are updated based on your preferences' },
+
+  'home.hotDealsEyebrow': { ru: 'Горящие предложения', en: 'Hot deals' },
+  'home.hotDealsTitle': { ru: 'Туры со скидкой', en: 'Discounted tours' },
+  'home.hotDealsAll': { ru: 'Все', en: 'All' },
+  'home.hotDealsBadge': { ru: 'Hot', en: 'Hot' },
+  'home.hotDealsEmpty': { ru: 'Пока нет горящих', en: 'No hot deals yet' },
+  'home.hotDealsEmptyDesc': { ru: 'Откройте список туров или обновите главную', en: 'Open the tours list or refresh home' },
+  'home.searchCompact': { ru: 'Куда едем?', en: 'Where to?' },
+  'home.searchCompactHint': { ru: 'Страна, даты и кто едет', en: 'Country, dates and travelers' },
+  'home.searchCollapse': { ru: 'Свернуть', en: 'Collapse' },
+  'favorites.watching': { ru: 'Следим', en: 'Watching' },
+  'favorites.priceDrop': { ru: 'Цена упала', en: 'Price dropped' },
   
   // Themes
   'theme.light': { ru: 'Светлая', en: 'Light' },

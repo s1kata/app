@@ -86,7 +86,9 @@ export function getTourSearchApiParams(params: TourSearchParams): TourSearchPara
 
 /** Цена тура для фильтра бюджета (tour.price → hotel.price → legacy поля). */
 export function resolveTourListPrice(tour: Tour, hotel?: TourHotel): number {
-  const rawHotel = hotel as (TourHotel & { minPrice?: number; minprice?: number }) | undefined;
+  const rawHotel = hotel as
+    | (TourHotel & { minPrice?: number; minprice?: number; priceFrom?: number })
+    | undefined;
   const rawTour = tour as Tour & { totalPrice?: number; priceRub?: number; cost?: number };
   const candidates = [
     rawTour?.price,

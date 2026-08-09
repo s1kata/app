@@ -47,6 +47,9 @@ const SCREENS_TO_HIDE_TAB_BAR = [
   'CountryInfo',
   'Countries',
   'Reviews',
+  'ApiHotelSearch',
+  'ApiHotelDetails',
+  'HotelBooking',
   // Профильный стек — таб-бар и FAB перекрывали формы и списки
   'Settings',
   'PersonalData',
@@ -389,6 +392,9 @@ import ApiTourSearchScreen from '../screens/ApiTourSearchScreen';
 import ApiTourResultsScreen from '../screens/ApiTourResultsScreen';
 import ApiTourDetailsScreen from '../screens/ApiTourDetailsScreen';
 import ApiHotToursScreen from '../screens/ApiHotToursScreen';
+import ApiHotelSearchScreen from '../screens/ApiHotelSearchScreen';
+import ApiHotelDetailsScreen from '../screens/ApiHotelDetailsScreen';
+import HotelBookingFormScreen from '../screens/HotelBookingFormScreen';
 import TourvisorCountriesScreen from '../screens/TourvisorCountriesScreen';
 import SplashScreen from '../screens/SplashScreen';
 import LegalDocumentScreen from '../screens/LegalDocumentScreen';
@@ -419,12 +425,14 @@ function HomeStack() {
           // При возврате на этот экран всегда показываем его, не запоминаем предыдущий
         }}
       />
-      {/* Релиз: только туры (отели вне навигатора — см. releaseUiFlags) */}
       <Stack.Screen name="ApiHotTours" component={ApiHotToursScreen} />
       <Stack.Screen name="ApiTourSearch" component={ApiTourSearchScreen as ComponentType<any>} />
       <Stack.Screen name="ApiTourResults" component={ApiTourResultsScreen as ComponentType<any>} />
       <Stack.Screen name="ApiTourDetails" component={ApiTourDetailsScreen} />
       <Stack.Screen name="TourBooking" component={TourBookingScreen as ComponentType<any>} />
+      <Stack.Screen name="ApiHotelSearch" component={ApiHotelSearchScreen as ComponentType<any>} />
+      <Stack.Screen name="ApiHotelDetails" component={ApiHotelDetailsScreen as ComponentType<any>} />
+      <Stack.Screen name="HotelBooking" component={HotelBookingFormScreen as ComponentType<any>} />
       <Stack.Screen name="CountryInfo" component={CountryInfoScreen as ComponentType<any>} />
       <Stack.Screen name="Countries" component={TourvisorCountriesScreen} />
       <Stack.Screen name="CountryDetail" component={CountryDetailScreen as ComponentType<any>} />

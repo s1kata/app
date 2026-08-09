@@ -39,6 +39,19 @@ import {
   TOUR_SEARCH_MAX_WAIT_MS,
   TOUR_SEARCH_POLL_INTERVAL_MS,
 } from '../utils/tourSearchCache';
+import { PREFER_DOMAIN_TOUR_API } from '../config/releaseArchitectureFlags';
+import {
+  startTourSearchViaBackend,
+  fetchTourSearchStatusViaBackend,
+  fetchTourSearchResultsViaBackend,
+  continueTourSearchViaBackend,
+  fetchTourDetailsViaBackend,
+  fetchTourFlightsViaBackend,
+  fetchTourDatesViaBackend,
+  fetchHotToursViaBackend,
+  searchHotelsViaBackend,
+  fetchHotelDetailsViaBackend,
+} from './sync/NextPatchBackendClient';
 import { filterTourHotelsByCountryOperators } from '../config/tourOperators';
 
 const RATE_LIMIT_COOLDOWN_KEY = 'tourvisor_429_cooldown_until';
@@ -629,12 +642,23 @@ class TourvisorApiService {
     arrivalId?: number,
     onlyCharter?: boolean
   ): Promise<string[]> {
-    // Валидация обязательных параметров согласно документации
     if (!departureId) {
       throw new Error('Tourvisor API: departureId is required for tour dates');
     }
     if (!countryId) {
       throw new Error('Tourvisor API: countryId is required for tour dates');
+    }
+
+    if (PREFER_DOMAIN_TOUR_API) {
+      try {
+        const remote = await fetchTourDatesViaBackend(departureId, countryId, arrivalId, onlyCharter);
+        if (remote.success && remote.data) {
+          return remote.data;
+        }
+        logger.debug('[Tourvisor API] dates backend miss:', remote.error);
+      } catch (e) {
+        logger.debug('[Tourvisor API] dates backend error:', (e as Error)?.message);
+      }
     }
     
     const params: any = { departureId, countryId };
@@ -646,7 +670,7 @@ class TourvisorApiService {
       `/tours/dates?${query}`,
       {},
       0,
-      2 // Retry для методов поиска (300 запросов/мин)
+      2
     );
     return response.data;
   }
@@ -668,6 +692,30 @@ class TourvisorApiService {
   async getHotels(params: HotelSearchParams): Promise<PaginatedResponse<HotelCompact>> {
     if (params.countryId === undefined || params.countryId === null) {
       throw new Error('Tourvisor API: countryId is required for hotels (see documentation: /hotels)');
+    }
+
+    if (PREFER_DOMAIN_TOUR_API) {
+      try {
+        const remote = await searchHotelsViaBackend({
+          ...params,
+          allPages: false,
+          enrich: true,
+          limit: params.limit || 100,
+          page: params.page || 1,
+        });
+        if (remote.success && remote.data?.hotels) {
+          return {
+            data: remote.data.hotels,
+            total: remote.data.total ?? remote.data.hotels.length,
+            page: remote.data.page ?? params.page ?? 1,
+            limit: remote.data.limit ?? params.limit ?? 100,
+            totalPages: remote.data.totalPages ?? 1,
+          };
+        }
+        logger.debug('[Tourvisor API] hotels backend miss:', remote.error);
+      } catch (e) {
+        logger.debug('[Tourvisor API] hotels backend error:', (e as Error)?.message);
+      }
     }
     
     // Формируем параметры запроса строго согласно документации
@@ -748,6 +796,18 @@ class TourvisorApiService {
    * Доступен только при подключении API «Описания отелей» (оплачивается отдельно); иначе 403.
    */
   async getHotelDetails(hotelId: number): Promise<Hotel> {
+    if (PREFER_DOMAIN_TOUR_API) {
+      try {
+        const remote = await fetchHotelDetailsViaBackend(hotelId);
+        if (remote.success && remote.data) {
+          return normalizeHotelImages(remote.data as never) as Hotel;
+        }
+        logger.debug('[Tourvisor API] hotel details backend miss:', remote.error);
+      } catch (e) {
+        logger.debug('[Tourvisor API] hotel details backend error:', (e as Error)?.message);
+      }
+    }
+
     const response = await this.request<Hotel | Hotel[]>(`/hotels/${hotelId}`);
 
     if (!response.data) {
@@ -793,7 +853,6 @@ class TourvisorApiService {
 
   // Tour search endpoints
   async startTourSearch(params: TourSearchParams): Promise<TourSearchOutput> {
-    // Валидация обязательных параметров согласно документации
     if (!params.departureId) {
       throw new Error('Tourvisor API: departureId is required for tour search');
     }
@@ -822,44 +881,78 @@ class TourvisorApiService {
       params.onlyCharter = false;
     }
 
-    // Бюджет (priceFrom/priceTo) не шлём в Tourvisor — ломает выдачу; фильтр на клиенте.
     const { operatorIds: _ignored, ...apiParams } = applyTourMealToSearchParams(
       getTourSearchApiParams(params),
     );
+
+    if (PREFER_DOMAIN_TOUR_API) {
+      try {
+        const remote = await startTourSearchViaBackend(apiParams as TourSearchParams);
+        if (remote.success && remote.data?.searchId) {
+          return remote.data;
+        }
+        logger.debug('[Tourvisor API] search start backend miss:', remote.error);
+      } catch (e) {
+        logger.debug('[Tourvisor API] search start backend error:', (e as Error)?.message);
+      }
+    }
+
     const query = this.buildQueryString(apiParams);
-    // Для startTourSearch не делаем retry при 429 - сразу возвращаем ошибку для использования кэша
     const response = await this.request<TourSearchOutput>(
       `/tours/search?${query}`,
       {},
       0,
-      0 // Без retry - при 429 сразу используем кэш
+      0
     );
     return response.data;
   }
 
   async getTourSearchStatus(searchId: number, operatorStatus: boolean = false): Promise<TourSearchStatus> {
-    // Согласно документации: operatorStatus является required параметром в query string
+    if (PREFER_DOMAIN_TOUR_API) {
+      try {
+        const remote = await fetchTourSearchStatusViaBackend(searchId, operatorStatus);
+        if (remote.success && remote.data) {
+          return remote.data;
+        }
+        logger.debug('[Tourvisor API] search status backend miss:', remote.error);
+      } catch (e) {
+        logger.debug('[Tourvisor API] search status backend error:', (e as Error)?.message);
+      }
+    }
+
     const query = this.buildQueryString({ operatorStatus });
     const response = await this.request<TourSearchStatus>(
       `/tours/search/${searchId}/status?${query}`,
       {},
       0,
-      2 // Retry для методов поиска (300 запросов/мин)
+      2
     );
     return response.data;
   }
 
   async getTourSearchResults(searchId: number, limit: number = 25): Promise<TourHotel[]> {
-    // Согласно документации: limit является required параметром (default: 25)
     if (!limit || limit < 1) {
-      limit = 25; // Используем default значение
+      limit = 25;
     }
+
+    if (PREFER_DOMAIN_TOUR_API) {
+      try {
+        const remote = await fetchTourSearchResultsViaBackend(searchId, limit);
+        if (remote.success && remote.data) {
+          return filterTourHotelsByCountryOperators(remote.data);
+        }
+        logger.debug('[Tourvisor API] search results backend miss:', remote.error);
+      } catch (e) {
+        logger.debug('[Tourvisor API] search results backend error:', (e as Error)?.message);
+      }
+    }
+
     const query = this.buildQueryString({ limit });
     const response = await this.request<TourHotel[]>(
       `/tours/search/${searchId}?${query}`,
       {},
       0,
-      2 // Retry для методов поиска (300 запросов/мин)
+      2
     );
     const raw = response.data;
     let hotels: TourHotel[] = [];
@@ -872,17 +965,53 @@ class TourvisorApiService {
   }
 
   async continueTourSearch(searchId: number): Promise<TourSearchContinueOutput> {
+    if (PREFER_DOMAIN_TOUR_API) {
+      try {
+        const remote = await continueTourSearchViaBackend(searchId);
+        if (remote.success && remote.data) {
+          return remote.data;
+        }
+        logger.debug('[Tourvisor API] search continue backend miss:', remote.error);
+      } catch (e) {
+        logger.debug('[Tourvisor API] search continue backend error:', (e as Error)?.message);
+      }
+    }
+
     const response = await this.request<TourSearchContinueOutput>(`/tours/search/${searchId}/continue`);
     return response.data;
   }
 
   async getTourDetails(tourId: string, currency: string): Promise<TourOutput> {
+    if (PREFER_DOMAIN_TOUR_API) {
+      try {
+        const remote = await fetchTourDetailsViaBackend(tourId, currency);
+        if (remote.success && remote.data) {
+          return remote.data;
+        }
+        logger.debug('[Tourvisor API] tour details backend miss:', remote.error);
+      } catch (e) {
+        logger.debug('[Tourvisor API] tour details backend error:', (e as Error)?.message);
+      }
+    }
+
     const query = this.buildQueryString({ currency });
     const response = await this.request<TourOutput>(`/tours/${tourId}?${query}`);
     return response.data;
   }
 
   async getTourFlights(tourId: string, currency: string): Promise<TourFlightsOutput> {
+    if (PREFER_DOMAIN_TOUR_API) {
+      try {
+        const remote = await fetchTourFlightsViaBackend(tourId, currency);
+        if (remote.success && remote.data) {
+          return remote.data;
+        }
+        logger.debug('[Tourvisor API] tour flights backend miss:', remote.error);
+      } catch (e) {
+        logger.debug('[Tourvisor API] tour flights backend error:', (e as Error)?.message);
+      }
+    }
+
     const query = this.buildQueryString({ currency });
     const response = await this.request<TourFlightsOutput>(`/tours/${tourId}/flights?${query}`);
     return response.data;
@@ -890,7 +1019,6 @@ class TourvisorApiService {
 
   // Hot tours endpoint
   async getHotTours(params: HotToursParams): Promise<TourHot[]> {
-    // Проверяем обязательные параметры согласно документации
     if (!params.departureId) {
       throw new Error('Tourvisor API: departureId is required for hot tours');
     }
@@ -898,21 +1026,28 @@ class TourvisorApiService {
       throw new Error('Tourvisor API: currency is required for hot tours');
     }
     if (params.onlyCharter === undefined) {
-      // onlyCharter обязателен, но имеет default: false в документации
       params.onlyCharter = false;
     }
     if (!params.limit || params.limit < 1 || params.limit > 200) {
       throw new Error('Tourvisor API: limit must be between 1 and 200 for hot tours');
     }
+
+    if (PREFER_DOMAIN_TOUR_API) {
+      try {
+        const remote = await fetchHotToursViaBackend(params);
+        if (remote.success && remote.data) {
+          return remote.data;
+        }
+        logger.debug('[Tourvisor API] hots backend miss:', remote.error);
+      } catch (e) {
+        logger.debug('[Tourvisor API] hots backend error:', (e as Error)?.message);
+      }
+    }
     
-    // Логируем параметры перед запросом
     logger.debug('[Tourvisor API] getHotTours params:', params);
-    
     const query = this.buildQueryString(params);
     const fullUrl = `/tours/hots?${query}`;
-    
     logger.debug('[Tourvisor API] getHotTours full URL:', fullUrl);
-    
     const response = await this.request<TourHot[]>(fullUrl);
     return response.data;
   }

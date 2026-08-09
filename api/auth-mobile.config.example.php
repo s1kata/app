@@ -45,4 +45,6 @@ return [
     // Tourvisor proxy (tourvisor-mobile.php)
     'tourvisor_token' => '', // JWT из кабинета Tourvisor
     'tourvisor_api_base' => 'https://api.tourvisor.ru/search/api/v1',
+    // Next-patch cron (price-watch). Можно совпадать с health_check_token.
+    'cron_token' => 'CHANGE_ME_cron_token',
 ];

@@ -14,17 +14,17 @@
 | Deep link | Только `booking-success` | + `travelhub://payment/success\|fail` |
 | AsyncStorage | `JSON.parse` без catch | try/catch + очистка ключа |
 | Уведомления | Нет ежедневного напоминания | `scheduleDailyHotToursNotification` 12:00 |
-| Код | Мёртвые hotel/mock файлы | Удалены (см. ниже) |
 
-## Удалено из релизной ветки (next-patch)
+## Next-patch (восстановлено / добавлено)
 
-Отельный флоу не в навигаторе — файлы удалены:
+`RELEASE_HIDE_NEXT_PATCH_UI = false` включает:
 
-- `ApiHotelSearchScreen`, `ApiHotelDetailsScreen`, `HotelBookingFormScreen`
-- `NativeHotelDetailScreen`, `ExtendedHotelDetailScreen`
-- `useHotelSearch`, `HotelCacheService`, `HotelFirestoreCache`, `hotelSearchCache`
-- Mock-данные: `toursData`, `hotelsData`, `extendedHotels`
-- Неиспользуемые: `ImageStorageService`, `UpdateService`, `AppLoader`, `DepartureDocumentsScreen` (stub)
+- Отели: `ApiHotelSearch` / `ApiHotelDetails` / `HotelBooking` + вкладка в форме поиска
+- Фото отелей: `HotelPictureCache` + `useHotelListDetailImages` (кэш из туров + GET `/hotels/{id}`)
+- Рекомендации: `RecommendationService` + `HomeRecommendationsSection`
+- Пуши снижения цен: избранное → `PriceTrackingService` (≥5%), настройка `favoritePriceAlerts`
+
+Не восстановлены (устаревшие): `NativeHotelDetailScreen`, `ExtendedHotelDetailScreen`, mock-данные.
 
 ## Требует отдельной работы
 
@@ -34,6 +34,7 @@
 | TypeScript | ~20 ошибок tsc (`backgroundcolor`, legacy types) |
 | Tourvisor 403 с телефона | Прокси `tourvisor-mobile` (в конфиге) |
 | Expo Go Android | Push — только development build |
+| Фото отелей без модуля описаний | Зависят от кэша из поиска туров / платного GET `/hotels/{id}` |
 
 ## Чеклисты
 

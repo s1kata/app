@@ -17,6 +17,7 @@
 | [TERMS_OF_SERVICE.md](./TERMS_OF_SERVICE.md) | Условия использования |
 | [PRIVACY_POLICY.md](./PRIVACY_POLICY.md) | Политика конфиденциальности |
 | [../src/config/releaseUiFlags.ts](../src/config/releaseUiFlags.ts) | Флаги скрытого UI (отели / next-patch) |
+| [NEXT_PATCH_BACKEND.md](./NEXT_PATCH_BACKEND.md) | Backend next-patch: recommendations, price-watch cron, push tokens, hotel images |
 | [../server/README.md](../server/README.md) | Node API оплаты (референс; на проде — PHP на сайте) |
 
 **Поддержка:** hello@travelhub63.ru, +7 (495) 660-36-66 — см. экран «Помощь и поддержка» в приложении.

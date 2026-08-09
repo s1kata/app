@@ -37,6 +37,7 @@ import { transparentModalProps } from '../utils/modalConfig';
 import { useLifecycleLog } from '../hooks/useLifecycleLog';
 import { logIosTestStep, IosTestStep } from '../utils/iosTestFlows';
 import { RELEASE_HIDE_NEXT_PATCH_UI } from '../config/releaseUiFlags';
+import { recommendationService } from '../services/RecommendationService';
 
 const SEARCH_WIZARD_STEPS = 5 as const;
 type SearchWizardStep = 1 | 2 | 3 | 4 | 5;
@@ -154,16 +155,25 @@ export default function ApiTourHotelSearch({
   const filtersEffectReadyRef = useRef(false);
 
   useEffect(() => {
-    // Релизный UX: единый сценарий поиска туров без переключателя вкладок.
-    if (activeTab !== 'tours') {
-      setActiveTab('tours');
-    }
-  }, [activeTab]);
-
-  useEffect(() => {
     if (!enableHotelSearch && activeTab === 'hotels') {
       setActiveTab('tours');
     }
+  }, [enableHotelSearch, activeTab]);
+
+  // Для вкладки «Отели» подгружаем полный справочник стран (без привязки к вылету)
+  useEffect(() => {
+    if (!enableHotelSearch || activeTab !== 'hotels') return;
+    let cancelled = false;
+    dictionaryService
+      .getCountriesAll()
+      .then((list) => {
+        if (cancelled || !Array.isArray(list) || list.length === 0) return;
+        setCountries((prev) => (prev.length >= list.length ? prev : list));
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
   }, [enableHotelSearch, activeTab]);
 
   // Load dictionary data on mount / после восстановления бэкенда
@@ -526,6 +536,11 @@ export default function ApiTourHotelSearch({
 
         if (progressInterval) clearInterval(progressInterval);
         setLoaderVisible(false);
+        void recommendationService.rememberSearch({
+          countryId: Number(tourSearch.countryId),
+          departureId: Number(tourSearch.departureId),
+          countryName: countries.find((c) => c.id.toString() === tourSearch.countryId)?.name,
+        });
         navigation.navigate('ApiTourResults', {
           searchParams: params,
           useCache: false,
@@ -642,9 +657,10 @@ export default function ApiTourHotelSearch({
     };
 
     if (onSearchHotels) onSearchHotels(searchParams);
-    // NEXT PATCH (hotels): navigation.navigate('ApiHotelSearch', { searchParams });
-    else if (__DEV__) {
-      logger.debug('[ApiTourHotelSearch] Hotel search disabled in release build');
+    else if (navigation?.navigate) {
+      navigation.navigate('ApiHotelSearch', { searchParams });
+    } else if (__DEV__) {
+      logger.debug('[ApiTourHotelSearch] Hotel search: no navigation available');
     }
   };
 
@@ -1478,6 +1494,35 @@ export default function ApiTourHotelSearch({
         )}
         
         {/* Compact Search Form */}
+        {enableHotelSearch ? (
+          <View style={[styles.tabRow, { borderColor: theme.border }]}>
+            <TouchableOpacity
+              style={[
+                styles.tabBtn,
+                activeTab === 'tours' && { backgroundColor: `${theme.primary}18` },
+              ]}
+              onPress={() => setActiveTab('tours')}
+              activeOpacity={0.85}
+            >
+              <Text style={[styles.tabBtnText, { color: activeTab === 'tours' ? theme.primary : theme.secondaryText }]}>
+                {i18n.t('nav.tours')}
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[
+                styles.tabBtn,
+                activeTab === 'hotels' && { backgroundColor: `${theme.primary}18` },
+              ]}
+              onPress={() => setActiveTab('hotels')}
+              activeOpacity={0.85}
+            >
+              <Text style={[styles.tabBtnText, { color: activeTab === 'hotels' ? theme.primary : theme.secondaryText }]}>
+                {i18n.t('nav.hotels')}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        ) : null}
+
         <View style={styles.compactForm}>
           {activeTab === 'tours' ? (
             useSearchWizard ? (
@@ -2242,6 +2287,23 @@ const styles = StyleSheet.create({
   },
   compactForm: {
     gap: 12,
+  },
+  tabRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 14,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    paddingBottom: 10,
+  },
+  tabBtn: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: 10,
+    borderRadius: 10,
+  },
+  tabBtnText: {
+    fontSize: 15,
+    fontWeight: '700',
   },
   compactRow: {
     flexDirection: 'row',

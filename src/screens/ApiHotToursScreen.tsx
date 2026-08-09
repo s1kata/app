@@ -17,7 +17,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useAppContext } from '../contexts/AppContext';
 import { dictionaryService } from '../services/DictionaryService';
 import { tourvisorApi } from '../services/TourvisorApiService';
-import { TourHot, TourHotel, Country, Departure, HotToursParams, TourSearchParams } from '../types/tourvisor';
+import { TourHotel, Country, Departure, HotToursParams, TourSearchParams } from '../types/tourvisor';
 import { platform } from '../utils/platform';
 import { preCacheTourDetailsFromSearchResults, cacheTourFromSearchResult, buildTourOutputFromSearchResult } from '../utils/tourDetailsCache';
 import { FavoritesService } from '../services/FavoritesService';
@@ -28,6 +28,9 @@ import type { Currency } from '../services/SettingsService';
 import { notificationService } from '../services/NotificationService';
 import { i18n } from '../config/i18n';
 import { logger } from '../utils/logger';
+import CachedImage from '../components/ui/CachedImage';
+import { DEFAULT_HOTEL_IMAGE } from '../constants/images';
+import { LinearGradient } from 'expo-linear-gradient';
 
 interface ApiHotToursScreenProps {
   navigation: any;
@@ -632,7 +635,7 @@ export default function ApiHotToursScreen({ navigation, route }: ApiHotToursScre
 
     return (
       <TouchableOpacity
-        style={[styles.tourCard, { backgroundColor: theme.card, borderColor: theme.border }]}
+        style={[styles.tourCard, { backgroundColor: theme.card, borderColor: theme.border, overflow: 'hidden', padding: 0 }]}
         onPress={() => {
           cacheTourFromSearchResult(item, firstTour, firstTour.currency || 'RUB').catch(() => {});
           navigation.navigate('ApiTourDetails', {
@@ -642,75 +645,94 @@ export default function ApiHotToursScreen({ navigation, route }: ApiHotToursScre
         }}
         activeOpacity={0.7}
       >
-        <View style={styles.tourHeader}>
-          <View style={styles.tourInfo}>
-            <Text style={[styles.hotelName, { color: theme.text }]} numberOfLines={2}>
-              {item.name}
-            </Text>
-            <Text style={[styles.hotelLocation, { color: theme.secondaryText }]}>
-              {item.region.name}
-              {item.subRegion && `, ${item.subRegion.name}`}
-            </Text>
-          </View>
-          <View style={[styles.tourOperator, { flexDirection: 'row', alignItems: 'center', gap: 8 }]}>
-            <TouchableOpacity
-              onPress={() => handleFavoritePress(item, firstTour)}
-              style={styles.favoriteIcon}
-              activeOpacity={0.7}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-            >
-              <Ionicons
-                name={favoriteIds.has(String(firstTour.id)) ? 'heart' : 'heart-outline'}
-                size={22}
-                color={favoriteIds.has(String(firstTour.id)) ? theme.error : theme.secondaryText}
-              />
-            </TouchableOpacity>
-            <Text style={[styles.operatorName, { color: theme.primary }]}>
+        <View style={styles.cardImageWrap}>
+          <CachedImage
+            source={{ uri: item.picturelink || DEFAULT_HOTEL_IMAGE }}
+            style={styles.cardImage}
+            contentFit="cover"
+            recyclingKey={`hot_${item.id}_${firstTour.id}`}
+          />
+          <LinearGradient colors={['transparent', 'rgba(0,0,0,0.45)']} style={styles.cardImageFade} />
+          <TouchableOpacity
+            onPress={() => handleFavoritePress(item, firstTour)}
+            style={styles.cardFavoriteBtn}
+            activeOpacity={0.7}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Ionicons
+              name={favoriteIds.has(String(firstTour.id)) ? 'heart' : 'heart-outline'}
+              size={20}
+              color="#fff"
+            />
+          </TouchableOpacity>
+          {(item.rating ?? 0) > 0 ? (
+            <View style={styles.cardRatingBadge}>
+              <Ionicons name="star" size={12} color="#FFD700" />
+              <Text style={styles.cardRatingText}>{item.rating}</Text>
+            </View>
+          ) : null}
+        </View>
+
+        <View style={styles.cardBody}>
+          <View style={styles.tourHeader}>
+            <View style={styles.tourInfo}>
+              <Text style={[styles.hotelName, { color: theme.text }]} numberOfLines={2}>
+                {item.name}
+              </Text>
+              <Text style={[styles.hotelLocation, { color: theme.secondaryText }]}>
+                {item.region.name}
+                {item.subRegion && `, ${item.subRegion.name}`}
+              </Text>
+            </View>
+            <Text style={[styles.operatorName, { color: theme.primary }]} numberOfLines={1}>
               {firstTour.operator.name}
             </Text>
           </View>
+
+          <View style={styles.tourDetails}>
+            <View style={styles.detailRow}>
+              <Ionicons name="location" size={16} color={theme.secondaryText} />
+              <Text style={[styles.detailText, { color: theme.secondaryText }]}>
+                {item.country.name}
+              </Text>
+            </View>
+
+            <View style={styles.detailRow}>
+              <Ionicons name="calendar" size={16} color={theme.secondaryText} />
+              <Text style={[styles.detailText, { color: theme.secondaryText }]}>
+                {formatDate(firstTour.date)} • {firstTour.nights} {i18n.t('search.nights')}
+              </Text>
+            </View>
+
+            <View style={styles.detailRow}>
+              <Ionicons name="restaurant" size={16} color={theme.secondaryText} />
+              <Text style={[styles.detailText, { color: theme.secondaryText }]}>
+                {firstTour.meal.russianName}
+              </Text>
+            </View>
+
+            {item.tours.length > 1 && (
+              <View style={styles.detailRow}>
+                <Ionicons name="options" size={16} color={theme.primary} />
+                <Text style={[styles.detailText, { color: theme.primary }]}>
+                  {i18n.t('hotTours.moreTours')} {item.tours.length - 1}{' '}
+                  {item.tours.length - 1 === 1
+                    ? i18n.t('hotTours.moreToursOne')
+                    : i18n.t('hotTours.moreToursMany')}
+                </Text>
+              </View>
+            )}
+          </View>
+
+          <View style={styles.priceSection}>
+            <View style={styles.priceContainer}>
+              <Text style={[styles.currentPrice, { color: theme.primary }]}>
+                {i18n.t('hotTours.from')} {formatPrice(minPrice, firstTour.currency || 'RUB')}
+              </Text>
+            </View>
+          </View>
         </View>
-
-        <View style={styles.tourDetails}>
-          <View style={styles.detailRow}>
-            <Ionicons name="location" size={16} color={theme.secondaryText} />
-            <Text style={[styles.detailText, { color: theme.secondaryText }]}>
-              {item.country.name}
-            </Text>
-          </View>
-
-          <View style={styles.detailRow}>
-            <Ionicons name="calendar" size={16} color={theme.secondaryText} />
-            <Text style={[styles.detailText, { color: theme.secondaryText }]}>
-              {formatDate(firstTour.date)} • {firstTour.nights} {i18n.t('search.nights')}
-            </Text>
-          </View>
-
-          <View style={styles.detailRow}>
-            <Ionicons name="restaurant" size={16} color={theme.secondaryText} />
-            <Text style={[styles.detailText, { color: theme.secondaryText }]}>
-              {firstTour.meal.russianName}
-            </Text>
-          </View>
-        
-        {item.tours.length > 1 && (
-          <View style={styles.detailRow}>
-            <Ionicons name="options" size={16} color={theme.primary} />
-            <Text style={[styles.detailText, { color: theme.primary }]}>
-              {i18n.t('hotTours.moreTours')} {item.tours.length - 1} {item.tours.length - 1 === 1 ? i18n.t('hotTours.moreToursOne') : i18n.t('hotTours.moreToursMany')}
-            </Text>
-          </View>
-        )}
-      </View>
-
-      <View style={styles.priceSection}>
-        <View style={styles.priceContainer}>
-          <Text style={[styles.currentPrice, { color: theme.primary }]}>
-            {i18n.t('hotTours.from')} {formatPrice(minPrice, firstTour.currency || 'RUB')}
-          </Text>
-        </View>
-      </View>
-    </TouchableOpacity>
+      </TouchableOpacity>
     );
   }, [
     favoriteIds,
@@ -1065,9 +1087,8 @@ const styles = StyleSheet.create({
     padding: 16,
   },
   tourCard: {
-    padding: 16,
     marginBottom: 12,
-    borderRadius: 12,
+    borderRadius: 16,
     borderWidth: 1,
     ...platform.select({
       ios: {
@@ -1080,6 +1101,53 @@ const styles = StyleSheet.create({
         elevation: 3,
       },
     }),
+  },
+  cardImageWrap: {
+    width: '100%',
+    height: 160,
+    position: 'relative',
+  },
+  cardImage: {
+    width: '100%',
+    height: '100%',
+  },
+  cardImageFade: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    height: 56,
+  },
+  cardFavoriteBtn: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cardRatingBadge: {
+    position: 'absolute',
+    bottom: 12,
+    left: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 999,
+  },
+  cardRatingText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  cardBody: {
+    padding: 16,
   },
   tourHeader: {
     flexDirection: 'row',

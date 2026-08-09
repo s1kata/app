@@ -4,6 +4,7 @@ import Constants from 'expo-constants';
 import { platform } from '../utils/platform';
 import { logger } from '../utils/logger';
 import { i18n } from '../config/i18n';
+import { SERVER_OWNED_PUSH_DIGEST } from '../config/releaseArchitectureFlags';
 import type { RefObject } from 'react';
 
 
@@ -52,6 +53,8 @@ export interface NotificationSettings {
   promotions: boolean;
   /** Ежедневное напоминание о турах в 12:00 (локальное). */
   dailyHotTours: boolean;
+  /** Пуши при снижении цены на избранные туры (≥5%). */
+  favoritePriceAlerts: boolean;
   sound: boolean;
   vibration: boolean;
   quietHoursEnabled: boolean;
@@ -105,6 +108,7 @@ class NotificationService {
       bookingReminders: true,
       promotions: true,
       dailyHotTours: true,
+      favoritePriceAlerts: true,
       sound: true,
       vibration: true,
       quietHoursEnabled: false,
@@ -216,6 +220,10 @@ class NotificationService {
         });
       }
 
+      if (status === 'granted') {
+        void this.registerExpoPushTokenWithBackend();
+      }
+
       // Загружаем историю уведомлений
       try {
         await this.loadNotificationHistory();
@@ -245,6 +253,7 @@ class NotificationService {
           ...this.defaultSettings(),
           ...parsed,
           dailyHotTours: parsed.dailyHotTours ?? true,
+          favoritePriceAlerts: parsed.favoritePriceAlerts ?? true,
         };
       }
 
@@ -756,6 +765,7 @@ class NotificationService {
     try {
       const settings = await this.getSettings();
       if (!settings.enabled) return;
+      if (settings.favoritePriceAlerts === false) return;
 
       const savings = oldPrice - newPrice;
       const notificationId = await Notifications.scheduleNotificationAsync({
@@ -782,6 +792,32 @@ class NotificationService {
   }
 
   // ========== ФАЗА 2: История уведомлений ==========
+
+  /**
+   * Регистрация Expo Push Token на бэкенде (для серверных пушей о снижении цен).
+   */
+  async registerExpoPushTokenWithBackend(): Promise<void> {
+    try {
+      if (!Notifications?.getExpoPushTokenAsync) return;
+      const projectId =
+        Constants.easConfig?.projectId ||
+        (Constants.expoConfig?.extra as { eas?: { projectId?: string } } | undefined)?.eas?.projectId;
+      const tokenRes = projectId
+        ? await Notifications.getExpoPushTokenAsync({ projectId })
+        : await Notifications.getExpoPushTokenAsync();
+      const token = tokenRes?.data;
+      if (!token) return;
+      const { registerPushTokenViaBackend } = await import('./sync/NextPatchBackendClient');
+      const r = await registerPushTokenViaBackend(token);
+      if (r.success) {
+        logger.debug('✅ Expo push token registered on backend');
+      } else {
+        logger.debug('Push token backend register skipped:', r.error);
+      }
+    } catch (e) {
+      logger.debug('registerExpoPushTokenWithBackend:', (e as Error)?.message);
+    }
+  }
 
   /**
    * Добавление уведомления в историю
@@ -1208,6 +1244,13 @@ class NotificationService {
    */
   async scheduleDailyHotToursNotification(): Promise<void> {
     try {
+      // Server cron owns daily digests in store builds
+      if (SERVER_OWNED_PUSH_DIGEST) {
+        await this.cancelDailyHotToursNotification();
+        logger.debug('[Notifications] Daily 12:00 skipped — SERVER_OWNED_PUSH_DIGEST');
+        return;
+      }
+
       if (!Notifications || typeof Notifications.scheduleNotificationAsync !== 'function') {
         return;
       }

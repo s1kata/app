@@ -1,3 +1,6 @@
 RewriteEngine On
 RewriteRule ^bookings-meta$ bookings-meta.php [L,QSA]
 RewriteRule ^favorites$ favorites.php [L,QSA]
+RewriteRule ^push-tokens$ push-tokens.php [L,QSA]
+RewriteRule ^price-watches$ price-watches.php [L,QSA]
+RewriteRule ^recommendations$ recommendations.php [L,QSA]

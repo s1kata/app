@@ -47,6 +47,7 @@ const ProfileSettings: React.FC =({ navigation }: any) => {
     bookingReminders: true,
     promotions: true,
     dailyHotTours: true,
+    favoritePriceAlerts: true,
     quietHoursEnabled: false,
     quietHoursStart: '22:00',
     quietHoursEnd: '08:00',
@@ -73,6 +74,7 @@ const ProfileSettings: React.FC =({ navigation }: any) => {
         setNotificationSettings({
           ...settings,
           dailyHotTours: settings.dailyHotTours ?? true,
+          favoritePriceAlerts: settings.favoritePriceAlerts ?? true,
           quietHoursStart: settings.quietHoursStart ?? '22:00',
           quietHoursEnd: settings.quietHoursEnd ?? '08:00',
           maxNotificationsPerDay: settings.maxNotificationsPerDay ?? 5,
@@ -312,6 +314,29 @@ const ProfileSettings: React.FC =({ navigation }: any) => {
 
         {!RELEASE_HIDE_NEXT_PATCH_UI && (
           <View style={styles.section}>
+            <View style={[styles.settingCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+              <View style={styles.settingLeft}>
+                <View style={[styles.iconGradient, { backgroundColor: theme.primary }]}>
+                  <Ionicons name="pricetag" size={20} color="#FFFFFF" />
+                </View>
+                <View style={styles.settingTextContainer}>
+                  <Text style={[styles.settingTitle, { color: theme.text }]}>
+                    {i18n.t('settings.favoritePriceAlerts')}
+                  </Text>
+                  <Text style={[styles.settingValue, { color: theme.secondaryText }]}>
+                    {i18n.t('settings.favoritePriceAlertsDesc')}
+                  </Text>
+                </View>
+              </View>
+              <Switch
+                value={notificationSettings.favoritePriceAlerts}
+                onValueChange={(value) => updateNotificationSetting('favoritePriceAlerts', value)}
+                trackColor={{ false: theme.secondaryBackground, true: theme.primary }}
+                thumbColor="#FFFFFF"
+                ios_backgroundColor={theme.secondaryBackground}
+              />
+            </View>
+
             <View style={[styles.settingCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
               <View style={styles.settingLeft}>
                 <View style={[styles.iconGradient, { backgroundColor: theme.success }]}>

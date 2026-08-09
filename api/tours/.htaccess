@@ -1,0 +1,9 @@
+RewriteEngine On
+RewriteRule ^hots$ hots.php [L,QSA]
+RewriteRule ^search$ search.php [L,QSA]
+RewriteRule ^search-status$ search-status.php [L,QSA]
+RewriteRule ^search-results$ search-results.php [L,QSA]
+RewriteRule ^search-continue$ search-continue.php [L,QSA]
+RewriteRule ^details$ details.php [L,QSA]
+RewriteRule ^flights$ flights.php [L,QSA]
+RewriteRule ^dates$ dates.php [L,QSA]

@@ -1,0 +1,3 @@
+RewriteEngine On
+RewriteRule ^price-watch$ price-watch.php [L,QSA]
+RewriteRule ^daily-hots$ daily-hots.php [L,QSA]

@@ -33,6 +33,7 @@ import {
   sanitizeTourHotelsFromCache,
 } from '../utils/tourSearchCache';
 import { getFromSharedCache } from '../services/TourvisorFirestoreCache';
+import { hotelPictureCache } from '../services/HotelPictureCache';
 import { saveTourSearchToAllCaches, searchTours } from '../hooks/useTourSearch';
 import { preCacheTourDetailsFromSearchResults, cacheTourFromSearchResult, buildTourOutputFromSearchResult } from '../utils/tourDetailsCache';
 import { FavoritesService } from '../services/FavoritesService';
@@ -204,7 +205,25 @@ export default function ApiTourResultsScreen({ navigation, route }: ApiTourResul
       const shown = applyTourSearchPriceFilter(valid, searchParams);
       setTours(shown);
       setHasMore(false);
-      if (shown.length > 0) schedulePreCache(shown, currencyCode);
+      if (shown.length > 0) {
+        schedulePreCache(shown, currencyCode);
+        void hotelPictureCache.ingestFromTours(
+          shown.flatMap((h) =>
+            (h.tours || []).map((t) => ({
+              hotel: {
+                id: h.id,
+                picturelink: h.picturelink,
+              },
+              picture: h.picturelink,
+            })),
+          ).concat(
+            shown.map((h) => ({
+              hotel: { id: h.id, picturelink: h.picturelink },
+              picture: h.picturelink,
+            })),
+          ),
+        );
+      }
       return valid;
     },
     [schedulePreCache, searchParams],

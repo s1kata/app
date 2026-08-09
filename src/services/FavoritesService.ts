@@ -14,6 +14,12 @@ import {
   fetchFavoritesViaBackend,
   pushFavoriteViaBackend,
 } from './sync/UserDataBackendClient';
+import { priceTrackingService } from './PriceTrackingService';
+import { hotelPictureCache } from './HotelPictureCache';
+import {
+  deletePriceWatchViaBackend,
+  upsertPriceWatchViaBackend,
+} from './sync/NextPatchBackendClient';
 
 const FAVORITES_TOURS_KEY = 'user_favorite_tours';
 const FAVORITES_HOTELS_KEY = 'user_favorite_hotels';
@@ -134,6 +140,22 @@ export class FavoritesService {
 
     await this.writeLocalTours(uid, mergedTours);
     await this.writeLocalHotels(uid, mergedHotels);
+    void hotelPictureCache.ingestFromTours(mergedTours);
+    // Подтягиваем отслеживание цен под актуальный список избранного
+    for (const t of mergedTours) {
+      void priceTrackingService.trackTour(t);
+      if (Number(t.price) > 0) {
+        void upsertPriceWatchViaBackend({
+          itemId: String(t.id),
+          baselinePrice: Number(t.price),
+          currency: t.currency || 'RUB',
+          hotelName: t.hotel?.name,
+          countryName: t.hotel?.country?.name,
+          minDropPercent: 5,
+          payload: t as unknown as Record<string, unknown>,
+        });
+      }
+    }
 
     const remoteTourIds = new Set(remoteTours.map((t) => String(t.id)));
     const remoteHotelIds = new Set(remoteHotels.map((h) => String(h.id)));
@@ -218,6 +240,19 @@ export class FavoritesService {
       favorites.push(tour);
       await this.writeLocalTours(uid, favorites);
       void this.pushTourToServer(tour);
+      void hotelPictureCache.ingestFromTours([tour]);
+      void priceTrackingService.trackTour(tour);
+      if (Number(tour.price) > 0) {
+        void upsertPriceWatchViaBackend({
+          itemId: tourId,
+          baselinePrice: Number(tour.price),
+          currency: tour.currency || 'RUB',
+          hotelName: tour.hotel?.name,
+          countryName: tour.hotel?.country?.name,
+          minDropPercent: 5,
+          payload: tour as unknown as Record<string, unknown>,
+        });
+      }
       return { success: true };
     } catch (error: unknown) {
       logger.error('Ошибка добавления тура в избранное:', error);
@@ -266,6 +301,8 @@ export class FavoritesService {
       const updated = favorites.filter((tour) => String(tour.id) !== id);
       await this.writeLocalTours(uid, updated);
       void deleteFavoriteViaBackend('tour', id);
+      void priceTrackingService.untrackTour(id);
+      void deletePriceWatchViaBackend(id);
       return { success: true };
     } catch (error: unknown) {
       logger.error('Ошибка удаления тура из избранного:', error);

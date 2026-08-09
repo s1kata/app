@@ -1,0 +1,2 @@
+RewriteEngine On
+RewriteRule ^hotel-images$ hotel-images.php [L,QSA]

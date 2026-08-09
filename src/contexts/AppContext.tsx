@@ -239,10 +239,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       logger.debug('SOTA base URL set for testing:', crmBaseUrl);
     }
 
-    // Инициализируем сервис отслеживания цен
-    priceTrackingService.initialize().then(() => {
+    // Инициализируем сервис отслеживания цен + синхронизируем избранное
+    priceTrackingService.initialize().then(async () => {
       if (isCancelled()) return;
-      // Запускаем автоматическую проверку цен каждые 6 часов
+      try {
+        const { FavoritesService } = await import('../services/FavoritesService');
+        await FavoritesService.getInstance().syncFromServer();
+      } catch (e) {
+        logger.debug('Favorites sync for price tracking skipped:', (e as Error)?.message);
+      }
+      if (isCancelled()) return;
+      // Сразу проверяем цены один раз, затем каждые 6 часов
+      void priceTrackingService.checkPriceChanges();
       priceTrackingService.startAutoCheck(6);
       logger.debug('PriceTrackingService initialized and auto-check started');
     }).catch(error => {

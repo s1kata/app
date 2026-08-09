@@ -22,6 +22,7 @@ import { settingsService } from '../services/SettingsService';
 import type { Currency } from '../services/SettingsService';
 import AuthRequiredCard from '../components/ux/AuthRequiredCard';
 import { useTabBarMetrics } from '../utils/tabBarMetrics';
+import { priceTrackingService } from '../services/PriceTrackingService';
 
 export default function FavoritesScreen({ navigation }: any) {
   const { theme, isDark, apiReady, user, isAuthenticated, currency, fontScale } = useAppContext();
@@ -57,6 +58,7 @@ export default function FavoritesScreen({ navigation }: any) {
   const loadFavorites = useCallback(async () => {
     try {
       setLoading(true);
+      await priceTrackingService.initialize();
       await FavoritesService.getInstance().syncFromServer();
       const tours = await FavoritesService.getInstance().getFavoriteTours();
       setFavoriteTours(tours || []);
@@ -180,8 +182,16 @@ export default function FavoritesScreen({ navigation }: any) {
           <View style={styles.toursContainer}>
             {favoriteTours.map((tour, index) => {
               const imageUrl = tour.picture || (tour.hotel as { picturelink?: string }).picturelink;
-              const discount = tour.isPromo ? 5 : null;
               const isUnavailable = availability[String(tour.id)] === 'unavailable';
+              const tracked = priceTrackingService.isTracked(String(tour.id))
+                ? priceTrackingService.getTrackedTours().find((t) => t.tourId === String(tour.id))
+                : undefined;
+              const baseline = tracked?.originalPrice ?? tracked?.currentPrice;
+              const dropPct =
+                baseline && tour.price > 0 && tour.price < baseline
+                  ? Math.round((1 - tour.price / baseline) * 100)
+                  : 0;
+              const showDrop = dropPct >= 5;
 
               return (
                 <TouchableOpacity
@@ -224,11 +234,15 @@ export default function FavoritesScreen({ navigation }: any) {
                     >
                       <Ionicons name="heart" size={20} color="#fff" />
                     </TouchableOpacity>
-                    {discount && !isUnavailable && (
+                    {showDrop && !isUnavailable ? (
                       <View style={[styles.discountBadge, { backgroundColor: theme.success }]}>
-                        <Text style={styles.discountText}>-{discount}%</Text>
+                        <Text style={styles.discountText}>−{dropPct}%</Text>
                       </View>
-                    )}
+                    ) : tracked && !isUnavailable ? (
+                      <View style={[styles.discountBadge, { backgroundColor: 'rgba(0,0,0,0.55)' }]}>
+                        <Text style={styles.discountText}>{i18n.t('favorites.watching')}</Text>
+                      </View>
+                    ) : null}
                   </View>
 
                   <View style={styles.tourInfo}>
@@ -272,14 +286,23 @@ export default function FavoritesScreen({ navigation }: any) {
                         </View>
                         <View style={[styles.priceRow, { borderTopColor: theme.border }]}>
                           <View>
-                            {tour.fuelCharge > 0 && (
+                            {showDrop && baseline ? (
+                              <Text style={[styles.oldPrice, { color: theme.secondaryText }]}>
+                                {formatPrice(baseline, tour.currency)}
+                              </Text>
+                            ) : tour.fuelCharge > 0 ? (
                               <Text style={[styles.oldPrice, { color: theme.secondaryText }]}>
                                 + топливный сбор {formatPrice(tour.fuelCharge, tour.currency)}
                               </Text>
-                            )}
-                            <Text style={[styles.price, { color: theme.text }]}>
+                            ) : null}
+                            <Text style={[styles.price, { color: showDrop ? theme.success : theme.text }]}>
                               {formatPrice(tour.price, tour.currency)}
                             </Text>
+                            {showDrop ? (
+                              <Text style={{ fontSize: 12, color: theme.success, fontWeight: '600', marginTop: 2 }}>
+                                {i18n.t('favorites.priceDrop')} −{dropPct}%
+                              </Text>
+                            ) : null}
                           </View>
                           <View style={[styles.countryBadge, { backgroundColor: theme.primary + '20' }]}>
                             <Text style={[styles.countryText, { color: theme.primary }]}>

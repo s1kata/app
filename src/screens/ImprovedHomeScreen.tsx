@@ -26,6 +26,8 @@ import { useAppContext } from '../contexts/AppContext';
 import { adaptive, BREAKPOINTS } from '../utils/adaptive';
 import { useTabBarMetrics } from '../utils/tabBarMetrics';
 import ApiTourHotelSearch from '../components/ApiTourHotelSearch';
+import HomeHotToursSection from '../components/HomeHotToursSection';
+import HomeRecommendationsSection from '../components/HomeRecommendationsSection';
 import WeatherWidget from '../components/WeatherWidget';
 import { locationService, LocationData } from '../services/LocationService';
 import { logger } from '../utils/logger';
@@ -42,6 +44,8 @@ export default function ImprovedHomeScreen({ navigation }: any) {
   const [userLocation, setUserLocation] = useState<LocationData | null>(null);
   const [showWelcomeModal, setShowWelcomeModal] = useState(false);
   const [homeRefreshing, setHomeRefreshing] = useState(false);
+  const [homeRefreshKey, setHomeRefreshKey] = useState(0);
+  const [searchExpanded, setSearchExpanded] = useState(false);
   const scrollY = useRef(new Animated.Value(0)).current;
   const welcomeOpacity = useRef(new Animated.Value(0)).current;
   const welcomeScale = useRef(new Animated.Value(0.8)).current;
@@ -238,6 +242,7 @@ export default function ImprovedHomeScreen({ navigation }: any) {
 
   const handleHomeRefresh = useCallback(async () => {
     setHomeRefreshing(true);
+    setHomeRefreshKey((k) => k + 1);
     reviewsRefreshBus.emit({ global: true });
     await new Promise((resolve) => setTimeout(resolve, 600));
     if (homeScreenMountedRef.current) {
@@ -288,18 +293,106 @@ export default function ImprovedHomeScreen({ navigation }: any) {
           </View>
         ) : null}
 
-        {/* API Tour & Hotel Search */}
-        <View style={{ paddingHorizontal: adaptive.getHorizontalPadding(), marginBottom: 24, width: '100%' }}>
-          <Text style={{ color: theme.primary, fontWeight: '700', fontSize: 13, marginBottom: 8, letterSpacing: 0.3 }}>
-            {i18n.t('ux.homeStartHere').toUpperCase()}
-          </Text>
-          <ApiTourHotelSearch
-            navigation={navigation}
-            enableHotelSearch={false}
-            onOpenHotTours={() => navigation.navigate('ApiHotTours')}
-          />
+        {/* Витрина: горящие туры */}
+        <View style={{ paddingHorizontal: adaptive.getHorizontalPadding(), marginBottom: 20, width: '100%' }}>
+          <HomeHotToursSection navigation={navigation} refreshKey={homeRefreshKey} />
         </View>
 
+        {/* Для вас */}
+        {!RELEASE_HIDE_NEXT_PATCH_UI ? (
+          <View style={{ paddingHorizontal: adaptive.getHorizontalPadding(), marginBottom: 20, width: '100%' }}>
+            <HomeRecommendationsSection navigation={navigation} refreshKey={homeRefreshKey} />
+          </View>
+        ) : null}
+
+        {/* Компактный поиск → раскрывается в полную форму */}
+        <View style={{ paddingHorizontal: adaptive.getHorizontalPadding(), marginBottom: 24, width: '100%' }}>
+          {!searchExpanded ? (
+            <TouchableOpacity
+              activeOpacity={0.9}
+              onPress={() => setSearchExpanded(true)}
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                backgroundColor: theme.card,
+                borderWidth: 1,
+                borderColor: theme.border,
+                borderRadius: radius.lg,
+                paddingVertical: 14,
+                paddingHorizontal: 16,
+                gap: 12,
+                ...shadows.card,
+              }}
+              accessibilityRole="button"
+              accessibilityLabel={i18n.t('home.searchCompact')}
+            >
+              <View
+                style={{
+                  width: 40,
+                  height: 40,
+                  borderRadius: 20,
+                  backgroundColor: `${theme.primary}14`,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <Ionicons name="search" size={20} color={theme.primary} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: theme.text, fontSize: 16, fontWeight: '700' }}>
+                  {i18n.t('home.searchCompact')}
+                </Text>
+                <Text style={{ color: theme.secondaryText, fontSize: 13, marginTop: 2 }}>
+                  {i18n.t('home.searchCompactHint')}
+                </Text>
+              </View>
+              <View
+                style={{
+                  backgroundColor: theme.primary,
+                  paddingHorizontal: 14,
+                  paddingVertical: 10,
+                  borderRadius: radius.md,
+                }}
+              >
+                <Text style={{ color: '#fff', fontWeight: '700', fontSize: 13 }}>
+                  {i18n.t('search.findTours')}
+                </Text>
+              </View>
+            </TouchableOpacity>
+          ) : (
+            <View>
+              <View
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  marginBottom: 8,
+                }}
+              >
+                <Text
+                  style={{
+                    color: theme.primary,
+                    fontWeight: '700',
+                    fontSize: 13,
+                    letterSpacing: 0.3,
+                  }}
+                >
+                  {i18n.t('ux.homeStartHere').toUpperCase()}
+                </Text>
+                <TouchableOpacity onPress={() => setSearchExpanded(false)} hitSlop={12}>
+                  <Text style={{ color: theme.secondaryText, fontWeight: '600', fontSize: 13 }}>
+                    {i18n.t('home.searchCollapse')}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+              <ApiTourHotelSearch
+                navigation={navigation}
+                enableHotelSearch={!RELEASE_HIDE_NEXT_PATCH_UI}
+                onOpenHotTours={() => navigation.navigate('ApiHotTours')}
+              />
+            </View>
+          )}
+        </View>
 
         {/* Интересные факты о путешествиях */}
         <View style={[dynamicStyles.section, { paddingHorizontal: adaptive.getHorizontalPadding() }]}>
