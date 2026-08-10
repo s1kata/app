@@ -45,7 +45,7 @@ export default function ImprovedHomeScreen({ navigation }: any) {
   const [showWelcomeModal, setShowWelcomeModal] = useState(false);
   const [homeRefreshing, setHomeRefreshing] = useState(false);
   const [homeRefreshKey, setHomeRefreshKey] = useState(0);
-  const [searchExpanded, setSearchExpanded] = useState(false);
+  const [searchExpanded, setSearchExpanded] = useState(true);
   const scrollY = useRef(new Animated.Value(0)).current;
   const welcomeOpacity = useRef(new Animated.Value(0)).current;
   const welcomeScale = useRef(new Animated.Value(0.8)).current;
@@ -266,6 +266,7 @@ export default function ImprovedHomeScreen({ navigation }: any) {
           [{ nativeEvent: { contentOffset: { y: scrollY } } }],
           { useNativeDriver: true }
         )}
+        nestedScrollEnabled
         scrollEventThrottle={16}
         contentContainerStyle={{ paddingBottom: scrollBottomPad }}
       >
@@ -293,20 +294,8 @@ export default function ImprovedHomeScreen({ navigation }: any) {
           </View>
         ) : null}
 
-        {/* Витрина: горящие туры */}
+        {/* Поиск сверху: туры / отели */}
         <View style={{ paddingHorizontal: adaptive.getHorizontalPadding(), marginBottom: 20, width: '100%' }}>
-          <HomeHotToursSection navigation={navigation} refreshKey={homeRefreshKey} />
-        </View>
-
-        {/* Для вас */}
-        {!RELEASE_HIDE_NEXT_PATCH_UI ? (
-          <View style={{ paddingHorizontal: adaptive.getHorizontalPadding(), marginBottom: 20, width: '100%' }}>
-            <HomeRecommendationsSection navigation={navigation} refreshKey={homeRefreshKey} />
-          </View>
-        ) : null}
-
-        {/* Компактный поиск → раскрывается в полную форму */}
-        <View style={{ paddingHorizontal: adaptive.getHorizontalPadding(), marginBottom: 24, width: '100%' }}>
           {!searchExpanded ? (
             <TouchableOpacity
               activeOpacity={0.9}
@@ -388,11 +377,24 @@ export default function ImprovedHomeScreen({ navigation }: any) {
               <ApiTourHotelSearch
                 navigation={navigation}
                 enableHotelSearch={!RELEASE_HIDE_NEXT_PATCH_UI}
+                useSearchWizard={false}
                 onOpenHotTours={() => navigation.navigate('ApiHotTours')}
               />
             </View>
           )}
         </View>
+
+        {/* Витрина: горящие туры */}
+        <View style={{ paddingHorizontal: adaptive.getHorizontalPadding(), marginBottom: 20, width: '100%' }}>
+          <HomeHotToursSection navigation={navigation} refreshKey={homeRefreshKey} />
+        </View>
+
+        {/* Для вас */}
+        {!RELEASE_HIDE_NEXT_PATCH_UI ? (
+          <View style={{ paddingHorizontal: adaptive.getHorizontalPadding(), marginBottom: 20, width: '100%' }}>
+            <HomeRecommendationsSection navigation={navigation} refreshKey={homeRefreshKey} />
+          </View>
+        ) : null}
 
         {/* Интересные факты о путешествиях */}
         <View style={[dynamicStyles.section, { paddingHorizontal: adaptive.getHorizontalPadding() }]}>

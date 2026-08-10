@@ -109,10 +109,11 @@ export default function ApiTourHotelSearch({
   // Дети: возраст как строки (для ввода); в Tourvisor уходит массив чисел `childs`
   const [childrenAgesInput, setChildrenAgesInput] = useState<string[]>([]);
 
-  // Hotel search state
+  // Hotel search state — каталог Tourvisor (/hotels): country/region/stars, без дат заселения
   const [hotelSearch, setHotelSearch] = useState({
     countryId: '',
     regionId: '',
+    category: '' as number | '',
     checkIn: '',
     checkOut: '',
     adults: 2,
@@ -647,13 +648,17 @@ export default function ApiTourHotelSearch({
       return;
     }
 
+    const regionRaw = filterRegionId || hotelSearch.regionId;
+    const categoryRaw =
+      hotelSearch.category !== '' && hotelSearch.category != null
+        ? hotelSearch.category
+        : filterHotelCategory;
+
+    // Tourvisor /hotels — каталог по стране/курорту/звёздам (даты заселения API не использует)
     const searchParams = {
-      countryId: parseInt(hotelSearch.countryId),
-      regionId: hotelSearch.regionId ? parseInt(hotelSearch.regionId) : undefined,
-      checkIn: hotelSearch.checkIn || getDefaultDate(1), // Завтра
-      checkOut: hotelSearch.checkOut || getDefaultDate(8), // Через неделю
-      adults: hotelSearch.adults,
-      rooms: hotelSearch.rooms,
+      countryId: parseInt(hotelSearch.countryId, 10),
+      regionId: regionRaw ? parseInt(String(regionRaw), 10) : undefined,
+      category: categoryRaw !== '' && categoryRaw != null ? Number(categoryRaw) : undefined,
     };
 
     if (onSearchHotels) onSearchHotels(searchParams);
@@ -662,12 +667,6 @@ export default function ApiTourHotelSearch({
     } else if (__DEV__) {
       logger.debug('[ApiTourHotelSearch] Hotel search: no navigation available');
     }
-  };
-
-  const getDefaultDate = (daysFromNow: number) => {
-    const date = new Date();
-    date.setDate(date.getDate() + daysFromNow);
-    return date.toISOString().split('T')[0];
   };
 
   const formatDate = (dateString: string) => {
@@ -813,96 +812,134 @@ export default function ApiTourHotelSearch({
 
   const renderHotelSearchForm = () => (
     <View style={styles.searchForm}>
-      {/* Country */}
+      <Text style={[styles.inputLabel, { color: theme.secondaryText, marginBottom: 10 }]}>
+        {i18n.t('search.hotelCatalogHint')}
+      </Text>
+
       <View style={styles.inputGroup}>
         <Text style={[styles.inputLabel, { color: theme.secondaryText }]}>{i18n.t('form.country')}</Text>
-        <TouchableOpacity 
+        <TouchableOpacity
           style={[styles.picker, { borderColor: theme.border }]}
-          onPress={() => {
-            setShowCountryModal(true);
-          }}
+          onPress={() => setShowCountryModal(true)}
           activeOpacity={0.7}
         >
           <Ionicons name="location" size={adaptive.iconSize.small} color={theme.secondaryText} />
           <Text style={[styles.pickerText, { color: theme.text }]}>
-            {countries.find(c => c.id.toString() === hotelSearch.countryId)?.name || i18n.t('search.selectCountry')}
+            {countries.find((c) => c.id.toString() === hotelSearch.countryId)?.name ||
+              i18n.t('search.selectCountry')}
           </Text>
           <Ionicons name="chevron-down" size={adaptive.iconSize.small} color={theme.secondaryText} />
         </TouchableOpacity>
       </View>
 
-      {/* Region */}
-      {regions.length > 0 && (
+      {hotelSearch.countryId ? (
         <View style={styles.inputGroup}>
-          <Text style={[styles.inputLabel, { color: theme.secondaryText }]}>{i18n.t('form.resortOptional')}</Text>
-          <TouchableOpacity 
-            style={[styles.picker, { borderColor: theme.border }]}
-            onPress={() => {
-              // Логика для выбора курорта
-            }}
-            activeOpacity={0.7}
-          >
-            <Ionicons name="map" size={adaptive.iconSize.small} color={theme.secondaryText} />
-            <Text style={[styles.pickerText, { color: theme.text }]}>
-              {regions.find(r => r.id.toString() === hotelSearch.regionId)?.name || i18n.t('search.anyResort')}
-            </Text>
-            <Ionicons name="chevron-down" size={adaptive.iconSize.small} color={theme.secondaryText} />
-          </TouchableOpacity>
-        </View>
-      )}
-
-      {/* Dates */}
-      <View style={styles.inputGroup}>
-        <Text style={[styles.inputLabel, { color: theme.secondaryText }]}>{i18n.t('form.stayDates')}</Text>
-        <View style={styles.datesRow}>
-          <TouchableOpacity 
-            style={[styles.dateInput, { borderColor: theme.border }]}
-            onPress={() => {
-              setDateType('dateFrom');
-              setShowDateModal(true);
-            }}
-            activeOpacity={0.7}
-          >
-            <Text style={[styles.dateLabel, { color: theme.secondaryText }]}>{i18n.t('form.checkIn')}</Text>
-            <Text style={[styles.dateText, { color: theme.text }]}>
-              {hotelSearch.checkIn ? formatDate(hotelSearch.checkIn) : i18n.t('search.select')}
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity 
-            style={[styles.dateInput, { borderColor: theme.border }]}
-            onPress={() => {
-              setDateType('dateTo');
-              setShowDateModal(true);
-            }}
-            activeOpacity={0.7}
-          >
-            <Text style={[styles.dateLabel, { color: theme.secondaryText }]}>{i18n.t('form.checkOut')}</Text>
-            <Text style={[styles.dateText, { color: theme.text }]}>
-              {hotelSearch.checkOut ? formatDate(hotelSearch.checkOut) : i18n.t('search.select')}
-            </Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-
-      {/* Guests */}
-      <View style={styles.inputGroup}>
-        <Text style={[styles.inputLabel, { color: theme.secondaryText }]}>{i18n.t('form.guests')}</Text>
-        <View style={styles.passengersRow}>
-          <TouchableOpacity
-            style={[styles.passengerButton, { borderColor: theme.border }]}
-            onPress={() => updateHotelSearch('adults', Math.max(1, hotelSearch.adults - 1))}
-          >
-            <Ionicons name="remove" size={adaptive.iconSize.small} color={theme.primary} />
-          </TouchableOpacity>
-          <Text style={[styles.passengerCount, { color: theme.text }]}>
-            {hotelSearch.adults} {i18n.t('form.guestsCount')}
+          <Text style={[styles.inputLabel, { color: theme.secondaryText }]}>
+            {i18n.t('form.resortOptional')}
           </Text>
-          <TouchableOpacity
-            style={[styles.passengerButton, { borderColor: theme.border }]}
-            onPress={() => updateHotelSearch('adults', Math.min(20, hotelSearch.adults + 1))}
-          >
-            <Ionicons name="add" size={adaptive.iconSize.small} color={theme.primary} />
-          </TouchableOpacity>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0 }}>
+            <TouchableOpacity
+              style={[
+                styles.presetChip,
+                {
+                  borderColor: theme.border,
+                  backgroundColor: !filterRegionId && !hotelSearch.regionId ? theme.primary + '20' : undefined,
+                },
+              ]}
+              onPress={() => {
+                setFilterRegionId('');
+                updateHotelSearch('regionId', '');
+              }}
+            >
+              <Text
+                style={[
+                  styles.presetChipText,
+                  {
+                    color:
+                      !filterRegionId && !hotelSearch.regionId ? theme.primary : theme.text,
+                  },
+                ]}
+              >
+                {i18n.t('search.anyResort')}
+              </Text>
+            </TouchableOpacity>
+            {isLoadingRegions ? (
+              <Text style={[styles.presetChipText, { color: theme.secondaryText }]}>
+                {i18n.t('form.loading')}
+              </Text>
+            ) : (
+              regions.map((r) => {
+                const selected =
+                  filterRegionId === String(r.id) || hotelSearch.regionId === String(r.id);
+                return (
+                  <TouchableOpacity
+                    key={r.id}
+                    style={[
+                      styles.presetChip,
+                      {
+                        borderColor: theme.border,
+                        backgroundColor: selected ? theme.primary + '20' : undefined,
+                      },
+                    ]}
+                    onPress={() => {
+                      setFilterRegionId(String(r.id));
+                      updateHotelSearch('regionId', String(r.id));
+                    }}
+                  >
+                    <Text
+                      style={[
+                        styles.presetChipText,
+                        { color: selected ? theme.primary : theme.text },
+                      ]}
+                      numberOfLines={1}
+                    >
+                      {r.name}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })
+            )}
+          </ScrollView>
+        </View>
+      ) : null}
+
+      <View style={styles.inputGroup}>
+        <Text style={[styles.inputLabel, { color: theme.secondaryText }]}>
+          {i18n.t('form.hotelCategory')}
+        </Text>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+          {(
+            [
+              { v: '' as const, l: i18n.t('form.anyCategory') },
+              { v: 3 as const, l: '3★+' },
+              { v: 4 as const, l: '4★+' },
+              { v: 5 as const, l: '5★' },
+            ] as const
+          ).map(({ v, l }) => {
+            const selected = hotelSearch.category === v;
+            return (
+              <TouchableOpacity
+                key={String(v)}
+                style={[
+                  styles.presetChip,
+                  {
+                    borderColor: theme.border,
+                    backgroundColor: selected ? theme.primary + '20' : undefined,
+                  },
+                ]}
+                onPress={() => {
+                  updateHotelSearch('category', v);
+                  setFilterHotelCategory(v);
+                }}
+              >
+                <Text
+                  style={[styles.presetChipText, { color: selected ? theme.primary : theme.text }]}
+                >
+                  {l}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
         </View>
       </View>
     </View>
@@ -1789,39 +1826,170 @@ export default function ApiTourHotelSearch({
             )
           ) : (
             <>
+              <Text style={[styles.compactLabel, { color: theme.secondaryText, marginBottom: 8 }]}>
+                {i18n.t('search.hotelCatalogHint')}
+              </Text>
               <View style={styles.compactRow}>
-                <TouchableOpacity 
-                  style={[styles.compactInput, { backgroundColor: theme.secondaryBackground, borderColor: theme.border }]} 
+                <TouchableOpacity
+                  style={[
+                    styles.compactInput,
+                    {
+                      backgroundColor: theme.secondaryBackground,
+                      borderColor: theme.border,
+                      borderWidth: 1,
+                      flex: 1,
+                    },
+                  ]}
                   activeOpacity={0.7}
-                  onPress={() => hasData ? setShowCountryModal(true) : Alert.alert(i18n.t('common.error'), i18n.t('errors.dataNotLoaded'))}
+                  onPress={() =>
+                    hasData
+                      ? setShowCountryModal(true)
+                      : Alert.alert(i18n.t('common.error'), i18n.t('errors.dataNotLoaded'))
+                  }
                   disabled={!hasData}
                 >
-                  <Ionicons name="location-outline" size={20} color={hasData ? theme.primary : theme.secondaryText} />
+                  <Ionicons
+                    name="bed-outline"
+                    size={20}
+                    color={hasData ? theme.primary : theme.secondaryText}
+                  />
                   <View style={styles.compactInputContent}>
-                    <Text style={[styles.compactLabel, { color: theme.secondaryText }]}>{i18n.t('form.country')}</Text>
-                    <Text style={[styles.compactValue, { color: hasData ? theme.text : theme.secondaryText }]} numberOfLines={1}>
-                      {countries.find(c => c.id.toString() === hotelSearch.countryId)?.name || (hasData ? i18n.t('search.select') : i18n.t('search.notLoaded'))}
+                    <Text style={[styles.compactLabel, { color: theme.secondaryText }]}>
+                      {i18n.t('form.country')}
+                    </Text>
+                    <Text
+                      style={[
+                        styles.compactValue,
+                        { color: hasData ? theme.text : theme.secondaryText },
+                      ]}
+                      numberOfLines={1}
+                    >
+                      {countries.find((c) => c.id.toString() === hotelSearch.countryId)?.name ||
+                        (hasData ? i18n.t('search.selectCountry') : i18n.t('search.notLoaded'))}
                     </Text>
                   </View>
                   <Ionicons name="chevron-down" size={18} color={theme.secondaryText} />
                 </TouchableOpacity>
+              </View>
 
-                <TouchableOpacity 
-                  style={[styles.compactInput, { backgroundColor: theme.secondaryBackground, borderColor: theme.border }]} 
-                  activeOpacity={0.7}
-                  onPress={() => setShowDateModal(true)}
-                >
-                  <Ionicons name="calendar-outline" size={20} color={theme.primary} />
-                  <View style={styles.compactInputContent}>
-                    <Text style={[styles.compactLabel, { color: theme.secondaryText }]}>{i18n.t('form.dates')}</Text>
-                    <Text style={[styles.compactValue, { color: theme.text }]} numberOfLines={1}>
-                      {hotelSearch.checkIn && hotelSearch.checkOut
-                        ? `${formatDate(hotelSearch.checkIn)} - ${formatDate(hotelSearch.checkOut)}`
-                        : i18n.t('search.selectDateRange')}
-                    </Text>
-                  </View>
-                  <Ionicons name="chevron-down" size={18} color={theme.secondaryText} />
-                </TouchableOpacity>
+              {hotelSearch.countryId ? (
+                <View style={[styles.filterRow, { marginTop: 10 }]}>
+                  <Text style={[styles.compactLabel, { color: theme.secondaryText }]}>
+                    {i18n.t('form.resort')}
+                  </Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0 }}>
+                    <TouchableOpacity
+                      style={[
+                        styles.presetChip,
+                        {
+                          borderColor: theme.border,
+                          backgroundColor:
+                            !filterRegionId && !hotelSearch.regionId
+                              ? theme.primary + '20'
+                              : undefined,
+                        },
+                      ]}
+                      onPress={() => {
+                        setFilterRegionId('');
+                        updateHotelSearch('regionId', '');
+                      }}
+                    >
+                      <Text
+                        style={[
+                          styles.presetChipText,
+                          {
+                            color:
+                              !filterRegionId && !hotelSearch.regionId
+                                ? theme.primary
+                                : theme.text,
+                          },
+                        ]}
+                      >
+                        {i18n.t('search.anyResort')}
+                      </Text>
+                    </TouchableOpacity>
+                    {isLoadingRegions ? (
+                      <Text style={[styles.presetChipText, { color: theme.secondaryText }]}>
+                        {i18n.t('form.loading')}
+                      </Text>
+                    ) : (
+                      regions.map((r) => {
+                        const selected =
+                          filterRegionId === String(r.id) ||
+                          hotelSearch.regionId === String(r.id);
+                        return (
+                          <TouchableOpacity
+                            key={r.id}
+                            style={[
+                              styles.presetChip,
+                              {
+                                borderColor: theme.border,
+                                backgroundColor: selected ? theme.primary + '20' : undefined,
+                              },
+                            ]}
+                            onPress={() => {
+                              setFilterRegionId(String(r.id));
+                              updateHotelSearch('regionId', String(r.id));
+                            }}
+                          >
+                            <Text
+                              style={[
+                                styles.presetChipText,
+                                { color: selected ? theme.primary : theme.text },
+                              ]}
+                              numberOfLines={1}
+                            >
+                              {r.name}
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })
+                    )}
+                  </ScrollView>
+                </View>
+              ) : null}
+
+              <View style={[styles.filterRow, { marginTop: 8 }]}>
+                <Text style={[styles.compactLabel, { color: theme.secondaryText }]}>
+                  {i18n.t('form.hotelCategory')}
+                </Text>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                  {(
+                    [
+                      { v: '' as const, l: i18n.t('form.anyCategory') },
+                      { v: 3 as const, l: '3★+' },
+                      { v: 4 as const, l: '4★+' },
+                      { v: 5 as const, l: '5★' },
+                    ] as const
+                  ).map(({ v, l }) => {
+                    const selected = hotelSearch.category === v;
+                    return (
+                      <TouchableOpacity
+                        key={String(v)}
+                        style={[
+                          styles.presetChip,
+                          {
+                            borderColor: theme.border,
+                            backgroundColor: selected ? theme.primary + '20' : undefined,
+                          },
+                        ]}
+                        onPress={() => {
+                          updateHotelSearch('category', v);
+                          setFilterHotelCategory(v);
+                        }}
+                      >
+                        <Text
+                          style={[
+                            styles.presetChipText,
+                            { color: selected ? theme.primary : theme.text },
+                          ]}
+                        >
+                          {l}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
               </View>
             </>
           )}
@@ -1975,6 +2143,8 @@ export default function ApiTourHotelSearch({
                         setFilterRegionId('');
                       } else {
                         updateHotelSearch('countryId', country.id.toString());
+                        updateHotelSearch('regionId', '');
+                        setFilterRegionId('');
                       }
                       setShowCountryModal(false);
                       if (useSearchWizard && activeTab === 'tours' && searchWizardStep === 2) {

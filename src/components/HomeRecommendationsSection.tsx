@@ -135,7 +135,14 @@ export default function HomeRecommendationsSection({ navigation, refreshKey = 0 
       </View>
 
       {loading && items.length === 0 ? (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.row}>
+        <ScrollView
+          horizontal
+          nestedScrollEnabled
+          directionalLockEnabled
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.row}
+          style={styles.gallery}
+        >
           {[0, 1, 2].map((k) => (
             <ShimmerCard key={k} width={cardW} theme={theme} />
           ))}
@@ -151,12 +158,24 @@ export default function HomeRecommendationsSection({ navigation, refreshKey = 0 
           </Text>
         </View>
       ) : (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.row}>
+        <ScrollView
+          horizontal
+          nestedScrollEnabled
+          directionalLockEnabled
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.row}
+          style={styles.gallery}
+          decelerationRate="fast"
+          snapToInterval={cardW + 12}
+          snapToAlignment="start"
+          disableIntervalMomentum
+        >
           {items.map((item) => (
             <TouchableOpacity
               key={item.key}
               activeOpacity={0.88}
               onPress={() => openItem(item)}
+              delayPressIn={50}
               style={[
                 styles.card,
                 shadows.card,
@@ -253,7 +272,8 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   emptyTitle: { fontSize: 16, fontWeight: '700' },
-  row: { paddingRight: 8 },
+  gallery: { marginHorizontal: -2 },
+  row: { paddingRight: 8, paddingVertical: 2 },
   card: {
     borderRadius: radius.lg,
     borderWidth: 1,

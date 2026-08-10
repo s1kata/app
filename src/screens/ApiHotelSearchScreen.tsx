@@ -10,6 +10,7 @@ import {
   ActivityIndicator,
   TextInput,
   ScrollView,
+  FlatList,
   Modal,
   useWindowDimensions,
   Alert,
@@ -801,110 +802,110 @@ export default function ApiHotelSearchScreen({ navigation, route }: ApiHotelSear
     searchParams.hotelServices && searchParams.hotelServices.length > 0,
   ].filter(Boolean).length;
 
-  // Рендер компактных фильтров
-  const renderCompactFilters = () => (
+  const summaryLabel = useMemo(() => {
+    const parts: string[] = [];
+    if (selectedCountry?.name) parts.push(selectedCountry.name);
+    if (selectedRegion?.name) parts.push(selectedRegion.name);
+    if (searchParams.category) parts.push(`${searchParams.category}★+`);
+    return parts.length > 0 ? parts.join(' · ') : 'Выберите направление';
+  }, [selectedCountry, selectedRegion, searchParams.category]);
+
+  // Панель результатов: сводка + поиск по названию + быстрые звёзды (без повторной кнопки «Найти»)
+  const renderResultsToolbar = () => (
     <View style={styles.filtersContainer}>
-      {/* Поиск */}
-      <View style={[styles.searchWrapper, { backgroundColor: theme.secondaryBackground, borderColor: theme.border }]}>
+      <TouchableOpacity
+        style={[
+          styles.summaryBar,
+          { backgroundColor: theme.secondaryBackground, borderColor: theme.border },
+        ]}
+        onPress={() => setShowFiltersModal(true)}
+        activeOpacity={0.75}
+      >
+        <Ionicons name="location" size={18} color={theme.primary} />
+        <View style={styles.summaryBarTextWrap}>
+          <Text style={[styles.summaryBarTitle, { color: theme.text }]} numberOfLines={1}>
+            {summaryLabel}
+          </Text>
+          <Text style={[styles.summaryBarHint, { color: theme.secondaryText }]}>
+            Изменить поиск
+          </Text>
+        </View>
+        <Ionicons name="create-outline" size={18} color={theme.secondaryText} />
+      </TouchableOpacity>
+
+      <View
+        style={[
+          styles.searchWrapper,
+          { backgroundColor: theme.secondaryBackground, borderColor: theme.border },
+        ]}
+      >
         <Ionicons name="search" size={16} color={theme.primary} style={styles.searchIcon} />
         <TextInput
-          style={[styles.searchInput, { backgroundColor: theme.card, color: theme.text, borderColor: theme.border }]}
-          placeholder="Поиск отелей..."
+          style={[styles.searchInput, { color: theme.text }]}
+          placeholder="Поиск по названию..."
           placeholderTextColor={theme.secondaryText}
           value={searchQuery}
           onChangeText={setSearchQuery}
         />
         {searchQuery.length > 0 && (
-          <TouchableOpacity
-            onPress={() => setSearchQuery('')}
-            style={styles.clearButton}
-          >
+          <TouchableOpacity onPress={() => setSearchQuery('')} style={styles.clearButton}>
             <Ionicons name="close-circle" size={16} color={theme.secondaryText} />
           </TouchableOpacity>
         )}
       </View>
-      
-      {/* Компактная строка фильтров */}
+
       <View style={styles.filtersRow}>
-        {/* Кнопка фильтров - объединяет все фильтры */}
         <TouchableOpacity
-          style={styles.filtersButton}
+          style={[
+            styles.filtersButton,
+            {
+              backgroundColor: theme.secondaryBackground,
+              borderColor: theme.border,
+            },
+          ]}
           onPress={() => setShowFiltersModal(true)}
           activeOpacity={0.7}
         >
           <Ionicons name="options" size={16} color={theme.primary} />
           <Text style={[styles.filtersButtonText, { color: theme.text }]}>Фильтры</Text>
           {activeFiltersCount > 0 && (
-            <View style={styles.filtersBadge}>
+            <View style={[styles.filtersBadge, { backgroundColor: theme.primary }]}>
               <Text style={styles.filtersBadgeText}>{activeFiltersCount}</Text>
             </View>
           )}
         </TouchableOpacity>
 
-        {/* Быстрые фильтры по категории */}
         <View style={styles.categoryButtons}>
-          {[3, 4, 5].map(category => (
-            <TouchableOpacity
-              key={category}
-              style={[
-                styles.categoryButtonCompact,
-                searchParams.category === category && styles.categoryButtonActive
-              ]}
-              onPress={() => updateSearchParam('category', searchParams.category === category ? undefined : category)}
-              activeOpacity={0.7}
-            >
-              {Array.from({ length: category }, (_, i) => (
-                <Ionicons key={i} name="star" size={10} color={searchParams.category === category ? "#fff" : "#FFD700"} />
-              ))}
-            </TouchableOpacity>
-          ))}
+          {[3, 4, 5].map((category) => {
+            const selected = searchParams.category === category;
+            return (
+              <TouchableOpacity
+                key={category}
+                style={[
+                  styles.categoryButtonCompact,
+                  {
+                    backgroundColor: selected ? theme.primary : theme.secondaryBackground,
+                    borderColor: selected ? theme.primary : theme.border,
+                  },
+                ]}
+                onPress={() =>
+                  updateSearchParam('category', selected ? undefined : category)
+                }
+                activeOpacity={0.7}
+              >
+                {Array.from({ length: category }, (_, i) => (
+                  <Ionicons
+                    key={i}
+                    name="star"
+                    size={10}
+                    color={selected ? '#fff' : '#E8B923'}
+                  />
+                ))}
+              </TouchableOpacity>
+            );
+          })}
         </View>
       </View>
-
-      {/* Активные фильтры - чипсы */}
-      {activeFiltersCount > 0 && (
-        <View style={styles.activeFiltersRow}>
-          {selectedCountry && (
-            <TouchableOpacity
-              style={styles.filterChip}
-              onPress={() => {
-                updateSearchParam('countryId', undefined);
-                updateSearchParam('regionId', undefined);
-              }}
-            >
-              <Text style={[styles.filterChipText, { color: theme.text }]}>{selectedCountry.name}</Text>
-              <Ionicons name="close" size={12} color={theme.primary} />
-            </TouchableOpacity>
-          )}
-          {selectedRegion && (
-            <TouchableOpacity
-              style={styles.filterChip}
-              onPress={() => updateSearchParam('regionId', undefined)}
-            >
-              <Text style={[styles.filterChipText, { color: theme.text }]}>{selectedRegion.name}</Text>
-              <Ionicons name="close" size={12} color={theme.primary} />
-            </TouchableOpacity>
-          )}
-          {searchParams.category && (
-            <TouchableOpacity
-              style={styles.filterChip}
-              onPress={() => updateSearchParam('category', undefined)}
-            >
-              <Text style={[styles.filterChipText, { color: theme.text }]}>{searchParams.category}★</Text>
-              <Ionicons name="close" size={12} color={theme.primary} />
-            </TouchableOpacity>
-          )}
-          {searchParams.rating && (
-            <TouchableOpacity
-              style={styles.filterChip}
-              onPress={() => updateSearchParam('rating', undefined)}
-            >
-              <Text style={styles.filterChipText}>Рейтинг {searchParams.rating}+</Text>
-              <Ionicons name="close" size={12} color="#0066CC" />
-            </TouchableOpacity>
-          )}
-        </View>
-      )}
     </View>
   );
 
@@ -916,16 +917,16 @@ export default function ApiHotelSearchScreen({ navigation, route }: ApiHotelSear
       transparent={true}
       onRequestClose={() => setShowFiltersModal(false)}
     >
-      <View style={styles.modalOverlay}>
-        <View style={styles.modalContent}>
+      <View style={[styles.modalOverlay, { backgroundColor: 'rgba(0,0,0,0.45)' }]}>
+        <View style={[styles.modalContent, { backgroundColor: theme.card }]}>
           {/* Заголовок модального окна */}
-          <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>Фильтры</Text>
+          <View style={[styles.modalHeader, { borderBottomColor: theme.border }]}>
+            <Text style={[styles.modalTitle, { color: theme.text }]}>Фильтры</Text>
             <TouchableOpacity
               onPress={() => setShowFiltersModal(false)}
               style={styles.modalCloseButton}
             >
-              <Ionicons name="close" size={24} color="#1D1D1F" />
+              <Ionicons name="close" size={24} color={theme.text} />
             </TouchableOpacity>
           </View>
 

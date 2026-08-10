@@ -172,69 +172,74 @@ function np_fetch_hotels_page(array $config, int $countryId, ?int $regionId, ?in
     ];
 }
 
-$allHotels = [];
-$total = 0;
-$totalPages = 1;
-$currentPage = $page;
-$maxPages = $allPages ? 40 : 1;
-$lastStatus = 200;
+try {
+    $allHotels = [];
+    $total = 0;
+    $totalPages = 1;
+    $currentPage = $page;
+    $maxPages = $allPages ? 40 : 1;
+    $lastStatus = 200;
 
-for ($i = 0; $i < $maxPages; $i++) {
-    $chunk = np_fetch_hotels_page(
-        $CONFIG,
-        $countryId,
-        $regionId,
-        $category,
-        $rating,
-        $types,
-        $currentPage,
-        $limit
-    );
-    $lastStatus = $chunk['status'];
-    if ($chunk['hotels'] === [] && $i === 0 && $lastStatus >= 400) {
-        user_sync_json_error('Tourvisor hotels request failed', $lastStatus >= 400 ? $lastStatus : 502);
+    for ($i = 0; $i < $maxPages; $i++) {
+        $chunk = np_fetch_hotels_page(
+            $CONFIG,
+            $countryId,
+            $regionId,
+            $category,
+            $rating,
+            $types,
+            $currentPage,
+            $limit
+        );
+        $lastStatus = $chunk['status'];
+        if ($chunk['hotels'] === [] && $i === 0 && $lastStatus >= 400) {
+            user_sync_json_error('Tourvisor hotels request failed', $lastStatus >= 400 ? $lastStatus : 502);
+        }
+
+        $allHotels = array_merge($allHotels, $chunk['hotels']);
+        $total = $chunk['total'] > 0 ? $chunk['total'] : count($allHotels);
+        $totalPages = max(1, (int) $chunk['totalPages']);
+
+        if (!$allPages) {
+            break;
+        }
+        if (count($chunk['hotels']) < $limit) {
+            break;
+        }
+        if ($currentPage >= $totalPages) {
+            break;
+        }
+        $currentPage++;
+        usleep(80000);
     }
 
-    $allHotels = array_merge($allHotels, $chunk['hotels']);
-    $total = $chunk['total'] > 0 ? $chunk['total'] : count($allHotels);
-    $totalPages = max(1, (int) $chunk['totalPages']);
+    // Deduplicate by id
+    $uniq = [];
+    $deduped = [];
+    foreach ($allHotels as $h) {
+        $hid = (int) ($h['id'] ?? 0);
+        if ($hid <= 0 || isset($uniq[$hid])) {
+            continue;
+        }
+        $uniq[$hid] = true;
+        $deduped[] = $h;
+    }
+    $allHotels = $deduped;
 
-    if (!$allPages) {
-        break;
+    if ($pdo instanceof PDO) {
+        $allHotels = np_enrich_hotels_with_images($pdo, $allHotels, $CONFIG, $enrich, $enrich ? 20 : 0);
     }
-    if (count($chunk['hotels']) < $limit) {
-        break;
-    }
-    if ($currentPage >= $totalPages) {
-        break;
-    }
-    $currentPage++;
-    usleep(80000);
+
+    user_sync_json_ok([
+        'hotels' => $allHotels,
+        'total' => $allPages ? count($allHotels) : $total,
+        'page' => $page,
+        'limit' => $limit,
+        'totalPages' => $allPages ? 1 : $totalPages,
+        'allPages' => $allPages,
+        'enriched' => $enrich,
+    ]);
+} catch (Throwable $e) {
+    error_log('[hotels/search] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+    user_sync_json_error('Hotel search failed', 500);
 }
-
-// Deduplicate by id
-$uniq = [];
-$deduped = [];
-foreach ($allHotels as $h) {
-    $hid = (int) ($h['id'] ?? 0);
-    if ($hid <= 0 || isset($uniq[$hid])) {
-        continue;
-    }
-    $uniq[$hid] = true;
-    $deduped[] = $h;
-}
-$allHotels = $deduped;
-
-if ($pdo instanceof PDO) {
-    $allHotels = np_enrich_hotels_with_images($pdo, $allHotels, $CONFIG, $enrich, $enrich ? 20 : 0);
-}
-
-user_sync_json_ok([
-    'hotels' => $allHotels,
-    'total' => $allPages ? count($allHotels) : $total,
-    'page' => $page,
-    'limit' => $limit,
-    'totalPages' => $allPages ? 1 : $totalPages,
-    'allPages' => $allPages,
-    'enriched' => $enrich,
-]);

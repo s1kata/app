@@ -26,7 +26,7 @@ import { TourHot } from '../types/tourvisor';
 import { radius, shadows, spacing } from '../config/designSystem';
 import { logger } from '../utils/logger';
 
-const CACHE_KEY = 'home_hot_tours_v1';
+const CACHE_KEY = 'home_hot_tours_v2';
 const CACHE_TTL_MS = 15 * 60 * 1000;
 const LIMIT = 8;
 const DEFAULT_DEPARTURE = 1; // Москва
@@ -96,61 +96,39 @@ export default function HomeHotToursSection({ navigation, refreshKey = 0 }: Prop
       try {
         const recent = await recommendationService.getRecentSearches();
         const departureId = recent.find((r) => r.departureId)?.departureId || DEFAULT_DEPARTURE;
-        const countryIds = recent.map((r) => r.countryId).filter(Boolean).slice(0, 3);
 
-        const params: Parameters<typeof tourvisorApi.getHotTours>[0] = {
+        // Сначала без фильтра по странам — так горящие стабильнее заполняются
+        const baseParams: Parameters<typeof tourvisorApi.getHotTours>[0] = {
           departureId,
           currency: 'RUB',
           onlyCharter: false,
           limit: 40,
         };
-        if (countryIds.length) params.countryIds = countryIds;
 
-        let hot: TourHot[] = [];
-        try {
-          const remote = await fetchHotToursViaBackend(params);
-          if (remote.success && remote.data?.length) {
-            hot = remote.data;
-          } else {
-            logger.debug('[HomeHotTours] backend miss:', remote.error);
-          }
-        } catch (e) {
-          logger.debug('[HomeHotTours] backend error:', (e as Error)?.message);
-        }
-
-        // Legacy fallback пока /api/tours/hots не задеплоен
-        if (!hot.length) {
+        const tryFetch = async (
+          params: Parameters<typeof tourvisorApi.getHotTours>[0],
+        ): Promise<TourHot[]> => {
           try {
-            hot = await tourvisorApi.getHotTours(params);
-            if ((!Array.isArray(hot) || hot.length === 0) && countryIds.length) {
-              hot = await tourvisorApi.getHotTours({
-                departureId,
-                currency: 'RUB',
-                onlyCharter: false,
-                limit: 40,
-              });
-            }
+            const remote = await fetchHotToursViaBackend(params);
+            if (remote.success && remote.data?.length) return remote.data;
+            logger.debug('[HomeHotTours] backend miss:', remote.error);
+          } catch (e) {
+            logger.debug('[HomeHotTours] backend error:', (e as Error)?.message);
+          }
+          try {
+            const legacy = await tourvisorApi.getHotTours(params);
+            return Array.isArray(legacy) ? legacy : [];
           } catch (e) {
             logger.debug('[HomeHotTours] legacy fallback:', (e as Error)?.message);
-            hot = [];
+            return [];
           }
-        }
+        };
 
-        // If filtered by country returned empty, retry without countries once
-        if ((!Array.isArray(hot) || hot.length === 0) && countryIds.length) {
-          try {
-            const remoteAll = await fetchHotToursViaBackend({
-              departureId,
-              currency: 'RUB',
-              onlyCharter: false,
-              limit: 40,
-            });
-            if (remoteAll.success && remoteAll.data?.length) {
-              hot = remoteAll.data;
-            }
-          } catch {
-            /* ignore */
-          }
+        let hot = await tryFetch(baseParams);
+
+        // Если пусто — пробуем departure Москва (1)
+        if (!hot.length && departureId !== DEFAULT_DEPARTURE) {
+          hot = await tryFetch({ ...baseParams, departureId: DEFAULT_DEPARTURE });
         }
 
         const list = (Array.isArray(hot) ? hot : []).slice(0, LIMIT);
@@ -161,7 +139,11 @@ export default function HomeHotToursSection({ navigation, refreshKey = 0 }: Prop
           setItems(list);
           await AsyncStorage.setItem(
             CACHE_KEY,
-            JSON.stringify({ at: Date.now(), items: list, departureId } satisfies CachePayload),
+            JSON.stringify({
+              at: Date.now(),
+              items: list,
+              departureId: list.length ? departureId : DEFAULT_DEPARTURE,
+            } satisfies CachePayload),
           );
         } else if (!soft) {
           setItems([]);
@@ -233,7 +215,13 @@ export default function HomeHotToursSection({ navigation, refreshKey = 0 }: Prop
       </View>
 
       {loading && items.length === 0 ? (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.row}>
+        <ScrollView
+          horizontal
+          nestedScrollEnabled
+          directionalLockEnabled
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.row}
+        >
           {[0, 1, 2].map((k) => (
             <ShimmerCard key={k} width={cardW} theme={theme} />
           ))}
@@ -241,7 +229,7 @@ export default function HomeHotToursSection({ navigation, refreshKey = 0 }: Prop
       ) : items.length === 0 ? (
         <TouchableOpacity
           activeOpacity={0.88}
-          onPress={openAll}
+          onPress={() => void load(true)}
           style={[styles.empty, { backgroundColor: theme.card, borderColor: theme.border }]}
         >
           <View style={[styles.emptyIcon, { backgroundColor: `${theme.accent || theme.primary}14` }]}>
@@ -251,9 +239,35 @@ export default function HomeHotToursSection({ navigation, refreshKey = 0 }: Prop
           <Text style={[styles.hint, { color: theme.secondaryText }]}>
             {i18n.t('home.hotDealsEmptyDesc')}
           </Text>
+          <View style={{ flexDirection: 'row', gap: 10, marginTop: 12 }}>
+            <TouchableOpacity
+              onPress={() => void load(true)}
+              style={[styles.allBtn, { borderColor: theme.border, backgroundColor: theme.card }]}
+            >
+              <Text style={[styles.allBtnText, { color: theme.primary }]}>
+                {i18n.t('home.hotDealsRetry')}
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={openAll}
+              style={[styles.allBtn, { borderColor: theme.border, backgroundColor: theme.card }]}
+            >
+              <Text style={[styles.allBtnText, { color: theme.primary }]}>
+                {i18n.t('home.hotDealsAll')}
+              </Text>
+              <Ionicons name="chevron-forward" size={16} color={theme.primary} />
+            </TouchableOpacity>
+          </View>
         </TouchableOpacity>
       ) : (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.row}>
+        <ScrollView
+          horizontal
+          nestedScrollEnabled
+          directionalLockEnabled
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.row}
+          decelerationRate="fast"
+        >
           {items.map((item, idx) => {
             const drop = discountPercent(item);
             const key = `hot_${item.hotel?.id}_${item.date}_${idx}`;
@@ -264,6 +278,7 @@ export default function HomeHotToursSection({ navigation, refreshKey = 0 }: Prop
                 key={key}
                 activeOpacity={0.88}
                 onPress={() => openItem(item)}
+                delayPressIn={50}
                 style={[
                   styles.card,
                   shadows.card,

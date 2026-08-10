@@ -1,0 +1,51 @@
+﻿[
+  {
+    "id": "7a5961cd-471a-4c5a-8f1c-e61dd7b1b676",
+    "status": "FINISHED",
+    "platform": "ANDROID",
+    "artifacts": {
+      "buildUrl": "https://expo.dev/artifacts/eas/ysluO3vS4IvFXtF1TXbcXF_k0FAFUtkqpolIgixy_t4.apk",
+      "applicationArchiveUrl": "https://expo.dev/artifacts/eas/ysluO3vS4IvFXtF1TXbcXF_k0FAFUtkqpolIgixy_t4.apk"
+    },
+    "fingerprint": {
+      "id": "019fe374-e51f-7209-b8d3-4a1d303dfe33",
+      "hash": "d9f906d4f55dd3a3e448f2554fcdaa1042c4d272"
+    },
+    "initiatingActor": {
+      "id": "f8b1be74-47f9-4b28-99c2-c074a82fb9b9",
+      "displayName": "s1kata12"
+    },
+    "logFiles": [
+      "https://storage.googleapis.com/eas-workflows-production/logs/0f6984f9-e3d1-46f5-ae15-dd0e5b4deef2/7a5961cd-471a-4c5a-8f1c-e61dd7b1b676/2026-08-09T20%3A31%3A58Z-5d88418e-a399-4896-9888-b82f506f4b86.txt?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=www-production%40exponentjs.iam.gserviceaccount.com%2F20260809%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20260809T204305Z&X-Goog-Expires=900&X-Goog-SignedHeaders=host&X-Goog-Signature=8ff083ed89937d07aaaeb9bb19b58e5c4dc7bda49ae16f3b5cb39116588018358579e8b9e8cadf6c4ab4680f3783014dace91215133a9971c6d67abe7684df56a1b3592951983699c9ae9f9088923a395def66883c78628cc49e919d10cd9f79d390653a49c79e3d3a9831551fcfa9ca26fd07d9ce354164fcbc72349028f28f5d37b1a5f0f9ca6889c366acde8b30c2bdbfc3909f02c77ec706f15ea8a33cd44869353959140a62ea791c9978da82ee6f6ec00d7645da76f3296ec33de6f6fabbf119179747c01cfc59ec84abffed0c3ff2c3d18030a82d06f0565fc24e5e9777beeeb2cfc70dee724f58def56d5d5847687921f9e4665025876ecb6cee6035"
+    ],
+    "project": {
+      "id": "0f6984f9-e3d1-46f5-ae15-dd0e5b4deef2",
+      "name": "travelhub",
+      "slug": "travelhub",
+      "ownerAccount": {
+        "id": "9437a3be-15d4-4831-bfda-886c88a186a3",
+        "name": "s1kata12"
+      }
+    },
+    "channel": "preview",
+    "distribution": "INTERNAL",
+    "buildProfile": "preview",
+    "sdkVersion": "54.0.0",
+    "appVersion": "1.0.3",
+    "appBuildVersion": "4",
+    "runtimeVersion": "1.0.3",
+    "gitCommitHash": "fed78262fcc96c7a3021a80273324748a590471e",
+    "gitCommitMessage": "ain",
+    "priority": "NORMAL",
+    "createdAt": "2026-08-09T20:31:56.116Z",
+    "updatedAt": "2026-08-09T20:42:18.282Z",
+    "completedAt": "2026-08-09T20:42:18.102Z",
+    "expirationDate": "2026-08-23T20:31:56.156Z",
+    "isForIosSimulator": false,
+    "metrics": {
+      "buildWaitTime": 1097,
+      "buildQueueTime": 5477,
+      "buildDuration": 615412
+    }
+  }
+]
