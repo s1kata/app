@@ -61,6 +61,8 @@ export class AuthApiError extends Error {
   }
 }
 
+let refreshInFlight: Promise<RefreshOutcome> | null = null;
+
 export const authApiClient = {
   async login(email: string, password: string): Promise<AuthTokenResponse> {
     const data = await postAuth<AuthTokenResponse>('login', { email, password });
@@ -99,27 +101,41 @@ export const authApiClient = {
   },
 
   async refreshWithOutcome(): Promise<RefreshOutcome> {
-    const refreshToken = await authSession.getRefreshToken();
-    if (!refreshToken) return 'auth_failed';
-    logger.debug('[AuthApiClient] refresh start');
-    try {
-      const data = await postAuth<AuthTokenResponse>('refresh', { refreshToken });
-      if (data.accessToken && data.refreshToken && data.user && data.expiresIn) {
-        await authSession.saveSession({
-          accessToken: data.accessToken,
-          refreshToken: data.refreshToken,
-          expiresIn: data.expiresIn,
-          user: data.user,
-        });
-        logger.info('[AuthApiClient] refresh success');
-        return 'ok';
-      }
-      logger.warn('[AuthApiClient] refresh failed: invalid payload');
-      return 'network_error';
-    } catch (e) {
-      logger.warn('[AuthApiClient] refresh failed:', e);
-      return classifyRefreshFailure(e);
+    if (refreshInFlight) {
+      return refreshInFlight;
     }
+    refreshInFlight = (async (): Promise<RefreshOutcome> => {
+      const refreshToken = await authSession.getRefreshToken();
+      if (!refreshToken) return 'auth_failed';
+      logger.debug('[AuthApiClient] refresh start');
+      try {
+        const data = await postAuth<AuthTokenResponse>('refresh', { refreshToken });
+        if (data.accessToken && data.refreshToken && data.user && data.expiresIn) {
+          await authSession.saveSession({
+            accessToken: data.accessToken,
+            refreshToken: data.refreshToken,
+            expiresIn: data.expiresIn,
+            user: data.user,
+          });
+          logger.info('[AuthApiClient] refresh success');
+          return 'ok';
+        }
+        logger.warn('[AuthApiClient] refresh failed: invalid payload');
+        return 'network_error';
+      } catch (e) {
+        logger.warn('[AuthApiClient] refresh failed:', e);
+        // Параллельный refresh мог уже сохранить новые токены — не сбрасываем сессию
+        const stillHasAccess = !!(await authSession.getAccessToken());
+        const stillExpired = await authSession.isAccessTokenExpired();
+        if (stillHasAccess && !stillExpired) {
+          return 'ok';
+        }
+        return classifyRefreshFailure(e);
+      }
+    })().finally(() => {
+      refreshInFlight = null;
+    });
+    return refreshInFlight;
   },
 
   async refresh(): Promise<boolean> {

@@ -29,6 +29,7 @@ import {
   PaginatedResponse,
   HotelGroupService,
   HotelService,
+  TourSearchParams,
 } from '../types/tourvisor';
 import { platform } from '../utils/platform';
 import { cacheService, CacheType } from '../services/CacheService';
@@ -175,12 +176,68 @@ export default function ApiHotelSearchScreen({ navigation, route }: ApiHotelSear
     !isLoading && hotels.length > 0 && apiReady
   );
 
+  const tourContext = (route?.params?.tourContext || {}) as Partial<TourSearchParams>;
+
+  const buildTourSearchForHotel = useCallback(
+    (hotel: HotelCompact): TourSearchParams | null => {
+      const departureId = Number(tourContext.departureId);
+      if (!departureId || !hotel.country?.id) {
+        return null;
+      }
+      const today = new Date();
+      const from = new Date(today);
+      from.setDate(from.getDate() + 14);
+      const to = new Date(from);
+      to.setDate(to.getDate() + 7);
+      const iso = (d: Date) => d.toISOString().slice(0, 10);
+      return {
+        departureId,
+        countryId: hotel.country.id,
+        dateFrom: tourContext.dateFrom || iso(from),
+        dateTo: tourContext.dateTo || iso(to),
+        nightsFrom: tourContext.nightsFrom || 7,
+        nightsTo: tourContext.nightsTo || 14,
+        adults: tourContext.adults || 2,
+        childs: Array.isArray(tourContext.childs) ? tourContext.childs : [],
+        hotelIds: [hotel.id],
+        hotelCategory: hotel.category > 0 ? hotel.category : undefined,
+        regionIds: hotel.region?.id ? [hotel.region.id] : undefined,
+        currency: tourContext.currency || 'RUB',
+        onlyCharter: false,
+      };
+    },
+    [tourContext]
+  );
+
   const handleHotelPress = useCallback(
     (hotel: HotelCompact) => {
       hotelCacheService.set(hotel.id, hotel);
-      navigation.navigate('ApiHotelDetails', { hotelId: hotel.id, hotelPreview: hotel });
+      navigation.navigate('ApiHotelDetails', {
+        hotelId: hotel.id,
+        hotelPreview: hotel,
+        tourContext,
+      });
     },
-    [navigation]
+    [navigation, tourContext]
+  );
+
+  const handleOpenTours = useCallback(
+    (hotel: HotelCompact) => {
+      const params = buildTourSearchForHotel(hotel);
+      if (!params) {
+        Alert.alert(
+          'Нужен город вылета',
+          'Цены на отель появляются только в поиске туров. Вернитесь на главную, выберите город вылета и даты, затем снова откройте отель.'
+        );
+        return;
+      }
+      navigation.navigate('ApiTourResults', {
+        searchParams: params,
+        useCache: false,
+        runSearch: true,
+      });
+    },
+    [buildTourSearchForHotel, navigation]
   );
 
   const loadDictionaryData = useCallback(async (isCancelled?: () => boolean) => {
@@ -328,423 +385,70 @@ export default function ApiHotelSearchScreen({ navigation, route }: ApiHotelSear
   }, [searchParams.countryId, searchParams.regionId]);
 
   const loadHotels = async (reset: boolean = false) => {
-    // Если уже была неудача, не делаем новые запросы
-    if (hasFailedOnce && !reset) {
+    if (hasFailedOnce && !reset) return;
+    if (isLoading || (isLoadingMore && !reset)) return;
+    if (!searchParams.countryId) {
+      if (reset) {
+        setHotels([]);
+        setTotalCount(0);
+        setHasMore(false);
+      }
       return;
     }
 
-    // Предотвращаем множественные одновременные запросы
-    if (isLoading || (isLoadingMore && !reset)) {
-      return;
-    }
+    const pageToLoad = reset ? 1 : Math.max(1, searchParams.page || 1);
+    const limit = 20;
 
-    // Валидация: согласно документации Tourvisor API, countryId является обязательным параметром для метода /hotels
-    // Если countryId не указан и это не поиск по всем странам, прекращаем выполнение
-    if (!searchParams.countryId && reset) {
-      logger.warn('[HotelSearch] countryId is required according to Tourvisor API documentation. Cannot load hotels without country.');
-      setIsLoading(false);
-      setIsLoadingMore(false);
-      return;
+    if (reset) {
+      setIsLoading(true);
+      setHasFailedOnce(false);
+      setSearchParams((prev) => ({ ...prev, page: 1, limit }));
+    } else {
+      setIsLoadingMore(true);
     }
-
-    // Генерируем ключ кэша на основе параметров поиска
-    const cacheKey = getCacheKeyFromParams(searchParams);
 
     try {
+      const params: HotelSearchParams = {
+        countryId: searchParams.countryId,
+        page: pageToLoad,
+        limit,
+      };
+      if (searchParams.regionId) params.regionId = searchParams.regionId;
+      if (searchParams.category) params.category = searchParams.category;
+      if (searchParams.types?.length) params.types = searchParams.types;
+      if (searchParams.rating) params.rating = searchParams.rating;
+
+      // GET /hotels = каталог (без цен). enrich на бэке подтягивает фото через /hotels/{id}.
+      // Цены — только через поиск туров (см. api.tourvisor.ru/search/docs).
+      const response = await getHotelsPage(params);
+      const pageHotels = (response.data || []).map((hotel) =>
+        normalizeHotelImages({ ...hotel }) as HotelCompact
+      );
+
       if (reset) {
-        setIsLoading(true);
+        setHotels(pageHotels);
+      } else {
+        setHotels((prev) => {
+          const seen = new Set(prev.map((h) => h.id));
+          return [...prev, ...pageHotels.filter((h) => !seen.has(h.id))];
+        });
+      }
+
+      const total = response.total || pageHotels.length;
+      const totalPages = Math.max(1, response.totalPages || Math.ceil(total / limit));
+      setTotalCount(total);
+      const nextPage = pageToLoad + 1;
+      setHasMore(pageToLoad < totalPages && pageHotels.length > 0);
+      setSearchParams((prev) => ({ ...prev, page: nextPage, limit }));
+      setHasFailedOnce(false);
+    } catch (error) {
+      logger.error('[HotelSearch] load failed:', error);
+      if (reset) {
         setHotels([]);
-        setSearchParams(prev => ({ ...prev, page: 1 }));
-        setHasFailedOnce(false);
-
-        // Загружаем все отели по выбранным фильтрам сразу (все страницы)
-        if (searchParams.countryId) {
-          const params: HotelSearchParams = {
-            ...searchParams,
-            page: 1,
-            limit: 100,
-          };
-          const data = await searchHotelsAll(params);
-          if (data.length > 0) {
-            setHotels(data);
-            setTotalCount(data.length);
-            await saveHotelsToGlobalCache(data);
-            setIsLoading(false);
-            setIsLoadingMore(false);
-            return;
-          }
-        }
-      } else {
-        setIsLoadingMore(true);
+        setTotalCount(0);
       }
-
-      // Если выбрано "Все страны" (нет countryId), загружаем ВСЕ отели из ВСЕХ доступных стран
-      if (!searchParams.countryId) {
-        // Используем только уже загруженные страны - без автоматической загрузки
-        const countriesToLoad = countries;
-        
-        if (countriesToLoad.length === 0) {
-          logger.warn('[HotelSearch] No countries available. Please load countries first or select a specific country.');
-          setIsLoading(false);
-          setIsLoadingMore(false);
-          return;
-        }
-        
-        logger.debug(`[HotelSearch] Loading hotels for all countries. Total countries: ${countriesToLoad.length}`);
-        
-        // Базовые параметры для запросов
-        // Согласно документации Tourvisor API: countryId обязателен для каждого запроса
-        // Опциональные: regionId, category, types, rating, page, limit
-        const baseParams: Partial<HotelSearchParams> = {
-          page: 1,
-          limit: 100, // Уменьшаем лимит для более стабильной работы
-        };
-          
-        if (searchParams.category) {
-          baseParams.category = searchParams.category;
-        }
-        if (searchParams.types && searchParams.types.length > 0) {
-          baseParams.types = searchParams.types;
-        }
-        if (searchParams.rating) {
-          baseParams.rating = searchParams.rating;
-        }
-        // Примечание: hotelServices не поддерживается в методе /hotels согласно документации Tourvisor API
-        // Услуги отелей используются только в поиске туров, не в поиске отелей
-
-        // Ограничиваем количество стран для ускорения - берем только первые 10 самых популярных
-        const countriesToLoadLimited = countriesToLoad.slice(0, 10);
-        const MAX_TOTAL_HOTELS = 1000; // Максимальное количество отелей для загрузки
-        const HOTELS_PER_COUNTRY = 100; // Отелей на страну
-        
-        // Функция для загрузки отелей из страны
-        // Согласно документации Tourvisor API: countryId обязателен для метода /hotels
-        const loadHotelsForCountry = async (country: Country, retryCount = 0): Promise<HotelCompact[]> => {
-          const allHotelsForCountry: HotelCompact[] = [];
-          let currentPage = 1;
-          let hasMore = true;
-          const maxRetries = 2;
-          
-          while (hasMore && allHotelsForCountry.length < HOTELS_PER_COUNTRY) {
-            try {
-              // Согласно документации Tourvisor API: GET /hotels
-              // countryId (required), regionId, category, types, rating, page (default: 1), limit (default: 20)
-              const params: HotelSearchParams = {
-                countryId: country.id, // Обязательный параметр согласно документации
-                page: currentPage,
-                limit: 50, // Размер страницы
-                ...(baseParams.category && { category: baseParams.category }),
-                ...(baseParams.types && baseParams.types.length > 0 && { types: baseParams.types }),
-                ...(baseParams.rating && { rating: baseParams.rating }),
-              };
-              
-              const response = await getHotelsPage(params);
-              
-              if (response.data && response.data.length > 0) {
-                // Нормализуем фото из любых полей API (picturelink, picture, image, images, photo и т.д.)
-                const hotelsWithData = response.data.map((hotel: any) => {
-                  if (allHotelsForCountry.length === 0 && currentPage === 1 && __DEV__) {
-                    logger.debug(`[HotelSearch] Sample hotel from API:`, JSON.stringify(hotel, null, 2).substring(0, 800));
-                  }
-                  return normalizeHotelImages({ ...hotel }) as HotelCompact;
-                });
-                
-                allHotelsForCountry.push(...hotelsWithData);
-                logger.debug(`[HotelSearch] Loaded ${response.data.length} hotels from ${country.name} (page ${currentPage}, total: ${allHotelsForCountry.length}, with images: ${hotelsWithData.filter(h => h.picturelink).length})`);
-                
-                // Проверяем, закончились ли страницы
-                const totalPages = response.totalPages || Math.ceil(response.total / (params.limit || 50));
-                hasMore = currentPage < totalPages && 
-                         response.data.length === params.limit && 
-                         allHotelsForCountry.length < HOTELS_PER_COUNTRY;
-                currentPage++;
-              } else {
-                logger.debug(`[HotelSearch] No hotels found for ${country.name} (page ${currentPage})`);
-                hasMore = false;
-              }
-            } catch (error: any) {
-              logger.error(`[HotelSearch] Error loading hotels for ${country.name}:`, error.message);
-              // Обработка ошибки 429 (Too Many Requests)
-              if (error?.message?.includes('429') && retryCount < maxRetries) {
-                const delay = Math.pow(2, retryCount) * 1000; // Экспоненциальная задержка: 1s, 2s
-                logger.debug(`[HotelSearch] Rate limit hit for ${country.name}, retrying after ${delay}ms...`);
-                await new Promise(resolve => setTimeout(resolve, delay));
-                return loadHotelsForCountry(country, retryCount + 1);
-              }
-              
-              // Для других ошибок просто прекращаем загрузку для этой страны
-              hasMore = false;
-            }
-          }
-          
-          return allHotelsForCountry;
-        };
-
-        // Загружаем отели из всех стран последовательно
-        const allHotels: HotelCompact[] = [];
-        let successfulCountries = 0;
-        let failedCountries = 0;
-        
-        // Обновляем состояние по мере загрузки для показа прогресса
-        const updateHotelsProgressively = (newHotels: HotelCompact[]) => {
-          const uniqueHotels = newHotels.filter((hotel, index, self) =>
-            index === self.findIndex(h => h.id === hotel.id)
-          );
-          setHotels(prev => {
-            const combined = [...prev, ...uniqueHotels];
-            return combined.filter((hotel, index, self) =>
-              index === self.findIndex(h => h.id === hotel.id)
-            );
-          });
-          setTotalCount(uniqueHotels.length);
-        };
-        
-        // Загружаем страны последовательно для избежания rate limit
-        for (let i = 0; i < countriesToLoadLimited.length && allHotels.length < MAX_TOTAL_HOTELS; i++) {
-          const country = countriesToLoadLimited[i];
-          logger.debug(`[HotelSearch] Loading hotels for ${country.name} (${i + 1}/${countriesToLoadLimited.length})`);
-          
-          try {
-            const hotels = await loadHotelsForCountry(country);
-            if (hotels.length > 0) {
-              successfulCountries++;
-              // Добавляем отели
-              const remaining = MAX_TOTAL_HOTELS - allHotels.length;
-              allHotels.push(...hotels.slice(0, remaining));
-              
-              // Обновляем UI прогрессивно
-              if (reset && allHotels.length > 0) {
-                updateHotelsProgressively(allHotels);
-              }
-            }
-          } catch (error: any) {
-            logger.error(`[HotelSearch] Failed to load hotels for ${country.name}:`, error.message);
-            failedCountries++;
-          }
-          
-          // Задержка между странами (кроме последней)
-          if (i < countriesToLoadLimited.length - 1 && allHotels.length < MAX_TOTAL_HOTELS) {
-            await new Promise(resolve => setTimeout(resolve, 300)); // 300ms задержка между странами
-          }
-        }
-
-        logger.debug(`[HotelSearch] Finished loading. Total hotels: ${allHotels.length}, Successful countries: ${successfulCountries}, Failed countries: ${failedCountries}`);
-
-        // Финальная обработка - удаляем дубликаты и обновляем состояние
-        const uniqueHotels = allHotels.filter((hotel, index, self) =>
-          index === self.findIndex(h => h.id === hotel.id)
-        );
-
-        // Сортируем по ID для стабильности
-        uniqueHotels.sort((a, b) => a.id - b.id);
-
-        // Обновляем состояние
-        if (reset) {
-          setHotels(uniqueHotels);
-        } else {
-          setHotels(prev => {
-            const combined = [...prev, ...uniqueHotels];
-            // Удаляем дубликаты
-            return combined.filter((hotel, index, self) =>
-              index === self.findIndex(h => h.id === hotel.id)
-            );
-          });
-        }
-        
-        setTotalCount(uniqueHotels.length);
-        
-        // Сохраняем в оба кэша: специфичный по параметрам и общий кэш всех отелей
-        if (reset && uniqueHotels.length > 0) {
-          await cacheService.set(CacheType.SEARCH_RESULTS, cacheKey, uniqueHotels);
-          logger.debug(`[HotelSearch] Hotels cached by params: ${uniqueHotels.length} hotels saved (key: "${cacheKey}")`);
-          await saveHotelsToGlobalCache(uniqueHotels);
-        }
-        
-        // Отключено: загрузка фото через getHotelDetails требует отдельной подписки API
-        // Используем только изображения из базового списка отелей (/hotels)
-        // if (uniqueHotels.length > 0) {
-        //   loadHotelImages(uniqueHotels.slice(0, 50));
-        // }
-        
-        // Если получили пустой результат, устанавливаем флаг неудачи
-        if (uniqueHotels.length === 0) {
-          logger.warn('[HotelSearch] No hotels found for all countries');
-          setHasFailedOnce(true);
-        }
-        
-        // Все отели загружены, больше загружать нечего
-        setHasMore(false);
-      } else {
-        // Загрузка отелей для конкретной страны - ограничиваем до 2000 отелей
-        const MAX_HOTELS = 2000;
-        const allHotelsForCountry: HotelCompact[] = [];
-        let currentPage = reset ? 1 : searchParams.page || 1;
-        let hasMorePages = true;
-        let retryCount = 0;
-        const maxRetries = 3;
-        
-        while (hasMorePages && allHotelsForCountry.length < MAX_HOTELS) {
-          // Рассчитываем лимит для текущей страницы
-          const remaining = MAX_HOTELS - allHotelsForCountry.length;
-          const pageLimit = Math.min(remaining, 200); // Увеличиваем размер страницы для скорости
-          
-          // Согласно документации Tourvisor API: GET /hotels
-          // Обязательный параметр: countryId (integer)
-          // Опциональные: regionId (integer), category (integer), types (Array of integers), 
-          //                rating (number), page (integer, default: 1), limit (integer, default: 20)
-          // Документация: https://api.tourvisor.ru/search/docs
-          if (!searchParams.countryId) {
-            logger.error('[HotelSearch] countryId is required for /hotels endpoint according to Tourvisor API documentation');
-            setHasFailedOnce(true);
-            setHasMore(false);
-            break;
-          }
-          
-          const params: HotelSearchParams = {
-            countryId: searchParams.countryId, // Обязательный параметр согласно документации
-            page: currentPage,
-            limit: pageLimit,
-          };
-          
-          // Опциональные параметры согласно документации
-          if (searchParams.regionId) {
-            params.regionId = searchParams.regionId;
-          }
-          if (searchParams.category) {
-            params.category = searchParams.category;
-          }
-          if (searchParams.types && searchParams.types.length > 0) {
-            params.types = searchParams.types;
-          }
-          if (searchParams.rating) {
-            params.rating = searchParams.rating;
-          }
-          // Примечание: hotelServices не поддерживается в методе /hotels согласно документации Tourvisor API
-          // Услуги отелей используются только в поиске туров (параметр hotelServices в TourSearchParams)
-
-          try {
-            const response: PaginatedResponse<HotelCompact> = await getHotelsPage(params);
-
-            if (response.data && response.data.length > 0) {
-              const hotelsWithData = response.data.map((hotel: any) =>
-                normalizeHotelImages({ ...hotel }) as HotelCompact
-              );
-              
-              allHotelsForCountry.push(...hotelsWithData);
-              
-              // Проверяем, достигли ли лимита или закончились страницы
-              const totalPages = response.totalPages || Math.ceil(response.total / (params.limit || 100));
-              hasMorePages = currentPage < totalPages && 
-                           response.data.length === params.limit && 
-                           allHotelsForCountry.length < MAX_HOTELS;
-              currentPage++;
-              retryCount = 0; // Сбрасываем счетчик повторов при успехе
-              
-              // Убрана задержка между страницами для скорости
-            } else {
-              hasMorePages = false;
-            }
-            } catch (error: any) {
-              // Обработка ошибки 429 (Too Many Requests)
-              if (error?.message?.includes('429') && retryCount < maxRetries) {
-                const delay = Math.pow(2, retryCount) * 1000; // Экспоненциальная задержка: 1s, 2s, 4s
-                await new Promise(resolve => setTimeout(resolve, delay));
-                retryCount++;
-                // Не увеличиваем currentPage, повторяем тот же запрос
-              } else {
-                hasMorePages = false;
-              }
-            }
-        }
-
-        // Если получили пустой результат, останавливаем дальнейшие запросы
-        if (allHotelsForCountry.length === 0) {
-          setHasFailedOnce(true);
-          setHasMore(false);
-        }
-
-        if (reset) {
-          setHotels(allHotelsForCountry);
-        } else {
-          setHotels(prev => {
-            const combined = [...prev, ...allHotelsForCountry];
-            // Удаляем дубликаты
-            return combined.filter((hotel, index, self) =>
-              index === self.findIndex(h => h.id === hotel.id)
-            );
-          });
-        }
-
-        // Подсчитываем общее количество (используем длину массива, так как загрузили все)
-        setTotalCount(allHotelsForCountry.length);
-        
-        // Сохраняем в оба кэша: специфичный по параметрам и общий кэш всех отелей
-        if (reset && allHotelsForCountry.length > 0) {
-          await cacheService.set(CacheType.SEARCH_RESULTS, cacheKey, allHotelsForCountry);
-          logger.debug(`[HotelSearch] Hotels cached by params: ${allHotelsForCountry.length} hotels saved (key: "${cacheKey}")`);
-          await saveHotelsToGlobalCache(allHotelsForCountry);
-        }
-        
-        // Отключено: загрузка фото через getHotelDetails требует отдельной подписки API
-        // Используем только изображения из базового списка отелей (/hotels)
-        // if (allHotelsForCountry.length > 0) {
-        //   loadHotelImages(allHotelsForCountry.slice(0, 50));
-        // }
-        
-        // Все отели загружены
-        setHasMore(false);
-      }
-    } catch (error: any) {
-      logger.error('[HotelSearch] Failed to load hotels:', error);
-      
-      // При ошибке пытаемся использовать устаревший кэш (только для reset)
-      if (reset) {
-        // 1. Сначала проверяем специфичный кэш по параметрам
-        const staleCache = await cacheService.get<HotelCompact[]>(CacheType.SEARCH_RESULTS, cacheKey, true);
-        if (staleCache && staleCache.length > 0) {
-          logger.debug(`[HotelSearch] Using stale specific cache: ${staleCache.length} hotels (key: "${cacheKey}")`);
-          setHotels(staleCache);
-          setTotalCount(staleCache.length);
-          setIsLoading(false);
-          setIsLoadingMore(false);
-          return;
-        }
-        
-        // 2. Если специфичного кэша нет, проверяем общий кэш всех отелей
-        const allCachedHotels = await getAllHotelsFromCache();
-        if (allCachedHotels && allCachedHotels.length > 0) {
-          logger.debug(`[HotelSearch] Found ${allCachedHotels.length} hotels in stale global cache, filtering by params...`);
-          const filteredHotels = filterHotelsByParams(allCachedHotels, searchParams);
-          
-          if (filteredHotels && filteredHotels.length > 0) {
-            const limitedHotels = filteredHotels.slice(0, searchParams.limit || 20);
-            logger.debug(`[HotelSearch] Using ${limitedHotels.length} matching hotels from stale global cache`);
-            setHotels(limitedHotels);
-            setTotalCount(filteredHotels.length);
-            setIsLoading(false);
-            setIsLoadingMore(false);
-            return;
-          }
-        }
-        
-        logger.debug(`[HotelSearch] No stale cache available (specific: "${cacheKey}", global: ${allCachedHotels?.length || 0} hotels)`);
-      }
-
-      if (reset) {
-        Alert.alert(i18n.t('errors.errorLoad'), i18n.t('errors.tryChangeFilters'), [
-          { text: i18n.t('common.ok') },
-        ]);
-      }
-
-      // Устанавливаем флаг неудачи, чтобы остановить дальнейшие запросы
       setHasFailedOnce(true);
       setHasMore(false);
-      
-      // Тихая обработка ошибок для демо API (403, 429 ожидаем)
-      // Не очищаем отели, если они уже загружены
-      if (reset && hotels.length === 0) {
-        setHotels([]);
-      }
     } finally {
       setIsLoading(false);
       setIsLoadingMore(false);
@@ -940,15 +644,15 @@ export default function ApiHotelSearchScreen({ navigation, route }: ApiHotelSear
             <View style={styles.modalSection}>
               <Text style={styles.modalSectionTitle}>Страна</Text>
               <TouchableOpacity
-                style={styles.modalSelector}
+                style={[styles.modalSelector, { backgroundColor: theme.secondaryBackground, borderColor: theme.border }]}
                 onPress={() => {
                   setShowCountryPicker(!showCountryPicker);
                   setShowRegionPicker(false);
                 }}
                 activeOpacity={0.7}
               >
-                <Ionicons name="earth" size={18} color="#0066CC" />
-                <Text style={styles.modalSelectorText}>
+                <Ionicons name="earth" size={18} color={theme.primary} />
+                <Text style={[styles.modalSelectorText, { color: theme.text }]}>
                   {selectedCountry ? selectedCountry.name : 'Все страны'}
                 </Text>
                 <Ionicons
@@ -1018,7 +722,14 @@ export default function ApiHotelSearchScreen({ navigation, route }: ApiHotelSear
               <View style={styles.modalSection}>
                 <Text style={styles.modalSectionTitle}>Регион</Text>
                 <TouchableOpacity
-                  style={styles.modalSelector}
+                  style={[
+                    styles.modalSelector,
+                    {
+                      backgroundColor: theme.secondaryBackground,
+                      borderColor: theme.border,
+                      opacity: regions.length === 0 ? 0.6 : 1,
+                    },
+                  ]}
                   onPress={() => {
                     if (regions.length > 0) {
                       setShowRegionPicker(!showRegionPicker);
@@ -1028,8 +739,8 @@ export default function ApiHotelSearchScreen({ navigation, route }: ApiHotelSear
                   activeOpacity={0.7}
                   disabled={regions.length === 0}
                 >
-                  <Ionicons name="location" size={18} color="#0066CC" />
-                  <Text style={[styles.modalSelectorText, regions.length === 0 && styles.selectorTextDisabled]}>
+                  <Ionicons name="location" size={18} color={theme.primary} />
+                  <Text style={[styles.modalSelectorText, { color: theme.text }, regions.length === 0 && styles.selectorTextDisabled]}>
                     {selectedRegion ? selectedRegion.name : regions.length > 0 ? 'Все регионы' : 'Загрузка...'}
                   </Text>
                   {regions.length > 0 && (
@@ -1078,7 +789,10 @@ export default function ApiHotelSearchScreen({ navigation, route }: ApiHotelSear
                     key={category}
                     style={[
                       styles.modalCategoryButton,
-                      searchParams.category === category && styles.categoryButtonActive
+                      searchParams.category === category && {
+                        backgroundColor: theme.primary,
+                        borderColor: theme.primary,
+                      },
                     ]}
                     onPress={() => updateSearchParam('category', searchParams.category === category ? undefined : category)}
                     activeOpacity={0.7}
@@ -1310,11 +1024,11 @@ export default function ApiHotelSearchScreen({ navigation, route }: ApiHotelSear
           </ScrollView>
 
           {/* Кнопки действий */}
-          <View style={styles.modalActions}>
+          <View style={[styles.modalActions, { borderTopColor: theme.border, backgroundColor: theme.card }]}>
             <TouchableOpacity
-              style={styles.modalResetButton}
+              style={[styles.modalResetButton, { backgroundColor: theme.secondaryBackground, borderColor: theme.border }]}
               onPress={() => {
-                updateSearchParam('countryId', undefined);
+                // Страну не сбрасываем — API требует countryId
                 updateSearchParam('regionId', undefined);
                 updateSearchParam('category', undefined);
                 updateSearchParam('rating', undefined);
@@ -1322,13 +1036,20 @@ export default function ApiHotelSearchScreen({ navigation, route }: ApiHotelSear
                 updateSearchParam('hotelServices', undefined);
               }}
             >
-              <Text style={styles.modalResetText}>Сбросить</Text>
+              <Text style={[styles.modalResetText, { color: theme.text }]}>Сбросить</Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={styles.modalApplyButton}
-              onPress={() => setShowFiltersModal(false)}
+              style={[styles.modalApplyButton, { backgroundColor: theme.primary }]}
+              onPress={() => {
+                setShowFiltersModal(false);
+                if (searchParams.countryId) {
+                  setHasFailedOnce(false);
+                  setLastSearchParams('');
+                  void loadHotels(true);
+                }
+              }}
             >
-              <Text style={styles.modalApplyText}>Применить</Text>
+              <Text style={styles.modalApplyText}>Показать</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -1340,81 +1061,148 @@ export default function ApiHotelSearchScreen({ navigation, route }: ApiHotelSear
     const hotelImage =
       hotelDetailImages[item.id] || getHotelImageUrl(item as never) || DEFAULT_HOTEL_IMAGE;
     const starCount = hotelCategoryStarCount(item.category);
+    const snippet =
+      item.descriptionSnippet ||
+      (item as { common?: { description?: string } }).common?.description ||
+      '';
+    const cleanSnippet = snippet
+      ? String(snippet)
+          .replace(/<[^>]+>/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim()
+      : '';
 
     return (
-      <TouchableOpacity
-        style={styles.hotelCard}
-        onPress={() => handleHotelPress(item)}
-        activeOpacity={0.8}
-      >
-        {/* Изображение отеля из API (picturelink, picture, image, images и т.д.) или плейсхолдер */}
-        <View style={styles.hotelImageContainer}>
-          <CachedImage
-            source={hotelImage}
-            style={styles.hotelImage}
-            recyclingKey={`hotel-search-${item.id}`}
-          />
-
-          {/* Градиент для лучшей читаемости текста */}
-          <View style={[styles.imageGradient, { backgroundColor: 'rgba(0,0,0,0.35)' }]} />
-
-          {/* Бейдж категории */}
-          <View style={styles.categoryBadge}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
-              {Array.from({ length: starCount }, (_, i) => (
-                <Ionicons key={i} name="star" size={12} color="#FFD700" />
-              ))}
-            </View>
-          </View>
-
-          {/* Бейдж рейтинга */}
-          {item.rating > 0 && (
-            <View style={styles.ratingBadgeOverlay}>
-              <Ionicons name="star" size={14} color="#fff" />
-              <Text style={styles.ratingTextOverlay}>{item.rating.toFixed(1)}</Text>
-            </View>
-          )}
-
-          {/* Информация поверх изображения */}
-          <View style={styles.hotelImageOverlay}>
-            <Text style={styles.hotelNameOverlay} numberOfLines={2}>
-              {item.name}
-            </Text>
-            <View style={styles.hotelLocationOverlay}>
-              <Ionicons name="location" size={14} color="rgba(255,255,255,0.9)" />
-              <Text style={styles.hotelLocationTextOverlay} numberOfLines={1}>
-                {item.region.name}
-                {item.subRegion && `, ${item.subRegion.name}`}
-              </Text>
-            </View>
-          </View>
-        </View>
-
-        {/* Информация об отеле - нижняя часть */}
-        <View style={styles.hotelContent}>
-          <View style={styles.hotelInfoRow}>
-            <View style={styles.hotelCategoryBadge}>
-              <Ionicons name="business" size={16} color="#0066CC" />
-              <Text style={styles.categoryTextBadge}>
-                {item.category} звезд{item.category === 1 ? 'а' : item.category < 5 ? 'ы' : ''}
-              </Text>
-            </View>
-            {item.country && (
-              <View style={styles.hotelCountryBadge}>
-                <Ionicons name="flag" size={14} color="#6E6E73" />
-                <Text style={styles.countryText}>
-                  {item.country.name}
-                </Text>
+      <View style={[styles.hotelCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+        <TouchableOpacity onPress={() => handleHotelPress(item)} activeOpacity={0.85}>
+          <View style={styles.hotelImageContainer}>
+            <CachedImage
+              source={hotelImage}
+              style={styles.hotelImage}
+              recyclingKey={`hotel-search-${item.id}`}
+            />
+            {item.rating > 0 && (
+              <View style={[styles.ratingBadgeOverlay, { backgroundColor: theme.primary }]}>
+                <Ionicons name="star" size={12} color="#fff" />
+                <Text style={styles.ratingTextOverlay}>{item.rating.toFixed(1)}</Text>
               </View>
             )}
           </View>
-          
-          <View style={styles.hotelActionButton}>
-            <Text style={styles.hotelActionText}>Подробнее</Text>
-            <Ionicons name="arrow-forward" size={16} color="#0066CC" />
+
+          <View style={styles.hotelContent}>
+            <Text style={[styles.hotelNamePlain, { color: theme.text }]} numberOfLines={2}>
+              {item.name}
+            </Text>
+            <View style={styles.hotelMetaRow}>
+              {starCount > 0 && (
+                <View style={styles.starsRow}>
+                  {Array.from({ length: starCount }, (_, i) => (
+                    <Ionicons key={i} name="star" size={12} color="#E8B923" />
+                  ))}
+                </View>
+              )}
+              <Text
+                style={[styles.hotelLocationPlain, { color: theme.secondaryText }]}
+                numberOfLines={1}
+              >
+                {item.region?.name}
+                {item.subRegion ? `, ${item.subRegion.name}` : ''}
+                {item.country?.name ? ` · ${item.country.name}` : ''}
+              </Text>
+            </View>
+            {cleanSnippet ? (
+              <Text
+                style={[styles.hotelSnippet, { color: theme.secondaryText }]}
+                numberOfLines={2}
+              >
+                {cleanSnippet}
+              </Text>
+            ) : null}
           </View>
+        </TouchableOpacity>
+
+        <View style={styles.hotelCardActions}>
+          <TouchableOpacity
+            style={[styles.hotelSecondaryBtn, { borderColor: theme.border }]}
+            onPress={() => handleHotelPress(item)}
+            activeOpacity={0.8}
+          >
+            <Text style={[styles.hotelSecondaryBtnText, { color: theme.text }]}>Об отеле</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.hotelPrimaryBtn, { backgroundColor: theme.primary }]}
+            onPress={() => handleOpenTours(item)}
+            activeOpacity={0.85}
+          >
+            <Ionicons name="pricetag-outline" size={16} color="#fff" />
+            <Text style={styles.hotelPrimaryBtnText}>Туры и цены</Text>
+          </TouchableOpacity>
         </View>
-      </TouchableOpacity>
+      </View>
+    );
+  };
+
+  const listHeader = (
+    <View>
+      <View style={[styles.filtersWrapper, { backgroundColor: theme.card, borderColor: theme.border }]}>
+        {renderResultsToolbar()}
+      </View>
+      {!isLoading && searchParams.countryId ? (
+        <Text style={[styles.resultsText, { color: theme.secondaryText, marginHorizontal: 16, marginTop: 12 }]}>
+          {searchQuery
+            ? `Найдено: ${filteredHotels.length}`
+            : totalCount > 0
+              ? `Отелей: ${totalCount.toLocaleString('ru-RU')}`
+              : filteredHotels.length > 0
+                ? `Показано: ${filteredHotels.length}`
+                : ''}
+        </Text>
+      ) : null}
+    </View>
+  );
+
+  const listEmpty = () => {
+    if (isLoading || isInitialLoad) {
+      return (
+        <View style={styles.emptyState}>
+          <ActivityIndicator size="large" color={theme.primary} />
+          <Text style={[styles.emptyStateText, { color: theme.secondaryText, marginTop: 12 }]}>
+            Ищем отели…
+          </Text>
+        </View>
+      );
+    }
+    if (!searchParams.countryId) {
+      return (
+        <View style={styles.emptyState}>
+          <Ionicons name="bed-outline" size={48} color={theme.secondaryText} />
+          <Text style={[styles.emptyStateTitle, { color: theme.text }]}>Выберите страну</Text>
+          <Text style={[styles.emptyStateText, { color: theme.secondaryText }]}>
+            Откройте фильтры и укажите направление
+          </Text>
+          <TouchableOpacity
+            style={[styles.emptyCta, { backgroundColor: theme.primary }]}
+            onPress={() => setShowFiltersModal(true)}
+          >
+            <Text style={styles.emptyCtaText}>Открыть фильтры</Text>
+          </TouchableOpacity>
+        </View>
+      );
+    }
+    return (
+      <View style={styles.emptyState}>
+        <Ionicons name="search-outline" size={48} color={theme.secondaryText} />
+        <Text style={[styles.emptyStateTitle, { color: theme.text }]}>Ничего не найдено</Text>
+        <Text style={[styles.emptyStateText, { color: theme.secondaryText }]}>
+          Измените курорт, звёзды или сбросьте фильтры
+        </Text>
+        <TouchableOpacity
+          style={[styles.emptyCta, { backgroundColor: theme.primary }]}
+          onPress={() => setShowFiltersModal(true)}
+        >
+          <Text style={styles.emptyCtaText}>Изменить фильтры</Text>
+        </TouchableOpacity>
+      </View>
     );
   };
 
@@ -1434,42 +1222,52 @@ export default function ApiHotelSearchScreen({ navigation, route }: ApiHotelSear
   }
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
+    <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]} edges={['top']}>
       <StatusBar style={isDark ? 'light' : 'dark'} />
       <View style={[styles.header, { backgroundColor: theme.card, borderBottomColor: theme.border }]}>
         <TouchableOpacity style={styles.headerButton} onPress={() => navigation.goBack()} activeOpacity={0.7}>
           <Ionicons name="arrow-back" size={24} color={theme.text} />
         </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: theme.text }]}>Поиск отелей</Text>
-        <View style={styles.headerSpacer} />
+        <Text style={[styles.headerTitle, { color: theme.text }]}>Отели</Text>
+        <TouchableOpacity
+          style={styles.headerButton}
+          onPress={() => setShowFiltersModal(true)}
+          activeOpacity={0.7}
+        >
+          <Ionicons name="options-outline" size={22} color={theme.text} />
+        </TouchableOpacity>
       </View>
 
-      <ScrollView
-        style={styles.formScroll}
-        showsVerticalScrollIndicator={false}
+      <FlatList
+        data={filteredHotels}
+        keyExtractor={(item) => String(item.id)}
+        renderItem={renderHotelItem}
+        ListHeaderComponent={listHeader}
+        ListEmptyComponent={listEmpty}
+        ListFooterComponent={
+          isLoadingMore ? (
+            <View style={styles.loadingMore}>
+              <ActivityIndicator color={theme.primary} />
+              <Text style={[styles.loadingMoreText, { color: theme.secondaryText }]}>Ещё отели…</Text>
+            </View>
+          ) : null
+        }
+        contentContainerStyle={[
+          styles.listContent,
+          filteredHotels.length === 0 ? { flexGrow: 1 } : null,
+        ]}
+        onEndReached={loadMoreHotels}
+        onEndReachedThreshold={0.4}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
-      >
-        <View style={[styles.filtersWrapper, { backgroundColor: theme.card, borderColor: theme.border }]}>
-          {renderCompactFilters()}
-        </View>
+        showsVerticalScrollIndicator={false}
+      />
 
-        <View style={styles.searchButtonBlock}>
-          <TouchableOpacity
-            style={[styles.searchButton, { backgroundColor: theme.primary }]}
-            onPress={handleSearchHotels}
-            activeOpacity={0.85}
-          >
-            <Ionicons name="search" size={22} color="#fff" />
-            <Text style={styles.searchButtonText}>Найти отели</Text>
-          </TouchableOpacity>
-          {!searchParams.countryId && (
-            <Text style={[styles.searchHint, { color: theme.secondaryText }]}>
-              Выберите страну и при необходимости регион, категорию и рейтинг
-            </Text>
-          )}
+      {isLoading && filteredHotels.length > 0 ? (
+        <View style={styles.loadingOverlay} pointerEvents="none">
+          <ActivityIndicator size="large" color={theme.primary} />
         </View>
-      </ScrollView>
+      ) : null}
 
       {renderFiltersModal()}
     </SafeAreaView>
@@ -1689,21 +1487,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 6,
   },
-  categoryButtonCompact: {
-    paddingHorizontal: 8,
-    paddingVertical: 6,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: '#E5E5E5',
-    backgroundColor: '#F8F9FA',
-    alignItems: 'center',
-    flexDirection: 'row',
-    gap: 2,
-  },
-  categoryButtonActive: {
-    backgroundColor: '#0066CC',
-    borderColor: '#0066CC',
-  },
   listContent: {
     padding: 16,
     paddingTop: 8,
@@ -1717,27 +1500,28 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   hotelCard: {
-    // backgroundColor убран - используется динамический через inline стиль
-    borderRadius: 20,
-    marginBottom: 20,
+    borderRadius: 16,
+    marginBottom: 14,
     overflow: 'hidden',
     width: '100%',
+    borderWidth: StyleSheet.hairlineWidth,
     ...platform.select({
       ios: {
         shadowColor: '#000',
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.12,
-        shadowRadius: 12,
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.08,
+        shadowRadius: 8,
       },
       android: {
-        elevation: 6,
+        elevation: 3,
       },
     }),
   },
   hotelImageContainer: {
     width: '100%',
-    height: 280,
+    height: 168,
     position: 'relative',
+    backgroundColor: '#E5E5E5',
   },
   hotelImage: {
     width: '100%',
@@ -1891,25 +1675,125 @@ const styles = StyleSheet.create({
   filtersButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#F0F7FF',
     borderRadius: 10,
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderWidth: 1,
-    borderColor: '#0066CC',
     gap: 6,
     position: 'relative',
   },
   filtersButtonText: {
     fontSize: 14,
-    color: '#0066CC',
     fontWeight: '600',
+  },
+  summaryBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  summaryBarTextWrap: {
+    flex: 1,
+    gap: 2,
+  },
+  summaryBarTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  summaryBarHint: {
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  hotelNamePlain: {
+    fontSize: 16,
+    fontWeight: '700',
+    marginBottom: 6,
+  },
+  hotelMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  starsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 1,
+  },
+  hotelLocationPlain: {
+    flex: 1,
+    fontSize: 13,
+    fontWeight: '500',
+  },
+  hotelSnippet: {
+    marginTop: 8,
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  hotelCardActions: {
+    flexDirection: 'row',
+    gap: 8,
+    paddingHorizontal: 14,
+    paddingBottom: 14,
+  },
+  hotelSecondaryBtn: {
+    flex: 1,
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingVertical: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  hotelSecondaryBtnText: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  hotelPrimaryBtn: {
+    flex: 1.2,
+    borderRadius: 12,
+    paddingVertical: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 6,
+  },
+  hotelPrimaryBtnText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  emptyCta: {
+    marginTop: 16,
+    paddingHorizontal: 18,
+    paddingVertical: 12,
+    borderRadius: 12,
+  },
+  emptyCtaText: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  loadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.25)',
+  },
+  categoryButtonCompact: {
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    borderRadius: 10,
+    borderWidth: 1,
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 2,
   },
   filtersBadge: {
     position: 'absolute',
     top: -4,
     right: -4,
-    backgroundColor: '#EF4444',
     borderRadius: 10,
     minWidth: 18,
     height: 18,
@@ -1950,7 +1834,6 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   modalContent: {
-    // backgroundColor убран - используется динамический через inline стиль
     borderTopLeftRadius: radius.xl,
     borderTopRightRadius: radius.xl,
     maxHeight: '90%',
@@ -1972,8 +1855,7 @@ const styles = StyleSheet.create({
   modalCloseButton: {
     padding: 4,
   },
-  modalScroll: {
-  },
+  modalScroll: {},
   modalSection: {
     padding: 20,
     borderBottomWidth: 1,
@@ -2003,12 +1885,12 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   modalDropdown: {
-    // backgroundColor убран - используется динамический через inline стиль
     borderRadius: 12,
     borderWidth: 1,
     borderColor: '#E5E5E5',
     marginTop: 8,
     maxHeight: 200,
+    backgroundColor: '#FFFFFF',
     ...platform.select({
       ios: {
         shadowColor: '#000',
@@ -2076,14 +1958,12 @@ const styles = StyleSheet.create({
   emptyStateTitle: {
     fontSize: 18,
     fontWeight: '600',
-    // color убран - используется динамический через inline стиль
     color: '#1D1D1F',
     marginTop: 16,
     marginBottom: 8,
   },
   emptyStateText: {
     fontSize: 14,
-    // color убран - используется динамический через inline стиль
     textAlign: 'center',
   },
   loadingMore: {

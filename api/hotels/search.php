@@ -227,7 +227,7 @@ try {
     $allHotels = $deduped;
 
     if ($pdo instanceof PDO) {
-        $allHotels = np_enrich_hotels_with_images($pdo, $allHotels, $CONFIG, $enrich, $enrich ? 20 : 0);
+        $allHotels = np_enrich_hotels_with_images($pdo, $allHotels, $CONFIG, $enrich, $enrich ? min(20, count($allHotels)) : 0);
     }
 
     user_sync_json_ok([

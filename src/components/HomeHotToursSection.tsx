@@ -1,12 +1,12 @@
 /**
- * Витрина горящих туров на Home — server Tourvisor hots, крупные карточки.
+ * Витрина горящих туров на Home — вертикальная лента как маркетплейс,
+ * туры из нескольких городов вылета (не только Москва).
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
   StyleSheet,
-  ScrollView,
   TouchableOpacity,
   useWindowDimensions,
   Animated,
@@ -21,24 +21,37 @@ import { DEFAULT_HOTEL_IMAGE } from '../constants/images';
 import { tourvisorApi } from '../services/TourvisorApiService';
 import { hotelPictureCache } from '../services/HotelPictureCache';
 import { recommendationService } from '../services/RecommendationService';
+import { dictionaryService } from '../services/DictionaryService';
 import { fetchHotToursViaBackend } from '../services/sync/NextPatchBackendClient';
 import { TourHot } from '../types/tourvisor';
 import { radius, shadows, spacing } from '../config/designSystem';
 import { logger } from '../utils/logger';
+import { cacheTourFromHot } from '../utils/tourDetailsCache';
 
-const CACHE_KEY = 'home_hot_tours_v2';
+const CACHE_KEY = 'home_hot_tours_v3';
 const CACHE_TTL_MS = 15 * 60 * 1000;
-const LIMIT = 8;
-const DEFAULT_DEPARTURE = 1; // Москва
+const LIMIT = 12;
+const DEPARTURE_PREF_KEY = 'user_preferred_departure_id';
+const MAJOR_DEPARTURE_NAMES = [
+  'самара',
+  'москва',
+  'санкт-петербург',
+  'казань',
+  'екатеринбург',
+  'новосибирск',
+  'уфа',
+  'краснодар',
+  'ростов',
+];
 
 type Props = {
   navigation: any;
   refreshKey?: number;
 };
 
-type CachePayload = { at: number; items: TourHot[]; departureId: number };
+type CachePayload = { at: number; items: TourHot[] };
 
-function ShimmerCard({ width, theme }: { width: number; theme: { card: string; border: string } }) {
+function ShimmerCard({ theme }: { theme: { card: string; border: string } }) {
   const anim = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     const loop = Animated.loop(
@@ -47,22 +60,22 @@ function ShimmerCard({ width, theme }: { width: number; theme: { card: string; b
     loop.start();
     return () => loop.stop();
   }, [anim]);
-  const translateX = anim.interpolate({ inputRange: [0, 1], outputRange: [-width, width] });
+  const translateX = anim.interpolate({ inputRange: [0, 1], outputRange: [-120, 120] });
   return (
     <View
       style={[
         styles.card,
         shadows.card,
-        { width, backgroundColor: theme.card, borderColor: theme.border, marginRight: 12 },
+        { backgroundColor: theme.card, borderColor: theme.border, marginBottom: 10 },
       ]}
     >
-      <View style={[styles.image, { backgroundColor: `${theme.border}88`, overflow: 'hidden' }]}>
+      <View style={[styles.thumb, { backgroundColor: `${theme.border}88`, overflow: 'hidden' }]}>
         <Animated.View style={[StyleSheet.absoluteFill, { transform: [{ translateX }] }]}>
           <LinearGradient
             colors={['transparent', 'rgba(255,255,255,0.35)', 'transparent']}
             start={{ x: 0, y: 0.5 }}
             end={{ x: 1, y: 0.5 }}
-            style={{ flex: 1, width: width * 0.55 }}
+            style={{ flex: 1, width: 90 }}
           />
         </Animated.View>
       </View>
@@ -82,36 +95,78 @@ function discountPercent(item: TourHot): number | null {
   return Math.max(1, Math.round((1 - cur / old) * 100));
 }
 
+function tourKey(item: TourHot): string {
+  return [
+    item.departure?.id || 0,
+    item.hotel?.id || 0,
+    item.date || '',
+    item.nights || 0,
+    item.price || 0,
+  ].join(':');
+}
+
+async function resolveDeparturePool(): Promise<{ pool: number[]; names: Map<number, string> }> {
+  const names = new Map<number, string>();
+  try {
+    const deps = await dictionaryService.getDepartures();
+    for (const d of deps) names.set(d.id, d.name);
+
+    let preferred = 0;
+    const saved = await AsyncStorage.getItem(DEPARTURE_PREF_KEY);
+    if (saved && deps.some((d) => String(d.id) === saved)) {
+      preferred = Number(saved);
+    } else {
+      const samara = deps.find((d) => d.name.toLowerCase().includes('самара'));
+      preferred = samara?.id || deps[0]?.id || 1;
+    }
+
+    const recent = await recommendationService.getRecentSearches();
+    const recentDep = recent.find((r) => r.departureId)?.departureId;
+
+    const pool: number[] = [];
+    const push = (id?: number) => {
+      if (!id || pool.includes(id)) return;
+      pool.push(id);
+    };
+    push(preferred);
+    push(recentDep);
+    for (const needle of MAJOR_DEPARTURE_NAMES) {
+      const found = deps.find((d) => d.name.toLowerCase().includes(needle));
+      push(found?.id);
+      if (pool.length >= 6) break;
+    }
+    if (!pool.length) pool.push(1);
+    return { pool, names };
+  } catch (e) {
+    logger.debug('[HomeHotTours] departures:', (e as Error)?.message);
+    return { pool: [1], names };
+  }
+}
+
 export default function HomeHotToursSection({ navigation, refreshKey = 0 }: Props) {
   const { theme, apiReady } = useAppContext();
   const { width } = useWindowDimensions();
   const [items, setItems] = useState<TourHot[]>([]);
   const [loading, setLoading] = useState(true);
-  const cardW = Math.min(300, width * 0.78);
+  const thumbSize = Math.min(112, Math.round(width * 0.28));
 
   const load = useCallback(async (bypassCache = false) => {
     setLoading(true);
 
     const fetchAndStore = async (soft: boolean) => {
       try {
-        const recent = await recommendationService.getRecentSearches();
-        const departureId = recent.find((r) => r.departureId)?.departureId || DEFAULT_DEPARTURE;
+        const { pool, names } = await resolveDeparturePool();
 
-        // Сначала без фильтра по странам — так горящие стабильнее заполняются
-        const baseParams: Parameters<typeof tourvisorApi.getHotTours>[0] = {
-          departureId,
-          currency: 'RUB',
-          onlyCharter: false,
-          limit: 40,
-        };
-
-        const tryFetch = async (
-          params: Parameters<typeof tourvisorApi.getHotTours>[0],
-        ): Promise<TourHot[]> => {
+        const tryFetch = async (departureId: number): Promise<TourHot[]> => {
+          const params = {
+            departureId,
+            currency: 'RUB' as const,
+            onlyCharter: false,
+            limit: 16,
+          };
           try {
             const remote = await fetchHotToursViaBackend(params);
             if (remote.success && remote.data?.length) return remote.data;
-            logger.debug('[HomeHotTours] backend miss:', remote.error);
           } catch (e) {
             logger.debug('[HomeHotTours] backend error:', (e as Error)?.message);
           }
@@ -124,14 +179,31 @@ export default function HomeHotToursSection({ navigation, refreshKey = 0 }: Prop
           }
         };
 
-        let hot = await tryFetch(baseParams);
-
-        // Если пусто — пробуем departure Москва (1)
-        if (!hot.length && departureId !== DEFAULT_DEPARTURE) {
-          hot = await tryFetch({ ...baseParams, departureId: DEFAULT_DEPARTURE });
+        const chunks = await Promise.all(pool.map((id) => tryFetch(id)));
+        const merged: TourHot[] = [];
+        const seen = new Set<string>();
+        for (let i = 0; i < chunks.length; i++) {
+          const depId = pool[i];
+          const depName = names.get(depId) || '';
+          for (const row of chunks[i]) {
+            const withDep: TourHot = {
+              ...row,
+              departure: {
+                id: row.departure?.id || depId,
+                name: row.departure?.name || depName,
+                nameGenitive: row.departure?.nameGenitive || '',
+              },
+            };
+            const key = tourKey(withDep);
+            if (seen.has(key)) continue;
+            seen.add(key);
+            merged.push(withDep);
+          }
         }
 
-        const list = (Array.isArray(hot) ? hot : []).slice(0, LIMIT);
+        merged.sort((a, b) => (Number(a.price) || 0) - (Number(b.price) || 0));
+        const list = merged.slice(0, LIMIT);
+
         if (list.length) {
           void hotelPictureCache.ingestFromTours(
             list.map((h) => ({ hotel: h.hotel, picture: h.hotel?.picturelink })),
@@ -139,11 +211,7 @@ export default function HomeHotToursSection({ navigation, refreshKey = 0 }: Prop
           setItems(list);
           await AsyncStorage.setItem(
             CACHE_KEY,
-            JSON.stringify({
-              at: Date.now(),
-              items: list,
-              departureId: list.length ? departureId : DEFAULT_DEPARTURE,
-            } satisfies CachePayload),
+            JSON.stringify({ at: Date.now(), items: list } satisfies CachePayload),
           );
         } else if (!soft) {
           setItems([]);
@@ -184,15 +252,24 @@ export default function HomeHotToursSection({ navigation, refreshKey = 0 }: Prop
 
   const openAll = () => navigation.navigate('ApiHotTours');
 
-  const openItem = (item: TourHot) => {
-    if (item.country?.id) {
-      navigation.navigate('ApiHotTours', {
-        countryId: item.country.id,
-        countryName: item.country.name,
-      });
-      return;
+  const openItem = async (item: TourHot) => {
+    try {
+      const tourId = await cacheTourFromHot(item, item.currency || 'RUB');
+      if (tourId) {
+        navigation.navigate('ApiTourDetails', {
+          tourId,
+          currency: item.currency || 'RUB',
+        });
+        return;
+      }
+    } catch (e) {
+      logger.debug('[HomeHotTours] open details:', (e as Error)?.message);
     }
-    openAll();
+    navigation.navigate('ApiHotTours', {
+      countryId: item.country?.id,
+      countryName: item.country?.name,
+      departureId: item.departure?.id,
+    });
   };
 
   return (
@@ -215,17 +292,11 @@ export default function HomeHotToursSection({ navigation, refreshKey = 0 }: Prop
       </View>
 
       {loading && items.length === 0 ? (
-        <ScrollView
-          horizontal
-          nestedScrollEnabled
-          directionalLockEnabled
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.row}
-        >
+        <View>
           {[0, 1, 2].map((k) => (
-            <ShimmerCard key={k} width={cardW} theme={theme} />
+            <ShimmerCard key={k} theme={theme} />
           ))}
-        </ScrollView>
+        </View>
       ) : items.length === 0 ? (
         <TouchableOpacity
           activeOpacity={0.88}
@@ -260,92 +331,93 @@ export default function HomeHotToursSection({ navigation, refreshKey = 0 }: Prop
           </View>
         </TouchableOpacity>
       ) : (
-        <ScrollView
-          horizontal
-          nestedScrollEnabled
-          directionalLockEnabled
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.row}
-          decelerationRate="fast"
-        >
+        <View>
           {items.map((item, idx) => {
             const drop = discountPercent(item);
-            const key = `hot_${item.hotel?.id}_${item.date}_${idx}`;
+            const key = `hot_${tourKey(item)}_${idx}`;
             const image = item.hotel?.picturelink || DEFAULT_HOTEL_IMAGE;
             const geo = [item.country?.name, item.hotel?.region?.name].filter(Boolean).join(' · ');
+            const fromCity = item.departure?.name ? `из ${item.departure.name}` : '';
             return (
               <TouchableOpacity
                 key={key}
                 activeOpacity={0.88}
                 onPress={() => openItem(item)}
-                delayPressIn={50}
                 style={[
                   styles.card,
                   shadows.card,
-                  { width: cardW, backgroundColor: theme.card, borderColor: theme.border },
+                  { backgroundColor: theme.card, borderColor: theme.border },
                 ]}
               >
-                <View>
+                <View style={[styles.thumbWrap, { width: thumbSize, height: thumbSize }]}>
                   <CachedImage
                     source={{ uri: image }}
-                    style={styles.image}
+                    style={styles.thumb}
                     contentFit="cover"
                     recyclingKey={key}
                   />
-                  <LinearGradient
-                    colors={['transparent', 'rgba(0,0,0,0.55)']}
-                    style={styles.imageFade}
-                  />
-                  <View style={styles.badgeRow}>
-                    <View style={[styles.badge, { backgroundColor: theme.accent || '#FF6B00' }]}>
-                      <Ionicons name="flame" size={12} color="#fff" style={{ marginRight: 4 }} />
-                      <Text style={styles.badgeText}>{i18n.t('home.hotDealsBadge')}</Text>
-                    </View>
-                    {drop != null ? (
-                      <View style={[styles.badge, { backgroundColor: '#16A34A', marginLeft: 6 }]}>
-                        <Text style={styles.badgeText}>−{drop}%</Text>
-                      </View>
-                    ) : null}
+                  <View style={[styles.flameDot, { backgroundColor: theme.accent || '#FF6B00' }]}>
+                    <Ionicons name="flame" size={11} color="#fff" />
                   </View>
+                  {drop != null ? (
+                    <View style={styles.dropBadge}>
+                      <Text style={styles.dropText}>−{drop}%</Text>
+                    </View>
+                  ) : null}
                 </View>
                 <View style={styles.body}>
                   <Text style={[styles.name, { color: theme.text }]} numberOfLines={2}>
                     {item.hotel?.name || i18n.t('hotTours.title')}
                   </Text>
-                  <Text style={[styles.geo, { color: theme.secondaryText }]} numberOfLines={1}>
-                    {geo}
-                  </Text>
+                  {geo ? (
+                    <Text style={[styles.geo, { color: theme.secondaryText }]} numberOfLines={1}>
+                      {geo}
+                    </Text>
+                  ) : null}
                   <Text style={[styles.meta, { color: theme.secondaryText }]} numberOfLines={1}>
-                    {item.date} · {item.nights}{' '}
-                    {item.nights === 1
-                      ? i18n.t('search.night')
-                      : item.nights < 5
-                        ? i18n.t('search.nights2')
-                        : i18n.t('search.nights')}
+                    {[
+                      fromCity,
+                      item.date,
+                      item.nights
+                        ? `${item.nights} ${
+                            item.nights === 1
+                              ? i18n.t('search.night')
+                              : item.nights < 5
+                                ? i18n.t('search.nights2')
+                                : i18n.t('search.nights')
+                          }`
+                        : '',
+                    ]
+                      .filter(Boolean)
+                      .join(' · ')}
                   </Text>
                   <View style={styles.priceRow}>
-                    <View>
+                    <View style={{ flex: 1 }}>
                       {item.priceOld > item.price ? (
                         <Text style={[styles.oldPrice, { color: theme.secondaryText }]}>
                           {Number(item.priceOld).toLocaleString('ru-RU')} ₽
                         </Text>
                       ) : null}
                       <Text style={[styles.price, { color: theme.primary }]}>
-                        {i18n.t('hotTours.from')} {Number(item.price || 0).toLocaleString('ru-RU')} ₽
+                        {Number(item.price || 0).toLocaleString('ru-RU')} ₽
                       </Text>
                     </View>
-                    <View style={styles.ctaRow}>
-                      <Text style={[styles.cta, { color: theme.primary }]}>
-                        {i18n.t('recommendations.view')}
-                      </Text>
-                      <Ionicons name="chevron-forward" size={14} color={theme.primary} />
-                    </View>
+                    <Ionicons name="chevron-forward" size={18} color={theme.secondaryText} />
                   </View>
                 </View>
               </TouchableOpacity>
             );
           })}
-        </ScrollView>
+          <TouchableOpacity
+            onPress={openAll}
+            style={[styles.moreBtn, { borderColor: theme.border, backgroundColor: theme.card }]}
+          >
+            <Text style={[styles.moreBtnText, { color: theme.primary }]}>
+              {i18n.t('home.hotDealsAll')}
+            </Text>
+            <Ionicons name="arrow-forward" size={16} color={theme.primary} />
+          </TouchableOpacity>
+        </View>
       )}
     </View>
   );
@@ -389,53 +461,67 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   emptyTitle: { fontSize: 16, fontWeight: '700' },
-  row: { paddingRight: 8 },
   card: {
+    flexDirection: 'row',
     borderRadius: radius.lg,
     borderWidth: 1,
     overflow: 'hidden',
-    marginRight: 12,
+    marginBottom: 10,
+    padding: 10,
+    gap: 12,
   },
-  image: { width: '100%', height: 168 },
-  imageFade: {
+  thumbWrap: {
+    borderRadius: radius.md,
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  thumb: { width: '100%', height: '100%', borderRadius: radius.md },
+  flameDot: {
     position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    height: 64,
+    top: 6,
+    left: 6,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  badgeRow: {
+  dropBadge: {
     position: 'absolute',
-    top: 10,
-    left: 10,
-    flexDirection: 'row',
-    alignItems: 'center',
+    bottom: 6,
+    left: 6,
+    backgroundColor: '#16A34A',
+    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
   },
-  badge: {
-    borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  badgeText: { color: '#fff', fontSize: 11, fontWeight: '700' },
-  body: { padding: 12, gap: 4 },
-  name: { fontSize: 15, fontWeight: '700' },
-  geo: { fontSize: 12 },
+  dropText: { color: '#fff', fontSize: 11, fontWeight: '800' },
+  body: { flex: 1, justifyContent: 'center', gap: 2, paddingRight: 2 },
+  name: { fontSize: 15, fontWeight: '700', lineHeight: 20 },
+  geo: { fontSize: 12, marginTop: 2 },
   meta: { fontSize: 12, marginTop: 2 },
   priceRow: {
-    marginTop: 8,
+    marginTop: 6,
     flexDirection: 'row',
-    alignItems: 'flex-end',
+    alignItems: 'center',
     justifyContent: 'space-between',
   },
   oldPrice: {
     fontSize: 12,
     textDecorationLine: 'line-through',
-    marginBottom: 2,
+    marginBottom: 1,
   },
-  price: { fontSize: 17, fontWeight: '800' },
-  ctaRow: { flexDirection: 'row', alignItems: 'center', gap: 2 },
-  cta: { fontSize: 13, fontWeight: '700' },
+  price: { fontSize: 18, fontWeight: '800' },
+  moreBtn: {
+    marginTop: 4,
+    borderWidth: 1,
+    borderRadius: radius.lg,
+    paddingVertical: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  moreBtnText: { fontSize: 14, fontWeight: '700' },
   skelLine: { height: 10, borderRadius: 6 },
 });

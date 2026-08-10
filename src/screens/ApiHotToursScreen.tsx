@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -10,16 +10,20 @@ import {
   StatusBar,
   ScrollView,
   Linking,
+  Modal,
+  TextInput,
+  Pressable,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { Tour } from '../types/tourvisor';
 import { Ionicons } from '@expo/vector-icons';
 import { useAppContext } from '../contexts/AppContext';
 import { dictionaryService } from '../services/DictionaryService';
 import { tourvisorApi } from '../services/TourvisorApiService';
-import { TourHotel, Country, Departure, HotToursParams, TourSearchParams } from '../types/tourvisor';
+import { TourHotel, Country, Departure, HotToursParams, TourHot } from '../types/tourvisor';
 import { platform } from '../utils/platform';
-import { preCacheTourDetailsFromSearchResults, cacheTourFromSearchResult, buildTourOutputFromSearchResult } from '../utils/tourDetailsCache';
+import { preCacheTourDetailsFromSearchResults, cacheTourFromSearchResult, tourHotsToTourHotels } from '../utils/tourDetailsCache';
 import { FavoritesService } from '../services/FavoritesService';
 import AuthRequiredCard from '../components/ux/AuthRequiredCard';
 import { cacheService, CacheType } from '../services/CacheService';
@@ -31,6 +35,9 @@ import { logger } from '../utils/logger';
 import CachedImage from '../components/ui/CachedImage';
 import { DEFAULT_HOTEL_IMAGE } from '../constants/images';
 import { LinearGradient } from 'expo-linear-gradient';
+import { fetchHotToursViaBackend } from '../services/sync/NextPatchBackendClient';
+
+const DEPARTURE_PREF_KEY = 'user_preferred_departure_id';
 
 interface ApiHotToursScreenProps {
   navigation: any;
@@ -52,7 +59,7 @@ export default function ApiHotToursScreen({ navigation, route }: ApiHotToursScre
 
   // Search parameters — валюта из настроек приложения
   const [searchParams, setSearchParams] = useState<HotToursParams>({
-    departureId: route?.params?.departureId || 1,
+    departureId: route?.params?.departureId || 0,
     currency,
     onlyCharter: route?.params?.onlyCharter || false,
     limit: 200,
@@ -68,6 +75,8 @@ export default function ApiHotToursScreen({ navigation, route }: ApiHotToursScre
   const [hasFailedOnce, setHasFailedOnce] = useState(false);
   const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set());
   const [showAuthCard, setShowAuthCard] = useState(false);
+  const [showDepartureModal, setShowDepartureModal] = useState(false);
+  const [departureQuery, setDepartureQuery] = useState('');
 
   // Dictionary data
   const [departures, setDepartures] = useState<Departure[]>([]);
@@ -78,6 +87,21 @@ export default function ApiHotToursScreen({ navigation, route }: ApiHotToursScre
   const [selectedDeparture, setSelectedDeparture] = useState<Departure | null>(null);
   const [selectedCountries, setSelectedCountries] = useState<Country[]>([]);
   const promoNotificationSent = useRef(false);
+
+  const filteredDepartures = useMemo(() => {
+    const q = departureQuery.trim().toLowerCase();
+    if (!q) return departures;
+    return departures.filter((d) => d.name.toLowerCase().includes(q));
+  }, [departures, departureQuery]);
+
+  const pickDeparture = useCallback((dep: Departure) => {
+    setSelectedDeparture(dep);
+    setSearchParams((prev) => ({ ...prev, departureId: dep.id }));
+    setShowDepartureModal(false);
+    setDepartureQuery('');
+    setHasFailedOnce(false);
+    void AsyncStorage.setItem(DEPARTURE_PREF_KEY, String(dep.id)).catch(() => {});
+  }, []);
 
   // Load dictionary data and hot tours on mount
   useEffect(() => {
@@ -157,12 +181,26 @@ export default function ApiHotToursScreen({ navigation, route }: ApiHotToursScre
       setDepartures(departuresData);
       setCountries(countriesData);
 
-      // Set default departure (Moscow) или из route.params
-      const departureIdToUse = route?.params?.departureId || 1;
-      const defaultDeparture = departuresData.find(d => d.id === departureIdToUse);
+      let departureIdToUse = route?.params?.departureId ? Number(route.params.departureId) : 0;
+      if (!departureIdToUse) {
+        try {
+          const saved = await AsyncStorage.getItem(DEPARTURE_PREF_KEY);
+          if (saved && departuresData.some((d) => String(d.id) === saved)) {
+            departureIdToUse = Number(saved);
+          }
+        } catch {
+          /* ignore */
+        }
+      }
+      if (!departureIdToUse) {
+        const samara = departuresData.find((d) => d.name.toLowerCase().includes('самара'));
+        departureIdToUse = samara?.id || departuresData[0]?.id || 1;
+      }
+
+      const defaultDeparture = departuresData.find((d) => d.id === departureIdToUse);
       if (defaultDeparture) {
         setSelectedDeparture(defaultDeparture);
-        setSearchParams(prev => ({ ...prev, departureId: departureIdToUse }));
+        setSearchParams((prev) => ({ ...prev, departureId: departureIdToUse }));
       }
 
       // Если передан countryId в route.params, сразу устанавливаем фильтр по стране
@@ -181,349 +219,69 @@ export default function ApiHotToursScreen({ navigation, route }: ApiHotToursScre
 
   const loadHotTours = async () => {
     if (!selectedDeparture) return;
-    
-    // Если уже была неудача, не делаем новые запросы
-    if (hasFailedOnce) {
-      return;
-    }
-
-    // Предотвращаем множественные одновременные запросы
-    if (isLoading) {
-      return;
-    }
+    if (hasFailedOnce) return;
+    if (isLoading) return;
 
     try {
       setIsLoading(true);
-      setHasFailedOnce(false); // Сбрасываем флаг перед новой попыткой
+      setHasFailedOnce(false);
 
-      // Если выбраны конкретные страны, загружаем туры ТОЛЬКО для них
-      // Если countryId передан в route.params, НЕ загружаем для всех стран
-      const countriesToLoad = selectedCountries.length > 0 
-        ? selectedCountries 
-        : (route?.params?.countryId ? [] : countries); // Если countryId передан, но страны не выбраны - не загружаем
+      const countryIds =
+        selectedCountries.length > 0
+          ? selectedCountries.map((c) => c.id)
+          : route?.params?.countryId
+            ? [Number(route.params.countryId)]
+            : undefined;
 
-      // Проверяем, что страны загружены
-      if (countriesToLoad.length === 0) {
-        if (route?.params?.countryId) {
-          logger.debug('[HotTours] Waiting for country filter to be set from route params...');
-        } else {
-          logger.debug('[HotTours] Countries not loaded yet, waiting...');
+      const params: HotToursParams = {
+        departureId: selectedDeparture.id,
+        currency: searchParams.currency || currency || 'RUB',
+        onlyCharter: !!searchParams.onlyCharter,
+        limit: 80,
+        countryIds,
+      };
+
+      let hots: TourHot[] = [];
+      try {
+        const remote = await fetchHotToursViaBackend(params);
+        if (remote.success && remote.data?.length) {
+          hots = remote.data;
         }
-        setIsLoading(false);
-        return;
+      } catch (e) {
+        logger.debug('[HotTours] backend:', (e as Error)?.message);
       }
-
-      logger.debug(`[HotTours] Loading tours for ${countriesToLoad.length} country/countries:`, 
-        countriesToLoad.map(c => c.name).join(', '));
-      const allTourHotels: TourHotel[] = [];
-
-      // Загружаем туры для каждой страны отдельно с задержками, чтобы избежать rate limit
-      const delayBetweenCountries = 2000; // 2 секунды между странами (поиск асинхронный)
-      
-      for (let i = 0; i < countriesToLoad.length; i++) {
-        const country = countriesToLoad[i];
-        let retryCount = 0;
-        const maxRetries = 2;
-        let success = false;
-        
-        while (!success && retryCount < maxRetries) {
-          try {
-            // Используем обычный поиск туров вместо горящих туров
-            // Сначала получаем доступные даты для страны, чтобы использовать валидные даты
-            let dateFrom: string;
-            let dateTo: string;
-            
-            try {
-              // Пытаемся получить доступные даты из API
-              logger.debug(`[HotTours] Fetching available dates for ${country.name} (departureId: ${selectedDeparture.id}, countryId: ${country.id})`);
-              const availableDates = await dictionaryService.getTourDates(
-                selectedDeparture.id,
-                country.id,
-                undefined, // arrivalId
-                searchParams.onlyCharter || false
-              );
-              logger.debug(`[HotTours] Received ${availableDates?.length || 0} available dates for ${country.name}`);
-              
-              if (availableDates && availableDates.length > 0) {
-                // Фильтруем даты, оставляя только будущие (начиная с завтра)
-                const tomorrow = new Date();
-                tomorrow.setDate(tomorrow.getDate() + 1);
-                tomorrow.setHours(0, 0, 0, 0);
-                const tomorrowStr = tomorrow.toISOString().split('T')[0];
-                
-                // API не принимает сегодняшнюю дату, нужна дата строго в будущем
-                const today = new Date();
-                today.setHours(0, 0, 0, 0);
-                const todayStr = today.toISOString().split('T')[0];
-                
-                const futureDates = availableDates.filter(date => {
-                  // Строго больше сегодня (не >=), чтобы исключить сегодняшнюю дату
-                  const isFuture = date > todayStr;
-                  if (!isFuture) {
-                    logger.debug(`[HotTours] Filtering out date ${date} (today: ${todayStr})`);
-                  }
-                  return isFuture;
-                });
-                
-                logger.debug(`[HotTours] Filtered dates for ${country.name}: ${availableDates.length} total, ${futureDates.length} future (today: ${todayStr})`);
-                
-                if (futureDates.length > 0) {
-                  // Используем первую будущую доступную дату как dateFrom
-                  dateFrom = futureDates[0];
-                  logger.debug(`[HotTours] Selected dateFrom: ${dateFrom} (first future date)`);
-                  // Используем последнюю доступную дату или дату через 14 дней от первой
-                  const lastDate = futureDates[futureDates.length - 1];
-                  const firstDateObj = new Date(dateFrom);
-                  const maxDateObj = new Date(firstDateObj);
-                  maxDateObj.setDate(maxDateObj.getDate() + 14); // Максимум 14 дней от первой даты
-                  const lastDateObj = new Date(lastDate);
-                  
-                  // Берем минимум из последней доступной даты и даты через 14 дней
-                  dateTo = lastDateObj < maxDateObj ? lastDate : maxDateObj.toISOString().split('T')[0];
-                  
-                  logger.debug(`[HotTours] Using available dates for ${country.name}: ${dateFrom} to ${dateTo} (${futureDates.length} future dates from ${availableDates.length} total)`);
-                } else {
-                  // Если все даты в прошлом, используем завтра и +14 дней
-                  dateFrom = tomorrowStr;
-                  const dateToObj = new Date(tomorrow);
-                  dateToObj.setDate(dateToObj.getDate() + 14);
-                  dateTo = dateToObj.toISOString().split('T')[0];
-                  logger.debug(`[HotTours] All available dates are in the past, using tomorrow: ${dateFrom} to ${dateTo}`);
-                }
-              } else {
-                // Если доступных дат нет, используем завтрашнюю дату и +14 дней
-                // API может не принимать сегодняшнюю дату
-                const tomorrow = new Date();
-                tomorrow.setDate(tomorrow.getDate() + 1); // Завтра вместо сегодня
-                tomorrow.setHours(0, 0, 0, 0);
-                dateFrom = tomorrow.toISOString().split('T')[0];
-                const dateToObj = new Date(tomorrow);
-                dateToObj.setDate(dateToObj.getDate() + 14);
-                dateTo = dateToObj.toISOString().split('T')[0];
-                logger.debug(`[HotTours] No available dates found, using default range: ${dateFrom} to ${dateTo}`);
-              }
-            } catch (datesError: any) {
-              // Если не удалось получить доступные даты, используем завтрашнюю дату и +14 дней
-              // API не принимает сегодняшнюю дату, обязательно используем завтра
-              logger.warn(`[HotTours] Could not get available dates for ${country.name}, using tomorrow:`, datesError.message);
-              const today = new Date();
-              today.setHours(0, 0, 0, 0);
-              const tomorrow = new Date(today);
-              tomorrow.setDate(tomorrow.getDate() + 1); // Завтра вместо сегодня
-              tomorrow.setHours(0, 0, 0, 0);
-              dateFrom = tomorrow.toISOString().split('T')[0];
-              const dateToObj = new Date(tomorrow);
-              dateToObj.setDate(dateToObj.getDate() + 14);
-              dateTo = dateToObj.toISOString().split('T')[0];
-              logger.debug(`[HotTours] Using fallback dates (CATCH BLOCK): ${dateFrom} to ${dateTo} (today was: ${today.toISOString().split('T')[0]})`);
-            }
-            
-            // ВАЖНО: Проверяем, что dateFrom не сегодняшняя дата
-            const todayCheck = new Date();
-            todayCheck.setHours(0, 0, 0, 0);
-            const todayStrCheck = todayCheck.toISOString().split('T')[0];
-            if (dateFrom <= todayStrCheck) {
-              logger.error(`[HotTours] ERROR: dateFrom (${dateFrom}) is today or in the past! Today is ${todayStrCheck}. Forcing tomorrow.`);
-              const tomorrow = new Date(todayCheck);
-              tomorrow.setDate(tomorrow.getDate() + 1);
-              dateFrom = tomorrow.toISOString().split('T')[0];
-              const dateToObj = new Date(tomorrow);
-              dateToObj.setDate(dateToObj.getDate() + 14);
-              dateTo = dateToObj.toISOString().split('T')[0];
-              logger.debug(`[HotTours] Corrected dates: ${dateFrom} to ${dateTo}`);
-            }
-
-            // Вычисляем максимальное количество ночей на основе диапазона дат
-            const dateFromObj = new Date(dateFrom);
-            const dateToObj = new Date(dateTo);
-            const maxNights = Math.floor((dateToObj.getTime() - dateFromObj.getTime()) / (1000 * 60 * 60 * 24));
-            
-            // Используем разумные значения для поиска туров
-            // Согласно документации API, nightsTo должен быть валидным значением
-            // Важно: nightsTo должен быть строго больше nightsFrom
-            const nightsFrom = 3;
-            
-            // Вычисляем nightsTo на основе диапазона дат
-            // Используем максимальное количество ночей, которое может быть в диапазоне дат
-            // Но не меньше 7 и не больше 30 (разумные пределы для туров)
-            let nightsTo: number;
-            
-            // Если диапазон дат позволяет, используем его как основу
-            // Но добавляем запас, чтобы покрыть туры разной длительности
-            if (maxNights < 7) {
-              nightsTo = 7; // Минимум 7 ночей
-            } else if (maxNights <= 14) {
-              // Для диапазона до 14 дней используем стандартные значения туров
-              // Используем 15 вместо 14, так как API может не принимать значение 14
-              nightsTo = 15; // Стандартный максимум для большинства туров
-            } else {
-              // Для больших диапазонов используем максимум 30 ночей
-              nightsTo = Math.min(maxNights, 30);
-            }
-            
-            // ВАЖНО: Убеждаемся, что nightsTo строго больше nightsFrom
-            if (nightsTo <= nightsFrom) {
-              nightsTo = nightsFrom + 1;
-            }
-            
-            logger.debug(`[HotTours] Date range: ${dateFrom} to ${dateTo} = ${maxNights} days`);
-            logger.debug(`[HotTours] Nights range: ${nightsFrom} to ${nightsTo} (calculated from ${maxNights} days, nightsTo > nightsFrom: ${nightsTo > nightsFrom})`);
-            
-            const tourSearchParams: TourSearchParams = {
-              departureId: selectedDeparture.id,
-              countryId: country.id, // Один ID страны (required)
-              dateFrom: dateFrom,
-              dateTo: dateTo,
-              nightsFrom: nightsFrom,
-              nightsTo: nightsTo,
-              adults: 2,
-              childs: [],
-              currency: 'RUB',
-              onlyCharter: searchParams.onlyCharter || false,
-            };
-            
-            logger.debug(`[HotTours] Calculated nights range: ${nightsFrom}-${nightsTo} (based on date range: ${dateFrom} to ${dateTo}, max possible: ${maxNights} nights)`);
-
-            logger.debug(`[HotTours] Starting tour search for country ${country.name} (ID: ${country.id}):`, {
-              departureId: tourSearchParams.departureId,
-              countryId: tourSearchParams.countryId,
-              dateFrom: tourSearchParams.dateFrom,
-              dateTo: tourSearchParams.dateTo,
-              nightsFrom: tourSearchParams.nightsFrom,
-              nightsTo: tourSearchParams.nightsTo,
-              adults: tourSearchParams.adults,
-              currency: tourSearchParams.currency,
-              onlyCharter: tourSearchParams.onlyCharter,
-            });
-            logger.debug(`[HotTours] Full search params:`, JSON.stringify(tourSearchParams, null, 2));
-
-            // Запускаем поиск
-            logger.debug(`[HotTours] Attempting to start search for ${country.name}...`);
-            let searchResult;
-            try {
-              searchResult = await tourvisorApi.startTourSearch(tourSearchParams);
-              const searchId = searchResult.searchId;
-              logger.debug(`[HotTours] ✅ Search started successfully for ${country.name}, searchId: ${searchId}`);
-            } catch (searchStartError: any) {
-              // Если ошибка при запуске поиска (400, 403 и т.д.)
-              logger.error(`[HotTours] ❌ Failed to start search for ${country.name}:`, searchStartError.message);
-              if (searchStartError?.message?.includes('400') || searchStartError?.message?.includes('invalid')) {
-                // Ошибка валидации параметров - не продолжаем для этой страны
-                logger.error(`[HotTours] Invalid parameters for ${country.name}, skipping. Error:`, searchStartError.message);
-                success = true; // Помечаем как успех, чтобы не блокировать другие страны
-                continue; // Переходим к следующей стране
-              }
-              throw searchStartError; // Пробрасываем другие ошибки
-            }
-            
-            const searchId = searchResult.searchId;
-
-            // Ждем завершения поиска (polling статуса)
-            let searchCompleted = false;
-            let attempts = 0;
-            const maxAttempts = 30; // Максимум 30 попыток (около 90 секунд)
-            
-            while (!searchCompleted && attempts < maxAttempts) {
-              await new Promise(resolve => setTimeout(resolve, 3000)); // Ждем 3 секунды между проверками
-              
-              try {
-                const status = await tourvisorApi.getTourSearchStatus(searchId, false);
-                logger.debug(`[HotTours] Search status for ${country.name}: ${status.status}, progress: ${status.progress}%`);
-                
-                if (status.status === 'completed') {
-                  searchCompleted = true;
-                  
-                  // Получаем результаты поиска
-                  const results = await tourvisorApi.getTourSearchResults(searchId, 200); // Максимум 200 отелей
-                  logger.debug(`[HotTours] Search completed for ${country.name}, found ${results?.length || 0} hotels`);
-                  
-                  if (results && results.length > 0) {
-                    // Фильтруем только отели с турами для нужной страны
-                    const filteredHotels = results.filter(hotel => 
-                      hotel.country?.id === country.id && hotel.tours && hotel.tours.length > 0
-                    );
-                    allTourHotels.push(...filteredHotels);
-                    logger.debug(`[HotTours] Added ${filteredHotels.length} hotels with tours for ${country.name}`);
-                  }
-                } else if (status.status === 'error') {
-                  throw new Error(`Search failed for ${country.name}`);
-                }
-              } catch (statusError: any) {
-                logger.error(`[HotTours] Error checking search status for ${country.name}:`, statusError);
-                if (statusError?.message?.includes('403') || statusError?.message?.includes('forbidden')) {
-                  throw statusError; // Пробрасываем 403
-                }
-              }
-              
-              attempts++;
-            }
-
-            if (!searchCompleted) {
-              logger.warn(`[HotTours] Search timeout for ${country.name} after ${maxAttempts} attempts`);
-            }
-            
-            success = true;
-          } catch (error: any) {
-            // Обработка ошибки 403 (Forbidden) - токен недействителен или нет прав
-            // Если fallback уже был попробован и все равно 403, тогда показываем ошибку
-            if (error?.message?.includes('403') || error?.message?.includes('forbidden')) {
-              logger.error(`[HotTours] 403 Forbidden for country ${country.name} (fallback also failed):`, error.message);
-              // Не продолжаем попытки для этой страны
-              success = true;
-              // Если это первая страна и у нас есть countryId в route, показываем ошибку
-              if (i === 0 && route?.params?.countryId) {
-                setHasFailedOnce(true);
-                throw error; // Пробрасываем ошибку, чтобы показать пользователю
-              }
-            }
-            // Обработка ошибки 429 (Too Many Requests)
-            else if (error?.message?.includes('429') && retryCount < maxRetries - 1) {
-              const delay = Math.pow(2, retryCount) * 1000; // Экспоненциальная задержка: 1s, 2s, 4s
-              await new Promise(resolve => setTimeout(resolve, delay));
-              retryCount++;
-            } else {
-              success = true; // Продолжаем загрузку для других стран даже если одна не удалась
-            }
-          }
-        }
-        
-        // Задержка между странами (кроме последней)
-        if (i < countriesToLoad.length - 1) {
-          await new Promise(resolve => setTimeout(resolve, delayBetweenCountries));
+      if (!hots.length) {
+        try {
+          const legacy = await tourvisorApi.getHotTours(params);
+          hots = Array.isArray(legacy) ? legacy : [];
+        } catch (e) {
+          logger.debug('[HotTours] legacy:', (e as Error)?.message);
         }
       }
 
-      // Удаляем дубликаты по ID отеля
-      const uniqueHotels = allTourHotels.filter((hotel, index, self) =>
-        index === self.findIndex(h => h.id === hotel.id)
-      );
-
-      // Если получили пустой результат, останавливаем дальнейшие запросы
-      if (uniqueHotels.length === 0 && countriesToLoad.length > 0) {
+      const uniqueHotels = tourHotsToTourHotels(hots);
+      if (uniqueHotels.length === 0) {
         setHasFailedOnce(true);
-        logger.warn('[HotTours] No tours found for selected countries');
+        logger.warn('[HotTours] No tours found');
       }
-      
+
       setHotTours(uniqueHotels);
       if (uniqueHotels.length > 0) {
-        preCacheTourDetailsFromSearchResults(uniqueHotels, searchParams.currency || 'RUB').catch(() => {});
-        const cacheKey = `hot_${selectedDeparture.id}_${countriesToLoad.map(c => c.id).sort().join(',')}`;
+        preCacheTourDetailsFromSearchResults(uniqueHotels, params.currency).catch(() => {});
+        const cacheKey = `hot_v2_${selectedDeparture.id}_${(countryIds || []).join(',')}`;
         cacheService.set(CacheType.HOT_TOURS, cacheKey, uniqueHotels).catch(() => {});
-        // Уведомление об акции: "Скидка на тур {название}" — один раз за сессию
         if (!promoNotificationSent.current) {
           const first = uniqueHotels[0];
           const firstTour = first?.tours?.[0];
-          const tourName = firstTour ? `${first.name}, ${first.country?.name || ''}` : first?.name || 'Акционный тур';
-          const tourId = firstTour?.id?.toString();
-          notificationService.sendPromoTourNotification(tourName, tourId).catch(() => {});
+          const tourName = firstTour
+            ? `${first.name}, ${first.country?.name || ''}`
+            : first?.name || 'Акционный тур';
+          notificationService.sendPromoTourNotification(tourName, firstTour?.id?.toString()).catch(() => {});
           promoNotificationSent.current = true;
         }
       }
     } catch (error: any) {
-      // Устанавливаем флаг неудачи, чтобы остановить дальнейшие запросы
       setHasFailedOnce(true);
-      // Тихая обработка ошибок для демо API (403, 429 ожидаем)
-      // Не очищаем туры, если они уже загружены
       if (hotTours.length === 0) {
         setHotTours([]);
       }
@@ -848,10 +606,7 @@ export default function ApiHotToursScreen({ navigation, route }: ApiHotToursScre
         <Text style={[styles.selectorLabel, { color: theme.secondaryText }]}>Город вылета</Text>
         <TouchableOpacity
           style={[styles.selector, { borderColor: theme.border }]}
-          onPress={() => {
-            // Could implement departure selection modal here
-            Alert.alert(i18n.t('info.departureMoscow'), i18n.t('info.departureMoscowDesc'));
-          }}
+          onPress={() => setShowDepartureModal(true)}
           activeOpacity={0.7}
         >
           <Text style={[styles.selectorText, { color: theme.text }]}>
@@ -860,6 +615,65 @@ export default function ApiHotToursScreen({ navigation, route }: ApiHotToursScre
           <Ionicons name="chevron-down" size={20} color={theme.secondaryText} />
         </TouchableOpacity>
       </View>
+
+      <Modal
+        visible={showDepartureModal}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setShowDepartureModal(false)}
+      >
+        <Pressable style={styles.modalBackdrop} onPress={() => setShowDepartureModal(false)} />
+        <View style={[styles.modalSheet, { backgroundColor: theme.card }]}>
+          <View style={styles.modalHandle} />
+          <Text style={[styles.modalTitle, { color: theme.text }]}>
+            {i18n.t('hotTours.selectCity')}
+          </Text>
+          <View style={[styles.searchBox, { borderColor: theme.border, backgroundColor: theme.secondaryBackground }]}>
+            <Ionicons name="search" size={18} color={theme.secondaryText} />
+            <TextInput
+              value={departureQuery}
+              onChangeText={setDepartureQuery}
+              placeholder={i18n.t('countries.searchPlaceholder')}
+              placeholderTextColor={theme.secondaryText}
+              style={[styles.searchInput, { color: theme.text }]}
+              autoCorrect={false}
+            />
+            {departureQuery ? (
+              <TouchableOpacity onPress={() => setDepartureQuery('')}>
+                <Ionicons name="close-circle" size={18} color={theme.secondaryText} />
+              </TouchableOpacity>
+            ) : null}
+          </View>
+          <FlatList
+            data={filteredDepartures}
+            keyExtractor={(item) => String(item.id)}
+            keyboardShouldPersistTaps="handled"
+            style={{ maxHeight: 420 }}
+            renderItem={({ item }) => {
+              const active = selectedDeparture?.id === item.id;
+              return (
+                <TouchableOpacity
+                  style={[
+                    styles.depRow,
+                    { borderBottomColor: theme.border },
+                    active && { backgroundColor: `${theme.primary}12` },
+                  ]}
+                  onPress={() => pickDeparture(item)}
+                  activeOpacity={0.7}
+                >
+                  <Text style={[styles.depRowText, { color: theme.text }]}>{item.name}</Text>
+                  {active ? <Ionicons name="checkmark" size={20} color={theme.primary} /> : null}
+                </TouchableOpacity>
+              );
+            }}
+            ListEmptyComponent={
+              <Text style={[styles.emptySubtext, { color: theme.secondaryText, padding: 20 }]}>
+                {i18n.t('tours.notFoundShort')}
+              </Text>
+            }
+          />
+        </View>
+      </Modal>
 
       {/* Filters */}
       {showFilters && renderFilters()}
@@ -1024,6 +838,56 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   selectorText: {
+    fontSize: 16,
+  },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+  },
+  modalSheet: {
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    paddingHorizontal: 16,
+    paddingBottom: 24,
+    marginTop: -12,
+    maxHeight: '72%',
+  },
+  modalHandle: {
+    alignSelf: 'center',
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#D1D5DB',
+    marginVertical: 10,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    marginBottom: 12,
+  },
+  searchBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 8,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 16,
+    padding: 0,
+  },
+  depRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 14,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  depRowText: {
     fontSize: 16,
   },
   filtersContainer: {

@@ -654,16 +654,27 @@ export default function ApiTourHotelSearch({
         ? hotelSearch.category
         : filterHotelCategory;
 
-    // Tourvisor /hotels — каталог по стране/курорту/звёздам (даты заселения API не использует)
+    // Tourvisor /hotels — каталог (без цен). Даты/вылет нужны, чтобы открыть туры с ценами.
     const searchParams = {
       countryId: parseInt(hotelSearch.countryId, 10),
       regionId: regionRaw ? parseInt(String(regionRaw), 10) : undefined,
       category: categoryRaw !== '' && categoryRaw != null ? Number(categoryRaw) : undefined,
     };
 
+    const tourContext = {
+      departureId: tourSearch.departureId ? parseInt(tourSearch.departureId, 10) : undefined,
+      dateFrom: tourSearch.dateFrom,
+      dateTo: tourSearch.dateTo,
+      nightsFrom: tourSearch.nightsFrom,
+      nightsTo: tourSearch.nightsTo,
+      adults: tourSearch.adults,
+      childs: tourSearch.childs,
+      currency: 'RUB' as const,
+    };
+
     if (onSearchHotels) onSearchHotels(searchParams);
     else if (navigation?.navigate) {
-      navigation.navigate('ApiHotelSearch', { searchParams });
+      navigation.navigate('ApiHotelSearch', { searchParams, tourContext });
     } else if (__DEV__) {
       logger.debug('[ApiTourHotelSearch] Hotel search: no navigation available');
     }
@@ -843,7 +854,7 @@ export default function ApiTourHotelSearch({
                 styles.presetChip,
                 {
                   borderColor: theme.border,
-                  backgroundColor: !filterRegionId && !hotelSearch.regionId ? theme.primary + '20' : undefined,
+                  backgroundColor: !filterRegionId && !hotelSearch.regionId ? theme.primary + '20' : theme.secondaryBackground,
                 },
               ]}
               onPress={() => {
@@ -878,7 +889,7 @@ export default function ApiTourHotelSearch({
                       styles.presetChip,
                       {
                         borderColor: theme.border,
-                        backgroundColor: selected ? theme.primary + '20' : undefined,
+                        backgroundColor: selected ? theme.primary + '20' : theme.secondaryBackground,
                       },
                     ]}
                     onPress={() => {
@@ -924,7 +935,7 @@ export default function ApiTourHotelSearch({
                   styles.presetChip,
                   {
                     borderColor: theme.border,
-                    backgroundColor: selected ? theme.primary + '20' : undefined,
+                    backgroundColor: selected ? theme.primary + '20' : theme.secondaryBackground,
                   },
                 ]}
                 onPress={() => {
@@ -1924,7 +1935,7 @@ export default function ApiTourHotelSearch({
                               styles.presetChip,
                               {
                                 borderColor: theme.border,
-                                backgroundColor: selected ? theme.primary + '20' : undefined,
+                                backgroundColor: selected ? theme.primary + '20' : theme.secondaryBackground,
                               },
                             ]}
                             onPress={() => {
@@ -1970,7 +1981,7 @@ export default function ApiTourHotelSearch({
                           styles.presetChip,
                           {
                             borderColor: theme.border,
-                            backgroundColor: selected ? theme.primary + '20' : undefined,
+                            backgroundColor: selected ? theme.primary + '20' : theme.secondaryBackground,
                           },
                         ]}
                         onPress={() => {
@@ -2758,6 +2769,7 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     borderRadius: 10,
     borderWidth: 1,
+    backgroundColor: '#F3F4F6',
   },
   presetChipText: {
     fontSize: 13,

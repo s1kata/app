@@ -10,4 +10,5 @@ export type ApiTourResultsRouteParams = {
 export type ApiTourDetailsRouteParams = {
   tourId: string;
   searchParams?: TourSearchParams;
+  currency?: string;
 };

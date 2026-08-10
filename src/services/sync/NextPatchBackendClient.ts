@@ -4,7 +4,7 @@
 import { Platform } from 'react-native';
 import Constants from 'expo-constants';
 import { getValidAccessToken } from '../AuthApiClient';
-import { getCrmApiBaseUrl } from '../../config/apiEndpoints';
+import { getCrmApiBaseUrl, getSiteBaseUrl } from '../../config/apiEndpoints';
 import type { RecommendationItem } from '../RecommendationService';
 import type {
   Hotel,
@@ -284,6 +284,154 @@ export async function fetchHotelDetailsViaBackend(
   );
 }
 
+const DEFAULT_HOT_COUNTRY_IDS = [4, 1, 9, 8, 2];
+
+type PromoHotelRow = {
+  id?: number;
+  name?: string;
+  category?: number;
+  rating?: number;
+  country?: TourHot['country'];
+  region?: TourHot['hotel']['region'];
+  subRegion?: TourHot['hotel']['subRegion'];
+  type?: number;
+  latitude?: number;
+  longitude?: number;
+  picturelink?: string;
+  hotelDescriptionLink?: string;
+  currency?: string;
+  price?: number;
+  tours?: Array<{
+    id?: string;
+    price?: number;
+    priceOld?: number;
+    oldPrice?: number;
+    date?: string;
+    nights?: number;
+    currency?: string;
+    meal?: TourHot['meal'];
+    operator?: TourHot['operator'];
+  }>;
+};
+
+function mapPromoHotelsToTourHots(
+  hotels: PromoHotelRow[],
+  departureId: number,
+  currency: string,
+): TourHot[] {
+  const departure = {
+    id: departureId,
+    name: departureId === 1 ? 'Москва' : '',
+    nameGenitive: departureId === 1 ? 'Москвы' : '',
+  };
+  const out: TourHot[] = [];
+  for (const hotel of hotels) {
+    const hid = Number(hotel.id) || 0;
+    if (!hid) continue;
+    const pic =
+      (hotel.picturelink && String(hotel.picturelink).trim()) ||
+      `https://static.tourvisor.ru/hotel_pics/main400/${hid}.jpg`;
+    const hotelPayload: TourHot['hotel'] = {
+      id: hid,
+      name: String(hotel.name || ''),
+      category: Number(hotel.category) || 0,
+      rating: Number(hotel.rating) || 0,
+      country: hotel.country as TourHot['hotel']['country'],
+      region: hotel.region as TourHot['hotel']['region'],
+      subRegion: hotel.subRegion,
+      type: Number(hotel.type) || 0,
+      latitude: Number(hotel.latitude) || 0,
+      longitude: Number(hotel.longitude) || 0,
+      picturelink: pic,
+      hotelDescriptionLink: String(hotel.hotelDescriptionLink || ''),
+    };
+    const tours = Array.isArray(hotel.tours) ? hotel.tours : [];
+    if (!tours.length) {
+      const price = Number(hotel.price) || 0;
+      if (price <= 0) continue;
+      out.push({
+        country: hotel.country as TourHot['country'],
+        departure,
+        hotel: hotelPayload,
+        meal: undefined as unknown as TourHot['meal'],
+        operator: undefined as unknown as TourHot['operator'],
+        currency: String(hotel.currency || currency),
+        date: '',
+        nights: 0,
+        price,
+        priceOld: 0,
+      });
+      continue;
+    }
+    for (const tour of tours) {
+      const price = Number(tour.price) || Number(hotel.price) || 0;
+      if (price <= 0) continue;
+      out.push({
+        country: hotel.country as TourHot['country'],
+        departure,
+        hotel: hotelPayload,
+        meal: tour.meal as TourHot['meal'],
+        operator: tour.operator as TourHot['operator'],
+        currency: String(tour.currency || hotel.currency || currency),
+        date: String(tour.date || ''),
+        nights: Number(tour.nights) || 0,
+        price,
+        priceOld: Number(tour.priceOld || tour.oldPrice) || 0,
+      });
+    }
+  }
+  out.sort((a, b) => (a.price || 0) - (b.price || 0));
+  return out;
+}
+
+/** Акции с сайта, если Tourvisor /tours/hots недоступен (403). */
+async function fetchHotToursFromPromoProxy(params: HotToursParams): Promise<TourHot[]> {
+  const base = getSiteBaseUrl();
+  if (!base || !params.departureId) return [];
+  const countryIds =
+    Array.isArray(params.countryIds) && params.countryIds.length
+      ? params.countryIds.map(Number).filter((n) => n > 0)
+      : DEFAULT_HOT_COUNTRY_IDS;
+  const limit = Math.max(1, Math.min(200, Number(params.limit) || 40));
+  const perCountry = Math.max(8, Math.ceil(limit / Math.min(3, countryIds.length)) + 4);
+  const hotels: PromoHotelRow[] = [];
+  const seen = new Set<number>();
+
+  for (const countryId of countryIds.slice(0, 5)) {
+    try {
+      const qs = new URLSearchParams({
+        type: 'promo-search',
+        countryId: String(countryId),
+        departureId: String(params.departureId),
+        limit: String(perCountry),
+        cacheOnly: '1',
+        adults: '2',
+      });
+      const res = await fetch(`${base}/backend/api/tourvisor-proxy.php?${qs.toString()}`, {
+        method: 'GET',
+        headers: { Accept: 'application/json' },
+      });
+      if (!res.ok) continue;
+      const json = await res.json().catch(() => null);
+      const rows = Array.isArray(json?.data) ? (json.data as PromoHotelRow[]) : [];
+      for (const row of rows) {
+        const hid = Number(row?.id) || 0;
+        if (hid && seen.has(hid)) continue;
+        if (hid) seen.add(hid);
+        hotels.push(row);
+      }
+      if (hotels.length >= limit) break;
+    } catch (e) {
+      logger.debug('[NextPatchBackend] promo hots fallback:', (e as Error)?.message);
+    }
+  }
+
+  return mapPromoHotelsToTourHots(hotels, params.departureId, params.currency || 'RUB').slice(
+    0,
+    limit,
+  );
+}
+
 /** Горящие туры через сервер (Tourvisor token только на бэкенде). */
 export async function fetchHotToursViaBackend(
   params: HotToursParams,
@@ -310,10 +458,26 @@ export async function fetchHotToursViaBackend(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
+  const backendTours = r.success ? r.data?.tours || [] : [];
+  if (backendTours.length > 0) {
+    return { success: true, data: backendTours, status: r.status };
+  }
+
+  // /tours/hots часто 403 (модуль не подключён) — витрина акций с сайта
+  try {
+    const promo = await fetchHotToursFromPromoProxy(params);
+    if (promo.length > 0) {
+      logger.debug('[NextPatchBackend] hots via promo-search:', promo.length);
+      return { success: true, data: promo, status: r.status };
+    }
+  } catch (e) {
+    logger.debug('[NextPatchBackend] promo hots error:', (e as Error)?.message);
+  }
+
   if (!r.success) {
     return { success: false, error: r.error, status: r.status };
   }
-  return { success: true, data: r.data?.tours || [], status: r.status };
+  return { success: true, data: [], status: r.status };
 }
 
 const TOUR_SEARCH_PATHS = ['/api/tours/search.php', '/api/tours/search'] as const;

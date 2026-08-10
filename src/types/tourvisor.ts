@@ -103,6 +103,8 @@ export interface HotelCompact extends HotelCommonCompact {
   price?: number;
   priceFrom?: number;
   currency?: string;
+  /** Короткое описание после enrich через GET /hotels/{id} (модуль «Описания отелей») */
+  descriptionSnippet?: string;
 }
 
 export interface HotelCommon {
@@ -338,6 +340,8 @@ export interface TourHot {
   nights: number;
   price: number;
   priceOld: number;
+  /** Tourvisor tour id (для перехода в карточку) */
+  tourId?: string;
   /** Если тур пришёл из результатов поиска */
   searchId?: number;
 }

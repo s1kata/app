@@ -583,8 +583,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     await AsyncStorage.setItem(CURRENT_USER_STORAGE_KEY, JSON.stringify(guestUser));
     logger.debug('Logging in as guest');
 
+    // Не трогаем токены, если сессии уже нет — иначе гонка со splash может снести только что восстановленный аккаунт.
     try {
-      await AuthService.logout();
+      const hasRefresh = !!(await authSession.getRefreshToken());
+      if (hasRefresh) {
+        await AuthService.logout();
+      }
     } catch (e) {
       logger.debug('Clear session for guest mode:', e);
     }

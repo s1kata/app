@@ -18,7 +18,7 @@ import { Ionicons } from '@expo/vector-icons';
 
 import { tourvisorApi } from '../services/TourvisorApiService';
 import { hotelCacheService } from '../services/HotelCacheService';
-import { Hotel, HotelCompact } from '../types/tourvisor';
+import { Hotel, HotelCompact, TourSearchParams } from '../types/tourvisor';
 import { platform } from '../utils/platform';
 import { useAppContext } from '../contexts/AppContext';
 import AppLoader from '../components/AppLoader';
@@ -54,7 +54,7 @@ function normalizeHtmlText(raw: string | undefined | null): string {
 
 export default function ApiHotelDetailsScreen({ navigation, route }: ApiHotelDetailsScreenProps) {
   const { theme, isDark } = useAppContext();
-  const { hotelId, hotelPreview } = route.params || {};
+  const { hotelId, hotelPreview, tourContext } = route.params || {};
 
   const initialHotel = useMemo((): DisplayHotel | null => {
     if (hotelPreview && hotelId != null && hotelPreview.id === hotelId) {
@@ -161,32 +161,47 @@ export default function ApiHotelDetailsScreen({ navigation, route }: ApiHotelDet
   const getHotelCurrency = (h: DisplayHotel): string =>
     (h as { currency?: string }).currency ?? 'RUB';
 
-  const handleBooking = () => {
+  const openToursForHotel = () => {
     if (!hotel) return;
-    const h = hotel as { common?: { description?: string } };
-    const price = getHotelPrice(hotel);
-    const currency = getHotelCurrency(hotel);
-    const galleryUrls = getHotelImageUrls(hotel as never);
-    const mainImage = getHotelImageUrl(hotel as never) || DEFAULT_HOTEL_IMAGE;
-    const mappedHotel = {
-      id: String(hotel.id),
-      name: hotel.name,
-      description: h.common?.description || '',
-      location: hotel.region?.name || '',
-      country: hotel.country?.name || '',
-      category: String(hotel.category),
-      rating: hotel.rating,
-      reviews: 0,
-      price,
-      currency,
-      image: mainImage,
-      gallery: galleryUrls.length > 0 ? galleryUrls : [DEFAULT_HOTEL_IMAGE],
-      amenities: [],
-      stars: hotel.category,
-      mealTypes: [],
-      available: true,
+    const ctx = (tourContext || {}) as Partial<TourSearchParams>;
+    const departureId = Number(ctx.departureId);
+    if (!departureId) {
+      Alert.alert(
+        'Цены в поиске туров',
+        'У Tourvisor цены есть только в поиске туров (не в каталоге отелей). Выберите город вылета и даты на главной, затем снова откройте отель.'
+      );
+      return;
+    }
+    const today = new Date();
+    const from = new Date(today);
+    from.setDate(from.getDate() + 14);
+    const to = new Date(from);
+    to.setDate(to.getDate() + 7);
+    const iso = (d: Date) => d.toISOString().slice(0, 10);
+    const params: TourSearchParams = {
+      departureId,
+      countryId: hotel.country.id,
+      dateFrom: ctx.dateFrom || iso(from),
+      dateTo: ctx.dateTo || iso(to),
+      nightsFrom: ctx.nightsFrom || 7,
+      nightsTo: ctx.nightsTo || 14,
+      adults: ctx.adults || 2,
+      childs: Array.isArray(ctx.childs) ? ctx.childs : [],
+      hotelIds: [hotel.id],
+      hotelCategory: hotel.category > 0 ? hotel.category : undefined,
+      regionIds: hotel.region?.id ? [hotel.region.id] : undefined,
+      currency: ctx.currency || 'RUB',
+      onlyCharter: false,
     };
-    navigation.navigate('HotelBooking', { hotel: mappedHotel });
+    navigation.navigate('ApiTourResults', {
+      searchParams: params,
+      useCache: false,
+      runSearch: true,
+    });
+  };
+
+  const handleBooking = () => {
+    openToursForHotel();
   };
 
   const galleryUrls = (() => {
@@ -295,14 +310,23 @@ export default function ApiHotelDetailsScreen({ navigation, route }: ApiHotelDet
           )}
 
         <View style={[styles.priceRow, { borderTopColor: theme.border }]}>
-          <Text style={[styles.priceLabel, { color: theme.secondaryText }]}>
-            {getHotelPrice(hotel) > 0 ? 'Цена от' : 'Цена'}
-          </Text>
-          <Text style={[styles.priceValue, { color: getHotelPrice(hotel) > 0 ? theme.primary : theme.secondaryText }]}>
-            {getHotelPrice(hotel) > 0
-              ? `${getHotelPrice(hotel).toLocaleString('ru-RU')} ${getHotelCurrency(hotel)} за ночь`
-              : 'Договорная'}
-          </Text>
+          <View style={{ flex: 1, paddingRight: 12 }}>
+            <Text style={[styles.priceLabel, { color: theme.secondaryText }]}>
+              Цены на туры
+            </Text>
+            <Text style={[styles.priceHint, { color: theme.secondaryText }]}>
+              {getHotelPrice(hotel) > 0
+                ? `от ${getHotelPrice(hotel).toLocaleString('ru-RU')} ${getHotelCurrency(hotel)}`
+                : 'Актуальная стоимость — в поиске туров по датам вылета'}
+            </Text>
+          </View>
+          <TouchableOpacity
+            style={[styles.priceCta, { backgroundColor: theme.primary }]}
+            onPress={openToursForHotel}
+            activeOpacity={0.85}
+          >
+            <Text style={styles.priceCtaText}>Смотреть</Text>
+          </TouchableOpacity>
         </View>
       </View>
     );
@@ -527,17 +551,18 @@ export default function ApiHotelDetailsScreen({ navigation, route }: ApiHotelDet
         {renderInfrastructure()}
 
         <View style={[styles.bookingSection, { backgroundColor: theme.card }]}>
-          <Text style={[styles.bookingSectionTitle, { color: theme.text }]}>Бронирование и оплата</Text>
+          <Text style={[styles.bookingSectionTitle, { color: theme.text }]}>Туры в этот отель</Text>
           <Text style={[styles.bookingSectionText, { color: theme.secondaryText }]}>
-            Перейдите к бронированию для выбора дат и оплаты
+            Цена отеля в каталоге Tourvisor не приходит — она есть только в поиске туров по датам
+            вылета. Нажмите кнопку, чтобы найти актуальные предложения в этот отель.
           </Text>
           <TouchableOpacity
             style={[styles.bookingButton, { backgroundColor: theme.primary }]}
             onPress={handleBooking}
             activeOpacity={0.85}
           >
-            <Ionicons name="calendar" size={20} color="#fff" />
-            <Text style={styles.bookingButtonText}>Забронировать</Text>
+            <Ionicons name="search" size={20} color="#fff" />
+            <Text style={styles.bookingButtonText}>Смотреть туры и цены</Text>
           </TouchableOpacity>
         </View>
       </ScrollView>
@@ -710,13 +735,30 @@ const styles = StyleSheet.create({
     lineHeight: 24,
   },
   priceRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
     marginTop: 12,
     paddingTop: 12,
-    borderTopWidth: 1,
+    borderTopWidth: StyleSheet.hairlineWidth,
   },
   priceLabel: {
-    fontSize: 14,
+    fontSize: 13,
+    fontWeight: '600',
     marginBottom: 4,
+  },
+  priceHint: {
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  priceCta: {
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 10,
+  },
+  priceCtaText: {
+    color: '#fff',
+    fontWeight: '700',
+    fontSize: 14,
   },
   priceValue: {
     fontSize: 18,

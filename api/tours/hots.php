@@ -116,28 +116,36 @@ if (isset($params['operatorIds']) && is_array($params['operatorIds'])) {
 $path = '/tours/hots?' . implode('&', $queryParts);
 $meta = np_tourvisor_get_meta($CONFIG, $path);
 
-if (!$meta['ok']) {
-    $status = (int) ($meta['status'] ?? 502);
-    if ($status < 400) {
-        $status = 502;
+$tours = [];
+$source = 'tourvisor_hots';
+if ($meta['ok']) {
+    $json = $meta['json'];
+    if (is_array($json)) {
+        $isList = array_keys($json) === range(0, count($json) - 1);
+        if ($isList) {
+            $tours = $json;
+        } elseif (isset($json['data']) && is_array($json['data'])) {
+            $tours = $json['data'];
+        }
     }
-    http_response_code($status >= 400 && $status < 600 ? $status : 502);
-    echo json_encode([
-        'success' => false,
-        'error' => 'Tourvisor hot tours request failed',
-        'status' => $meta['status'] ?? 0,
-    ], JSON_UNESCAPED_UNICODE);
-    exit;
 }
 
-$json = $meta['json'];
-$tours = [];
-if (is_array($json)) {
-    $isList = array_keys($json) === range(0, count($json) - 1);
-    if ($isList) {
-        $tours = $json;
-    } elseif (isset($json['data']) && is_array($json['data'])) {
-        $tours = $json['data'];
+// Модуль «Горящие» у Tourvisor часто 403 (не подключён) — берём акции с сайта / live search.
+if ($tours === []) {
+    $tours = np_hot_tours_fallback($CONFIG, $departureId, $countryIds, $currency, $limit);
+    $source = 'promo_fallback';
+    if ($tours === []) {
+        $status = (int) ($meta['status'] ?? 502);
+        if ($status < 400) {
+            $status = 502;
+        }
+        http_response_code($status >= 400 && $status < 600 ? $status : 502);
+        echo json_encode([
+            'success' => false,
+            'error' => 'Tourvisor hot tours request failed',
+            'status' => $meta['status'] ?? 0,
+        ], JSON_UNESCAPED_UNICODE);
+        exit;
     }
 }
 
@@ -174,4 +182,5 @@ user_sync_json_ok([
     'departureId' => $departureId,
     'currency' => $currency,
     'limit' => $limit,
+    'source' => $source,
 ]);
