@@ -69,6 +69,7 @@ export function normalizeTourSearchParams(params: TourSearchParams): TourSearchP
   if (Array.isArray(p.regionIds)) p.regionIds = [...p.regionIds].sort((a, b) => a - b);
   if (Array.isArray(p.subregionIds)) p.subregionIds = [...p.subregionIds].sort((a, b) => a - b);
   if (Array.isArray(p.operatorIds)) p.operatorIds = [...p.operatorIds].sort((a, b) => a - b);
+  if (Array.isArray(p.hotelIds)) p.hotelIds = [...p.hotelIds].map(Number).filter((n) => n > 0).sort((a, b) => a - b);
   return p;
 }
 
@@ -79,8 +80,10 @@ export function getTourSearchApiParams(params: TourSearchParams): TourSearchPara
     operatorIds: _ignoredOps,
     priceFrom: _ignoredFrom,
     priceTo: _ignoredTo,
+    // client-only
+    skipOperatorFilter: _skipOp,
     ...apiParams
-  } = normalized;
+  } = normalized as TourSearchParams & { skipOperatorFilter?: boolean };
   return apiParams;
 }
 

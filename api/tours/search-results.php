@@ -69,7 +69,7 @@ if (is_array($payload)) {
     $hotels = $isList ? $payload : [];
 }
 
-if (function_exists('tv_filter_tour_hotels_by_country_operators')) {
+if (function_exists('tv_filter_tour_hotels_by_country_operators') && empty($_GET['skipOperatorFilter'])) {
     $hotels = tv_filter_tour_hotels_by_country_operators($hotels);
 }
 

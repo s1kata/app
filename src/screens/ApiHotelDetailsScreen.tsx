@@ -27,6 +27,8 @@ import { DEFAULT_HOTEL_IMAGE } from '../constants/images';
 import { getHotelImageUrl, getHotelImageUrls, normalizeHotelImages } from '../utils/hotelImages';
 import { logger } from '../utils/logger';
 import { fetchHotelDetailsViaBackend } from '../services/sync/NextPatchBackendClient';
+import { buildTourSearchParamsForHotel, hotelListPrice } from '../utils/hotelTourSearch';
+import { i18n } from '../config/i18n';
 
 interface ApiHotelDetailsScreenProps {
   navigation: any;
@@ -161,47 +163,28 @@ export default function ApiHotelDetailsScreen({ navigation, route }: ApiHotelDet
   const getHotelCurrency = (h: DisplayHotel): string =>
     (h as { currency?: string }).currency ?? 'RUB';
 
-  const openToursForHotel = () => {
+  const openToursForHotel = async () => {
     if (!hotel) return;
-    const ctx = (tourContext || {}) as Partial<TourSearchParams>;
-    const departureId = Number(ctx.departureId);
-    if (!departureId) {
-      Alert.alert(
-        'Цены в поиске туров',
-        'У Tourvisor цены есть только в поиске туров (не в каталоге отелей). Выберите город вылета и даты на главной, затем снова откройте отель.'
-      );
-      return;
+    try {
+      const ctx = (tourContext || {}) as Partial<TourSearchParams>;
+      const params = await buildTourSearchParamsForHotel(hotel, ctx);
+      if (!params) {
+        Alert.alert(i18n.t('common.error'), 'Не удалось открыть туры для этого отеля.');
+        return;
+      }
+      navigation.navigate('ApiTourResults', {
+        searchParams: params,
+        useCache: false,
+        runSearch: true,
+      });
+    } catch (e) {
+      logger.debug('[ApiHotelDetails] open tours:', (e as Error)?.message);
+      Alert.alert(i18n.t('common.error'), (e as Error)?.message || 'Ошибка поиска туров');
     }
-    const today = new Date();
-    const from = new Date(today);
-    from.setDate(from.getDate() + 14);
-    const to = new Date(from);
-    to.setDate(to.getDate() + 7);
-    const iso = (d: Date) => d.toISOString().slice(0, 10);
-    const params: TourSearchParams = {
-      departureId,
-      countryId: hotel.country.id,
-      dateFrom: ctx.dateFrom || iso(from),
-      dateTo: ctx.dateTo || iso(to),
-      nightsFrom: ctx.nightsFrom || 7,
-      nightsTo: ctx.nightsTo || 14,
-      adults: ctx.adults || 2,
-      childs: Array.isArray(ctx.childs) ? ctx.childs : [],
-      hotelIds: [hotel.id],
-      hotelCategory: hotel.category > 0 ? hotel.category : undefined,
-      regionIds: hotel.region?.id ? [hotel.region.id] : undefined,
-      currency: ctx.currency || 'RUB',
-      onlyCharter: false,
-    };
-    navigation.navigate('ApiTourResults', {
-      searchParams: params,
-      useCache: false,
-      runSearch: true,
-    });
   };
 
   const handleBooking = () => {
-    openToursForHotel();
+    void openToursForHotel();
   };
 
   const galleryUrls = (() => {
@@ -322,7 +305,7 @@ export default function ApiHotelDetailsScreen({ navigation, route }: ApiHotelDet
           </View>
           <TouchableOpacity
             style={[styles.priceCta, { backgroundColor: theme.primary }]}
-            onPress={openToursForHotel}
+            onPress={() => void openToursForHotel()}
             activeOpacity={0.85}
           >
             <Text style={styles.priceCtaText}>Смотреть</Text>

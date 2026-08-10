@@ -930,16 +930,26 @@ class TourvisorApiService {
     return response.data;
   }
 
-  async getTourSearchResults(searchId: number, limit: number = 25): Promise<TourHotel[]> {
+  async getTourSearchResults(
+    searchId: number,
+    limit: number = 25,
+    options?: { skipOperatorFilter?: boolean },
+  ): Promise<TourHotel[]> {
     if (!limit || limit < 1) {
       limit = 25;
     }
 
     if (PREFER_DOMAIN_TOUR_API) {
       try {
-        const remote = await fetchTourSearchResultsViaBackend(searchId, limit);
+        const remote = await fetchTourSearchResultsViaBackend(
+          searchId,
+          limit,
+          !!options?.skipOperatorFilter,
+        );
         if (remote.success && remote.data) {
-          return filterTourHotelsByCountryOperators(remote.data);
+          return options?.skipOperatorFilter
+            ? remote.data
+            : filterTourHotelsByCountryOperators(remote.data);
         }
         logger.debug('[Tourvisor API] search results backend miss:', remote.error);
       } catch (e) {
@@ -961,7 +971,7 @@ class TourvisorApiService {
     } else if (raw && typeof raw === 'object' && Array.isArray((raw as { data?: TourHotel[] }).data)) {
       hotels = (raw as { data: TourHotel[] }).data;
     }
-    return filterTourHotelsByCountryOperators(hotels);
+    return options?.skipOperatorFilter ? hotels : filterTourHotelsByCountryOperators(hotels);
   }
 
   async continueTourSearch(searchId: number): Promise<TourSearchContinueOutput> {

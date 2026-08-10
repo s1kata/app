@@ -303,6 +303,7 @@ export default function ApiHotToursScreen({ navigation, route }: ApiHotToursScre
 
   const clearFilters = () => {
     setSelectedCountries([]);
+    setHasFailedOnce(false);
   };
 
   const hotToursMountedRef = useRef(true);
@@ -438,12 +439,12 @@ export default function ApiHotToursScreen({ navigation, route }: ApiHotToursScre
                 {item.name}
               </Text>
               <Text style={[styles.hotelLocation, { color: theme.secondaryText }]}>
-                {item.region.name}
-                {item.subRegion && `, ${item.subRegion.name}`}
+                {item.region?.name || ''}
+                {item.subRegion?.name ? `, ${item.subRegion.name}` : ''}
               </Text>
             </View>
             <Text style={[styles.operatorName, { color: theme.primary }]} numberOfLines={1}>
-              {firstTour.operator.name}
+              {firstTour.operator?.name || ''}
             </Text>
           </View>
 
@@ -451,7 +452,7 @@ export default function ApiHotToursScreen({ navigation, route }: ApiHotToursScre
             <View style={styles.detailRow}>
               <Ionicons name="location" size={16} color={theme.secondaryText} />
               <Text style={[styles.detailText, { color: theme.secondaryText }]}>
-                {item.country.name}
+                {item.country?.name || ''}
               </Text>
             </View>
 
@@ -465,7 +466,7 @@ export default function ApiHotToursScreen({ navigation, route }: ApiHotToursScre
             <View style={styles.detailRow}>
               <Ionicons name="restaurant" size={16} color={theme.secondaryText} />
               <Text style={[styles.detailText, { color: theme.secondaryText }]}>
-                {firstTour.meal.russianName}
+                {firstTour.meal?.russianName || firstTour.meal?.name || ''}
               </Text>
             </View>
 

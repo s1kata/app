@@ -377,6 +377,7 @@ function mapPromoHotelsToTourHots(
         nights: Number(tour.nights) || 0,
         price,
         priceOld: Number(tour.priceOld || tour.oldPrice) || 0,
+        tourId: tour.id ? String(tour.id) : undefined,
       });
     }
   }
@@ -513,8 +514,9 @@ export async function fetchTourSearchStatusViaBackend(
 export async function fetchTourSearchResultsViaBackend(
   searchId: number,
   limit = 25,
+  skipOperatorFilter = false,
 ): Promise<{ success: boolean; data?: TourHotel[]; error?: string; status?: number }> {
-  const qs = `id=${searchId}&limit=${limit}`;
+  const qs = `id=${searchId}&limit=${limit}${skipOperatorFilter ? '&skipOperatorFilter=1' : ''}`;
   const r = await publicJsonFetch<{ hotels: TourHotel[] }>(
     TOUR_RESULTS_PATHS.map((p) => `${p}?${qs}`),
     { method: 'GET' },

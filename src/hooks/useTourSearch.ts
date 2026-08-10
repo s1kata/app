@@ -153,7 +153,13 @@ async function fetchTourSearch(params: TourSearchParams, limit: number): Promise
         throw new Error('Invalid worker response');
       }
       logger.debug('[useTourSearch] worker response', { count: data.length });
-      return filterTourHotelsByCountryOperators(data);
+      const skipOps = !!(params as TourSearchParams).skipOperatorFilter || !!(params.hotelIds && params.hotelIds.length);
+      let hotels = skipOps ? data : filterTourHotelsByCountryOperators(data);
+      if (Array.isArray(params.hotelIds) && params.hotelIds.length) {
+        const want = new Set(params.hotelIds.map(Number));
+        hotels = hotels.filter((h: TourHotel) => want.has(Number(h.id)));
+      }
+      return hotels;
     } catch (e) {
       throw new Error(`Worker search failed: ${(e as Error)?.message || String(e)}`);
     }
@@ -182,14 +188,22 @@ async function fetchTourSearch(params: TourSearchParams, limit: number): Promise
       await tourvisorApi.pollTourSearchUntilReady(searchId);
 
       let results: TourHotel[] = [];
+      const skipOps = !!(params as TourSearchParams).skipOperatorFilter || !!(params.hotelIds && params.hotelIds.length);
       for (let attempt = 0; attempt < 3; attempt++) {
         try {
-          results = await tourvisorApi.getTourSearchResults(searchId, limit);
+          results = await tourvisorApi.getTourSearchResults(searchId, limit, {
+            skipOperatorFilter: skipOps,
+          });
           break;
         } catch (e) {
           if (!isTransientTourvisorError(e) || attempt >= 2) throw e;
           await new Promise((r) => setTimeout(r, 2000 * (attempt + 1)));
         }
+      }
+
+      if (Array.isArray(params.hotelIds) && params.hotelIds.length && Array.isArray(results)) {
+        const want = new Set(params.hotelIds.map(Number));
+        results = results.filter((h) => want.has(Number(h.id)));
       }
 
       logger.debug('[useTourSearch] direct Tourvisor results received', {

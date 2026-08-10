@@ -42,6 +42,7 @@ import { useHotelListDetailImages } from '../hooks/useHotelListDetailImages';
 import { logger } from '../utils/logger';
 import { i18n } from '../config/i18n';
 import { radius, shadows } from '../config/designSystem';
+import { buildTourSearchParamsForHotel, hotelListPrice } from '../utils/hotelTourSearch';
 
 interface ApiHotelSearchScreenProps {
   navigation: any;
@@ -178,37 +179,6 @@ export default function ApiHotelSearchScreen({ navigation, route }: ApiHotelSear
 
   const tourContext = (route?.params?.tourContext || {}) as Partial<TourSearchParams>;
 
-  const buildTourSearchForHotel = useCallback(
-    (hotel: HotelCompact): TourSearchParams | null => {
-      const departureId = Number(tourContext.departureId);
-      if (!departureId || !hotel.country?.id) {
-        return null;
-      }
-      const today = new Date();
-      const from = new Date(today);
-      from.setDate(from.getDate() + 14);
-      const to = new Date(from);
-      to.setDate(to.getDate() + 7);
-      const iso = (d: Date) => d.toISOString().slice(0, 10);
-      return {
-        departureId,
-        countryId: hotel.country.id,
-        dateFrom: tourContext.dateFrom || iso(from),
-        dateTo: tourContext.dateTo || iso(to),
-        nightsFrom: tourContext.nightsFrom || 7,
-        nightsTo: tourContext.nightsTo || 14,
-        adults: tourContext.adults || 2,
-        childs: Array.isArray(tourContext.childs) ? tourContext.childs : [],
-        hotelIds: [hotel.id],
-        hotelCategory: hotel.category > 0 ? hotel.category : undefined,
-        regionIds: hotel.region?.id ? [hotel.region.id] : undefined,
-        currency: tourContext.currency || 'RUB',
-        onlyCharter: false,
-      };
-    },
-    [tourContext]
-  );
-
   const handleHotelPress = useCallback(
     (hotel: HotelCompact) => {
       hotelCacheService.set(hotel.id, hotel);
@@ -222,22 +192,24 @@ export default function ApiHotelSearchScreen({ navigation, route }: ApiHotelSear
   );
 
   const handleOpenTours = useCallback(
-    (hotel: HotelCompact) => {
-      const params = buildTourSearchForHotel(hotel);
-      if (!params) {
-        Alert.alert(
-          'Нужен город вылета',
-          'Цены на отель появляются только в поиске туров. Вернитесь на главную, выберите город вылета и даты, затем снова откройте отель.'
-        );
-        return;
+    async (hotel: HotelCompact) => {
+      try {
+        const params = await buildTourSearchParamsForHotel(hotel, tourContext);
+        if (!params) {
+          Alert.alert(i18n.t('common.error'), 'Не удалось открыть туры для этого отеля.');
+          return;
+        }
+        navigation.navigate('ApiTourResults', {
+          searchParams: params,
+          useCache: false,
+          runSearch: true,
+        });
+      } catch (e) {
+        logger.debug('[ApiHotelSearch] open tours:', (e as Error)?.message);
+        Alert.alert(i18n.t('common.error'), (e as Error)?.message || i18n.t('search.errorSearchFailed'));
       }
-      navigation.navigate('ApiTourResults', {
-        searchParams: params,
-        useCache: false,
-        runSearch: true,
-      });
     },
-    [buildTourSearchForHotel, navigation]
+    [navigation, tourContext]
   );
 
   const loadDictionaryData = useCallback(async (isCancelled?: () => boolean) => {
@@ -1118,6 +1090,22 @@ export default function ApiHotelSearchScreen({ navigation, route }: ApiHotelSear
                 {cleanSnippet}
               </Text>
             ) : null}
+            {(() => {
+              const price = hotelListPrice(item);
+              return (
+                <Text
+                  style={[
+                    styles.hotelPriceHint,
+                    { color: price > 0 ? theme.primary : theme.secondaryText },
+                  ]}
+                  numberOfLines={1}
+                >
+                  {price > 0
+                    ? `от ${price.toLocaleString('ru-RU')} ₽`
+                    : 'Цены — в турах с этим отелем'}
+                </Text>
+              );
+            })()}
           </View>
         </TouchableOpacity>
 
@@ -1131,7 +1119,7 @@ export default function ApiHotelSearchScreen({ navigation, route }: ApiHotelSear
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.hotelPrimaryBtn, { backgroundColor: theme.primary }]}
-            onPress={() => handleOpenTours(item)}
+            onPress={() => void handleOpenTours(item)}
             activeOpacity={0.85}
           >
             <Ionicons name="pricetag-outline" size={16} color="#fff" />
@@ -1731,6 +1719,11 @@ const styles = StyleSheet.create({
     marginTop: 8,
     fontSize: 13,
     lineHeight: 18,
+  },
+  hotelPriceHint: {
+    marginTop: 8,
+    fontSize: 14,
+    fontWeight: '700',
   },
   hotelCardActions: {
     flexDirection: 'row',

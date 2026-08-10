@@ -386,6 +386,8 @@ export interface TourSearchParams {
   priceTo?: number;
   currency: string;
   onlyCharter: boolean;
+  /** Клиентский флаг: не фильтровать операторов (поиск по отелю) */
+  skipOperatorFilter?: boolean;
 }
 
 // Параметры поиска отелей согласно документации Tourvisor API

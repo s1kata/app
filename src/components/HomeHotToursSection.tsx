@@ -342,7 +342,7 @@ export default function HomeHotToursSection({ navigation, refreshKey = 0 }: Prop
               <TouchableOpacity
                 key={key}
                 activeOpacity={0.88}
-                onPress={() => openItem(item)}
+                onPress={() => void openItem(item)}
                 style={[
                   styles.card,
                   shadows.card,

@@ -573,6 +573,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const loginAsGuest = async () => {
+    // Не вызываем logout здесь: при cold start токены могут ещё быть валидны,
+    // а user ещё не восстановлен / splash зовёт guest — logout убивал бы сессию.
     const guestUser = {
       uid: 'guest_' + Date.now(),
       email: null,
@@ -582,16 +584,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setUser(guestUser);
     await AsyncStorage.setItem(CURRENT_USER_STORAGE_KEY, JSON.stringify(guestUser));
     logger.debug('Logging in as guest');
-
-    // Не трогаем токены, если сессии уже нет — иначе гонка со splash может снести только что восстановленный аккаунт.
-    try {
-      const hasRefresh = !!(await authSession.getRefreshToken());
-      if (hasRefresh) {
-        await AuthService.logout();
-      }
-    } catch (e) {
-      logger.debug('Clear session for guest mode:', e);
-    }
   };
 
   const sendPhoneVerification = async (_phoneNumber: string): Promise<string> => {
