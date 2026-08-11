@@ -49,6 +49,7 @@ const SCREENS_TO_HIDE_TAB_BAR = [
   'Reviews',
   'ApiHotelSearch',
   'ApiHotelDetails',
+  'PopularHotels',
   'HotelBooking',
   // Профильный стек — таб-бар и FAB перекрывали формы и списки
   'Settings',
@@ -394,6 +395,7 @@ import ApiTourDetailsScreen from '../screens/ApiTourDetailsScreen';
 import ApiHotToursScreen from '../screens/ApiHotToursScreen';
 import ApiHotelSearchScreen from '../screens/ApiHotelSearchScreen';
 import ApiHotelDetailsScreen from '../screens/ApiHotelDetailsScreen';
+import PopularHotelsScreen from '../screens/PopularHotelsScreen';
 import HotelBookingFormScreen from '../screens/HotelBookingFormScreen';
 import TourvisorCountriesScreen from '../screens/TourvisorCountriesScreen';
 import SplashScreen from '../screens/SplashScreen';
@@ -431,6 +433,7 @@ function HomeStack() {
       <Stack.Screen name="ApiTourDetails" component={ApiTourDetailsScreen} />
       <Stack.Screen name="TourBooking" component={TourBookingScreen as ComponentType<any>} />
       <Stack.Screen name="ApiHotelSearch" component={ApiHotelSearchScreen as ComponentType<any>} />
+      <Stack.Screen name="PopularHotels" component={PopularHotelsScreen as ComponentType<any>} />
       <Stack.Screen name="ApiHotelDetails" component={ApiHotelDetailsScreen as ComponentType<any>} />
       <Stack.Screen name="HotelBooking" component={HotelBookingFormScreen as ComponentType<any>} />
       <Stack.Screen name="CountryInfo" component={CountryInfoScreen as ComponentType<any>} />

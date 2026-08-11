@@ -27,6 +27,7 @@ import { adaptive, BREAKPOINTS } from '../utils/adaptive';
 import { useTabBarMetrics } from '../utils/tabBarMetrics';
 import ApiTourHotelSearch from '../components/ApiTourHotelSearch';
 import HomeHotToursSection from '../components/HomeHotToursSection';
+import HomePopularHotelsEntry from '../components/HomePopularHotelsEntry';
 import HomeRecommendationsSection from '../components/HomeRecommendationsSection';
 import WeatherWidget from '../components/WeatherWidget';
 import { locationService, LocationData } from '../services/LocationService';
@@ -388,6 +389,12 @@ export default function ImprovedHomeScreen({ navigation }: any) {
         <View style={{ paddingHorizontal: adaptive.getHorizontalPadding(), marginBottom: 20, width: '100%' }}>
           <HomeHotToursSection navigation={navigation} refreshKey={homeRefreshKey} />
         </View>
+
+        {!RELEASE_HIDE_NEXT_PATCH_UI ? (
+          <View style={{ paddingHorizontal: adaptive.getHorizontalPadding(), marginBottom: 20, width: '100%' }}>
+            <HomePopularHotelsEntry navigation={navigation} />
+          </View>
+        ) : null}
 
         {/* Для вас */}
         {!RELEASE_HIDE_NEXT_PATCH_UI ? (

@@ -42,7 +42,7 @@ import { useHotelListDetailImages } from '../hooks/useHotelListDetailImages';
 import { logger } from '../utils/logger';
 import { i18n } from '../config/i18n';
 import { radius, shadows } from '../config/designSystem';
-import { buildTourSearchParamsForHotel, hotelListPrice } from '../utils/hotelTourSearch';
+import { hotelListPrice } from '../utils/hotelTourSearch';
 
 interface ApiHotelSearchScreenProps {
   navigation: any;
@@ -192,22 +192,15 @@ export default function ApiHotelSearchScreen({ navigation, route }: ApiHotelSear
   );
 
   const handleOpenTours = useCallback(
-    async (hotel: HotelCompact) => {
-      try {
-        const params = await buildTourSearchParamsForHotel(hotel, tourContext);
-        if (!params) {
-          Alert.alert(i18n.t('common.error'), 'Не удалось открыть туры для этого отеля.');
-          return;
-        }
-        navigation.navigate('ApiTourResults', {
-          searchParams: params,
-          useCache: false,
-          runSearch: true,
-        });
-      } catch (e) {
-        logger.debug('[ApiHotelSearch] open tours:', (e as Error)?.message);
-        Alert.alert(i18n.t('common.error'), (e as Error)?.message || i18n.t('search.errorSearchFailed'));
-      }
+    (hotel: HotelCompact) => {
+      // Hotel-first: сначала хаб отеля с турами, не общий search results
+      hotelCacheService.set(hotel.id, hotel);
+      navigation.navigate('ApiHotelDetails', {
+        hotelId: hotel.id,
+        hotelPreview: hotel,
+        tourContext,
+        focusTours: true,
+      });
     },
     [navigation, tourContext]
   );
@@ -1102,7 +1095,7 @@ export default function ApiHotelSearchScreen({ navigation, route }: ApiHotelSear
                 >
                   {price > 0
                     ? `от ${price.toLocaleString('ru-RU')} ₽`
-                    : 'Цены — в турах с этим отелем'}
+                    : 'Выберите отель — цены в турах'}
                 </Text>
               );
             })()}
@@ -1119,11 +1112,11 @@ export default function ApiHotelSearchScreen({ navigation, route }: ApiHotelSear
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.hotelPrimaryBtn, { backgroundColor: theme.primary }]}
-            onPress={() => void handleOpenTours(item)}
+            onPress={() => handleOpenTours(item)}
             activeOpacity={0.85}
           >
-            <Ionicons name="pricetag-outline" size={16} color="#fff" />
-            <Text style={styles.hotelPrimaryBtnText}>Туры и цены</Text>
+            <Ionicons name="airplane-outline" size={16} color="#fff" />
+            <Text style={styles.hotelPrimaryBtnText}>Смотреть туры</Text>
           </TouchableOpacity>
         </View>
       </View>

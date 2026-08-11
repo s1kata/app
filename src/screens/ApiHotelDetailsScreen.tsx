@@ -29,6 +29,7 @@ import { logger } from '../utils/logger';
 import { fetchHotelDetailsViaBackend } from '../services/sync/NextPatchBackendClient';
 import { buildTourSearchParamsForHotel, hotelListPrice } from '../utils/hotelTourSearch';
 import { i18n } from '../config/i18n';
+import HotelToursSection from '../components/HotelToursSection';
 
 interface ApiHotelDetailsScreenProps {
   navigation: any;
@@ -56,7 +57,7 @@ function normalizeHtmlText(raw: string | undefined | null): string {
 
 export default function ApiHotelDetailsScreen({ navigation, route }: ApiHotelDetailsScreenProps) {
   const { theme, isDark } = useAppContext();
-  const { hotelId, hotelPreview, tourContext } = route.params || {};
+  const { hotelId, hotelPreview, tourContext, focusTours } = route.params || {};
 
   const initialHotel = useMemo((): DisplayHotel | null => {
     if (hotelPreview && hotelId != null && hotelPreview.id === hotelId) {
@@ -300,7 +301,7 @@ export default function ApiHotelDetailsScreen({ navigation, route }: ApiHotelDet
             <Text style={[styles.priceHint, { color: theme.secondaryText }]}>
               {getHotelPrice(hotel) > 0
                 ? `от ${getHotelPrice(hotel).toLocaleString('ru-RU')} ${getHotelCurrency(hotel)}`
-                : 'Актуальная стоимость — в поиске туров по датам вылета'}
+                : 'Актуальные цены — в блоке туров ниже'}
             </Text>
           </View>
           <TouchableOpacity
@@ -529,23 +530,40 @@ export default function ApiHotelDetailsScreen({ navigation, route }: ApiHotelDet
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
         {renderImageCarousel()}
         {renderHotelInfo()}
+        {focusTours ? (
+          <HotelToursSection
+            hotel={hotel}
+            tourContext={tourContext}
+            theme={theme}
+            navigation={navigation}
+            enabled={!!hotel?.id}
+          />
+        ) : null}
         {renderLocationInfo()}
         {renderServices()}
         {renderInfrastructure()}
 
+        {!focusTours ? (
+          <HotelToursSection
+            hotel={hotel}
+            tourContext={tourContext}
+            theme={theme}
+            navigation={navigation}
+            enabled={!!hotel?.id}
+          />
+        ) : null}
+
         <View style={[styles.bookingSection, { backgroundColor: theme.card }]}>
-          <Text style={[styles.bookingSectionTitle, { color: theme.text }]}>Туры в этот отель</Text>
           <Text style={[styles.bookingSectionText, { color: theme.secondaryText }]}>
-            Цена отеля в каталоге Tourvisor не приходит — она есть только в поиске туров по датам
-            вылета. Нажмите кнопку, чтобы найти актуальные предложения в этот отель.
+            Нужны другие даты или вылет — откройте полный поиск по этому отелю.
           </Text>
           <TouchableOpacity
             style={[styles.bookingButton, { backgroundColor: theme.primary }]}
             onPress={handleBooking}
             activeOpacity={0.85}
           >
-            <Ionicons name="search" size={20} color="#fff" />
-            <Text style={styles.bookingButtonText}>Смотреть туры и цены</Text>
+            <Ionicons name="options-outline" size={20} color="#fff" />
+            <Text style={styles.bookingButtonText}>Изменить даты поиска</Text>
           </TouchableOpacity>
         </View>
       </ScrollView>
