@@ -1,0 +1,23 @@
+---
+description: Design ownership — concept 1:1, anti-generic UI, OTA look
+alwaysApply: true
+---
+
+# Design (backend owner — agent owns visuals)
+
+## Source of truth
+1. `docs/TravelHub-концепт-для-заказчика/экраны` (01–30) and/or Figma MCP
+2. Existing `designSystem` / theme tokens (navy `#12122E`, teal `#5DA9A4`, coral `#FF6B6B`)
+3. Ignore alternate tab sets on individual concept PNGs — tabs are locked to 5
+
+## Hard rules
+- One job per section; brand/product readable in first viewport
+- No purple-on-white / cream+terracotta / newspaper AI clichés
+- Cards only when they hold interaction; no card soup in heroes
+- Sticky CTAs use shared `StickyTourBar`; prices use `TourPriceLabel`
+- Dark mode: text must stay readable (`theme.deep` / `theme.text`, never dark-on-dark)
+- Mobile safe areas + tab bar padding via `useTabBarMetrics({ includeFab: false })`
+
+## Process
+- Before big UI: name the concept screen number(s) you match
+- After UI: device/web check when possible; otherwise list what to screenshot

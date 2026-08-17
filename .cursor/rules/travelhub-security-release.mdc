@@ -1,0 +1,28 @@
+---
+description: Security, secrets, CI/CD and release hygiene
+alwaysApply: true
+---
+
+# Security & release
+
+## Secrets
+- Never commit `.env`, service account keys, API tokens, `eas-secrets*.env` with real values
+- Use EAS env / server env; rotate if leaked
+- Don’t print secrets in logs or chat
+
+## App / web security baseline
+- Auth tokens in secure storage; short-lived access + refresh where applicable
+- HTTPS only for APIs
+- Sanitize deep links / WebView URLs
+- Least privilege for CRM/payment calls
+
+## CI / delivery
+- Prefer `tsc --noEmit` (app) before OTA/build
+- Preview OTA (`channel preview`) for UI experiments
+- Production / TestFlight / Play only when user asks
+- After store binary: wait for Apple/Google processing; don’t spam rebuilds
+
+## Incident flow
+1. Sentry MCP / dashboard for stack + release
+2. Reproduce on device or web
+3. Fix + preview verify + then production channel if needed

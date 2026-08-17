@@ -29,16 +29,16 @@ export function getTabBarBottomInset(insets: EdgeInsets): number {
 }
 
 /**
- * Полная высота кастомного таб-бара (контент + safe area).
- * Совпадает с layout в AppNavigator: paddingTop 4 + icon 44 + label + paddingBottom (inset+8).
+ * Полная высота кастомного таб-бара (floating bar + float gap + safe area).
+ * Совпадает с AppNavigator: bar (pad 10+8 + icon 22 + label + activeDot) + floatGap 8 + inset.
  */
 export function getTabBarHeight(insets: EdgeInsets, fontScale = 1): number {
   const scale = Math.min(fontScale, 1.2);
-  // Совпадает с AppNavigator: label fontSize 9
-  const labelHeight = Math.round(9 * scale);
-  // paddingTop(4) + iconBall(44) + label marginTop(4) + label + paddingBottom(safeBottom+8)
-  const content = 4 + 44 + 4 + labelHeight;
-  return content + getTabBarBottomInset(insets) + 8;
+  const labelHeight = Math.round(10 * scale);
+  // paddingTop(10) + icon(22) + label mt(3) + label + activeDot(3+4) + paddingBottom(8)
+  const barContent = 10 + Math.round(22 * scale) + 3 + labelHeight + 7 + 8;
+  const floatGap = 8;
+  return barContent + floatGap + getTabBarBottomInset(insets);
 }
 
 /**
@@ -49,7 +49,8 @@ export function getTabScreenBottomPadding(
   fontScale = 1,
   options?: { includeFab?: boolean; extra?: number },
 ): number {
-  const includeFab = options?.includeFab !== false;
+  // FAB убран из концепта — clearance только по явному запросу
+  const includeFab = options?.includeFab === true;
   const extra = options?.extra ?? 16;
   const fabClearance = includeFab ? TAB_BAR_FAB_SIZE + TAB_BAR_FAB_GAP : 0;
   return getTabBarHeight(insets, fontScale) + fabClearance + extra;

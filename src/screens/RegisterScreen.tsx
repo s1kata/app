@@ -1,8 +1,10 @@
+/**
+ * Регистрация — концепт 03: бренд TravelHub, teal-иконки, коралловый CTA.
+ */
 import React, { useState } from 'react';
 import {
   View,
   Text,
-  TextInput,
   TouchableOpacity,
   StyleSheet,
   Alert,
@@ -12,11 +14,15 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { platform } from '../utils/platform';
 import { StatusBar } from 'expo-status-bar';
+import { Ionicons } from '@expo/vector-icons';
 import { useAppContext } from '../contexts/AppContext';
 import { i18n } from '../config/i18n';
 import { validateEmail, validatePassword, validateName, getPasswordValidationMessage } from '../utils/validation';
 import { logger } from '../utils/logger';
-import { PrimaryButton } from '../components/ui';
+import { PrimaryButton, TextField } from '../components/ui';
+import AppLogo from '../components/AppLogo';
+import { BRAND, radius, spacing, typography, touchTargets } from '../config/designSystem';
+import { navigateRoot } from '../utils/navHelpers';
 
 interface RegisterScreenProps {
   navigation: any;
@@ -25,10 +31,11 @@ interface RegisterScreenProps {
 
 export default function RegisterScreen({ navigation, route }: RegisterScreenProps) {
   const { register, theme, isDark } = useAppContext();
-    const [name, setName] = useState('');
+  const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
 
   const handleRegister = async () => {
@@ -89,6 +96,8 @@ export default function RegisterScreen({ navigation, route }: RegisterScreenProp
     }
   };
 
+  const titleColor = theme.deep || theme.text;
+
   return (
     <SafeAreaView edges={['top', 'bottom']} style={[styles.safeArea, { backgroundColor: theme.background }]}>
       <KeyboardAvoidingView
@@ -100,68 +109,82 @@ export default function RegisterScreen({ navigation, route }: RegisterScreenProp
           contentContainerStyle={styles.scrollContent}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"
+          showsVerticalScrollIndicator={false}
         >
           <View style={styles.content}>
-            <Text style={[styles.title, { color: theme.primary }]}>{i18n.t('auth.registration')}</Text>
-            <Text style={[styles.subtitle, { color: theme.secondaryText }]}>{i18n.t('auth.createAccount')}</Text>
+            <View style={styles.brandRow}>
+              <AppLogo size={48} shape="rounded" />
+              <Text style={[styles.wordmark, { color: BRAND.blue }]}>TravelHub</Text>
+            </View>
 
-            <View style={styles.form}>
-              <TextInput
-                style={[styles.input, { backgroundColor: theme.card, borderColor: theme.border, color: theme.text }]}
-                placeholder={i18n.t('auth.name')}
-                placeholderTextColor={theme.secondaryText}
-                value={name}
-                onChangeText={setName}
-                autoCapitalize="words"
-              />
+            <Text style={[styles.title, { color: titleColor }]}>Регистрация</Text>
 
-            <TextInput
-              style={[styles.input, { backgroundColor: theme.card, borderColor: theme.border, color: theme.text }]}
+            <TextField
+              placeholder={i18n.t('auth.name')}
+              value={name}
+              onChangeText={setName}
+              autoCapitalize="words"
+              iconLeft={<Ionicons name="person-outline" size={20} color={theme.primary} />}
+              containerStyle={styles.field}
+            />
+
+            <TextField
               placeholder={i18n.t('auth.emailOrPhone')}
-              placeholderTextColor={theme.secondaryText}
               value={email}
               onChangeText={setEmail}
               autoCapitalize="none"
               keyboardType="email-address"
+              iconLeft={<Ionicons name="mail-outline" size={20} color={theme.primary} />}
+              containerStyle={styles.field}
             />
 
-            <TextInput
-              style={[styles.input, { backgroundColor: theme.card, borderColor: theme.border, color: theme.text }]}
+            <TextField
               placeholder={i18n.t('auth.password')}
-              placeholderTextColor={theme.secondaryText}
               value={password}
               onChangeText={setPassword}
-              secureTextEntry
+              secureTextEntry={!showPassword}
               autoCapitalize="none"
+              iconLeft={<Ionicons name="lock-closed-outline" size={20} color={theme.primary} />}
+              iconRight={
+                <TouchableOpacity onPress={() => setShowPassword((v) => !v)} hitSlop={8}>
+                  <Ionicons
+                    name={showPassword ? 'eye-outline' : 'eye-off-outline'}
+                    size={20}
+                    color={theme.secondaryText}
+                  />
+                </TouchableOpacity>
+              }
+              containerStyle={styles.field}
             />
 
-            <TextInput
-              style={[styles.input, { backgroundColor: theme.card, borderColor: theme.border, color: theme.text }]}
+            <TextField
               placeholder={i18n.t('auth.confirmPassword')}
-              placeholderTextColor={theme.secondaryText}
               value={confirmPassword}
               onChangeText={setConfirmPassword}
-              secureTextEntry
+              secureTextEntry={!showPassword}
               autoCapitalize="none"
+              iconLeft={<Ionicons name="shield-checkmark-outline" size={20} color={theme.primary} />}
+              containerStyle={styles.field}
             />
 
-              <PrimaryButton
-                title={i18n.t('auth.register')}
-                onPress={handleRegister}
-                loading={loading}
-                variant="cta"
-                style={styles.button}
-              />
+            <PrimaryButton
+              title={i18n.t('auth.register')}
+              onPress={handleRegister}
+              loading={loading}
+              variant="cta"
+              style={styles.button}
+            />
 
-              <TouchableOpacity
-                style={styles.linkButton}
-                onPress={() => navigation.navigate('Login')}
-              >
-                <Text style={[styles.linkText, { color: theme.secondaryText }]}>
-                  {i18n.t('auth.haveAccount')} <Text style={[styles.linkTextBold, { color: theme.primary }]}>{i18n.t('auth.login')}</Text>
-                </Text>
-              </TouchableOpacity>
-            </View>
+            <TouchableOpacity
+              style={styles.linkButton}
+              onPress={() => navigateRoot(navigation, 'Login')}
+              hitSlop={8}
+            >
+              <Text style={[styles.linkText, { color: titleColor }]}>
+                {i18n.t('auth.haveAccount')}{' '}
+              </Text>
+              <Ionicons name="chevron-forward" size={16} color={theme.primary} />
+            </TouchableOpacity>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -178,49 +201,50 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     flexGrow: 1,
-    paddingBottom: 36,
+    paddingBottom: spacing.xxxl,
   },
   content: {
     flex: 1,
-    padding: 24,
+    paddingHorizontal: spacing.xl,
+    paddingTop: spacing.xxl,
     justifyContent: 'center',
     width: '100%',
     maxWidth: 560,
     alignSelf: 'center',
   },
+  brandRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+    marginBottom: spacing.xxl,
+  },
+  wordmark: {
+    ...typography.hero,
+  },
   title: {
-    fontSize: 32,
-    fontWeight: 'bold',
+    fontSize: 30,
+    fontWeight: '800',
     textAlign: 'center',
-    marginBottom: 8,
+    marginBottom: spacing.xl,
+    letterSpacing: -0.4,
   },
-  subtitle: {
-    fontSize: 18,
-    textAlign: 'center',
-    marginBottom: 28,
-  },
-  form: {
-    width: '100%',
-  },
-  input: {
-    borderRadius: 12,
-    padding: 16,
-    fontSize: 16,
-    marginBottom: 16,
-    borderWidth: 1,
+  field: {
+    marginBottom: spacing.md,
   },
   button: {
-    marginTop: 8,
+    marginTop: spacing.sm,
+    borderRadius: radius.lg,
+    minHeight: touchTargets.button,
   },
   linkButton: {
-    marginTop: 24,
+    marginTop: spacing.xl,
     alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    minHeight: touchTargets.iconButton,
   },
   linkText: {
-    fontSize: 14,
-  },
-  linkTextBold: {
-    fontWeight: '600',
+    ...typography.captionBold,
   },
 });
-

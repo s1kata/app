@@ -21,8 +21,8 @@ export async function resolvePreferredDepartureId(
   }
   try {
     const deps = await dictionaryService.getDepartures();
-    const samara = deps.find((d) => d.name.toLowerCase().includes('самара'));
-    if (samara?.id) return samara.id;
+    const moscow = deps.find((d) => d.id === 1 || d.name.toLowerCase().includes('москва'));
+    if (moscow?.id) return moscow.id;
     if (deps[0]?.id) return deps[0].id;
   } catch (e) {
     logger.debug('[hotelTourSearch] departures:', (e as Error)?.message);
@@ -42,7 +42,12 @@ function isoPlusDays(days: number): string {
  * Клиентский флаг skipOperatorFilter — не уходит в Tourvisor.
  */
 export async function buildTourSearchParamsForHotel(
-  hotel: Pick<HotelCompact, 'id' | 'country' | 'category' | 'region'>,
+  hotel: {
+    id: number;
+    country?: { id: number } | null;
+    category?: number | null;
+    region?: { id: number } | null;
+  },
   tourContext: Partial<TourSearchParams> = {},
 ): Promise<TourSearchParams | null> {
   const countryId = Number(hotel.country?.id) || 0;

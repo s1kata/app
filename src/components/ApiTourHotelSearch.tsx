@@ -33,6 +33,7 @@ import { useAppContext } from '../contexts/AppContext';
 import { i18n } from '../config/i18n';
 import { radius, shadows } from '../config/designSystem';
 import { logger } from '../utils/logger';
+import { filterExcludedDestinationCountries } from '../config/homeDestinations';
 import { transparentModalProps } from '../utils/modalConfig';
 import { useLifecycleLog } from '../hooks/useLifecycleLog';
 import { logIosTestStep, IosTestStep } from '../utils/iosTestFlows';
@@ -58,7 +59,7 @@ const BUDGET_PRESETS = [
 
 const DEPARTURE_PREF_KEY = 'user_preferred_departure_id';
 const DEPARTURE_DEFAULT_LOCK_KEY = 'departure_default_locked';
-const DEFAULT_DEPARTURE_CITY = 'самара';
+const DEFAULT_DEPARTURE_CITY = 'москва';
 const DEFAULT_COUNTRY_NAME = 'турц';
 
 interface ApiTourHotelSearchProps {
@@ -85,6 +86,11 @@ export default function ApiTourHotelSearch({
   const { height: windowHeight } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const sheetBottomPad = getBottomSafeInset(insets, 16) + 12;
+  const calendarMinDate = useMemo(() => {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    return d;
+  }, []);
 
   const [activeTab, setActiveTab] = useState<'tours' | 'hotels'>('tours');
   const [isLoading, setIsLoading] = useState(false);
@@ -128,6 +134,7 @@ export default function ApiTourHotelSearch({
   // Dictionary data
   const [departures, setDepartures] = useState<Departure[]>([]);
   const [countries, setCountries] = useState<Country[]>([]);
+  const [hotelCountries, setHotelCountries] = useState<Country[]>([]);
   const [regions, setRegions] = useState<Region[]>([]);
   const [meals, setMeals] = useState<Meal[]>([]);
   const [isLoadingMeals, setIsLoadingMeals] = useState(false);
@@ -169,7 +176,7 @@ export default function ApiTourHotelSearch({
       .getCountriesAll()
       .then((list) => {
         if (cancelled || !Array.isArray(list) || list.length === 0) return;
-        setCountries((prev) => (prev.length >= list.length ? prev : list));
+        setHotelCountries(list);
       })
       .catch(() => {});
     return () => {
@@ -200,10 +207,11 @@ export default function ApiTourHotelSearch({
     }
     dictionaryService.getCountries(depId, false).then((list) => {
       if (cancelled) return;
-      const turkey = list.find((c: Country) => (c.name || '').toLowerCase().includes('турц') || c.id === 12 || c.id === 4);
+      const filtered = filterExcludedDestinationCountries(list);
+      const turkey = filtered.find((c: Country) => (c.name || '').toLowerCase().includes('турц') || c.id === 12 || c.id === 4);
       const sorted = turkey
-        ? [turkey, ...list.filter((c: Country) => c.id !== turkey.id && c.id !== (turkey.id === 12 ? 4 : 12))]
-        : list;
+        ? [turkey, ...filtered.filter((c: Country) => c.id !== turkey.id && c.id !== (turkey.id === 12 ? 4 : 12))]
+        : filtered;
       setCountries(sorted);
       // Автоматически выбираем первую страну, если ещё ничего не выбрано
       if (sorted.length > 0) {
@@ -296,12 +304,14 @@ export default function ApiTourHotelSearch({
         if (savedId && departuresData.some((d) => d.id.toString() === savedId)) {
           preferredDepartureId = savedId;
         } else {
-          const defaultSamara = departuresData.find((d) => d.name.toLowerCase().includes(DEFAULT_DEPARTURE_CITY));
-          if (!defaultLocked && defaultSamara) {
-            preferredDepartureId = defaultSamara.id.toString();
+          const defaultCity = departuresData.find((d) =>
+            d.name.toLowerCase().includes(DEFAULT_DEPARTURE_CITY),
+          );
+          if (!defaultLocked && defaultCity) {
+            preferredDepartureId = defaultCity.id.toString();
             await AsyncStorage.setItem(DEPARTURE_DEFAULT_LOCK_KEY, '1');
             await AsyncStorage.setItem(DEPARTURE_PREF_KEY, preferredDepartureId);
-            logger.log('Departure set by first-launch default:', defaultSamara.name);
+            logger.log('Departure set by first-launch default:', defaultCity.name);
           } else {
             const location = locationService.getCachedLocation() ?? await locationService.getSavedLocation();
             if (location?.city) {
@@ -836,7 +846,7 @@ export default function ApiTourHotelSearch({
         >
           <Ionicons name="location" size={adaptive.iconSize.small} color={theme.secondaryText} />
           <Text style={[styles.pickerText, { color: theme.text }]}>
-            {countries.find((c) => c.id.toString() === hotelSearch.countryId)?.name ||
+            {countryList.find((c) => c.id.toString() === hotelSearch.countryId)?.name ||
               i18n.t('search.selectCountry')}
           </Text>
           <Ionicons name="chevron-down" size={adaptive.iconSize.small} color={theme.secondaryText} />
@@ -956,7 +966,8 @@ export default function ApiTourHotelSearch({
     </View>
   );
 
-  const hasData = departures.length > 0 && countries.length > 0;
+  const countryList = activeTab === 'hotels' && hotelCountries.length > 0 ? hotelCountries : countries;
+  const hasData = departures.length > 0 && countryList.length > 0;
 
   const searchWizardLabels = [
     i18n.t('search.wizardStepFrom'),
@@ -1875,7 +1886,7 @@ export default function ApiTourHotelSearch({
                       ]}
                       numberOfLines={1}
                     >
-                      {countries.find((c) => c.id.toString() === hotelSearch.countryId)?.name ||
+                      {countryList.find((c) => c.id.toString() === hotelSearch.countryId)?.name ||
                         (hasData ? i18n.t('search.selectCountry') : i18n.t('search.notLoaded'))}
                     </Text>
                   </View>
@@ -2135,7 +2146,7 @@ export default function ApiTourHotelSearch({
               showsVerticalScrollIndicator={false}
               keyboardShouldPersistTaps="handled"
             >
-              {countries.map((country) => {
+              {countryList.map((country) => {
                 const isSelected = activeTab === 'tours'
                   ? tourSearch.countryId === country.id.toString()
                   : hotelSearch.countryId === country.id.toString();
@@ -2396,6 +2407,7 @@ export default function ApiTourHotelSearch({
             </View>
             <View style={{ flex: 1 }}>
               <DateRangeCalendar
+                variant="sheet"
                 onDateRangeSelect={(dateFrom, dateTo) => {
                   if (activeTab === 'tours') {
                     updateTourSearch('dateFrom', dateFrom);
@@ -2404,12 +2416,11 @@ export default function ApiTourHotelSearch({
                     updateHotelSearch('checkIn', dateFrom);
                     updateHotelSearch('checkOut', dateTo);
                   }
-                  // Не закрываем окно автоматически - пользователь сам решит когда закрыть
                 }}
                 onClose={() => setShowDateModal(false)}
                 initialDateFrom={activeTab === 'tours' ? tourSearch.dateFrom : hotelSearch.checkIn}
                 initialDateTo={activeTab === 'tours' ? tourSearch.dateTo : hotelSearch.checkOut}
-                minDate={new Date()}
+                minDate={calendarMinDate}
               />
             </View>
           </View>
@@ -2460,14 +2471,14 @@ const styles = StyleSheet.create({
     marginBottom: 0,
   },
   searchCard: {
-    borderRadius: 16,
+    borderRadius: radius.xl,
     padding: 18,
     ...shadows.cardRaised,
     borderWidth: 1,
     minHeight: 360,
   },
   compactForm: {
-    gap: 12,
+    gap: 10,
   },
   tabRow: {
     flexDirection: 'row',
@@ -2480,7 +2491,7 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     paddingVertical: 10,
-    borderRadius: 10,
+    borderRadius: radius.md,
   },
   tabBtnText: {
     fontSize: 15,
@@ -2494,11 +2505,12 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    borderRadius: 12,
-    padding: 14,
-    borderWidth: 0,
-    gap: 10,
-    minHeight: 58,
+    borderRadius: radius.lg,
+    paddingVertical: 14,
+    paddingHorizontal: 14,
+    borderWidth: 1,
+    gap: 12,
+    minHeight: 60,
   },
   compactInputContent: {
     flex: 1,
@@ -2798,8 +2810,24 @@ const styles = StyleSheet.create({
   filterRow: {
     gap: 8,
   },
+  wizardHero: {
+    marginBottom: 14,
+    alignItems: 'flex-start',
+  },
+  wizardHeroTitle: {
+    fontSize: 22,
+    fontWeight: '800',
+    textAlign: 'left',
+    letterSpacing: -0.3,
+    marginBottom: 6,
+  },
+  wizardHeroSubtitle: {
+    fontSize: 14,
+    textAlign: 'left',
+    lineHeight: 20,
+  },
   wizardStepTitle: {
-    fontSize: 20,
+    fontSize: 17,
     fontWeight: '700',
     marginBottom: 12,
     marginTop: 4,
@@ -2818,21 +2846,6 @@ const styles = StyleSheet.create({
   },
   wizardNavBtn: {
     flex: 1,
-  },
-  wizardHero: {
-    marginBottom: 12,
-    alignItems: 'center',
-  },
-  wizardHeroTitle: {
-    fontSize: 22,
-    fontWeight: '800',
-    textAlign: 'center',
-    marginBottom: 6,
-  },
-  wizardHeroSubtitle: {
-    fontSize: 13,
-    textAlign: 'center',
-    lineHeight: 18,
   },
   routeChipsScroll: {
     marginBottom: 12,

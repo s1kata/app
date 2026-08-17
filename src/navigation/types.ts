@@ -5,6 +5,9 @@ export type ApiTourResultsRouteParams = {
   searchParams?: TourSearchParams;
   useCache?: boolean;
   runSearch?: boolean;
+  /** Заголовок подборки (идеи) вместо «Результаты поиска» */
+  collectionTitle?: string;
+  ideaId?: string;
 };
 
 export type ApiTourDetailsRouteParams = {

@@ -284,14 +284,19 @@ class DictionaryService {
     return requestPromise;
   }
 
-  // Countries — источник данных: API; при ошибке — кэш/Firestore.
+  // Countries — по городу вылета только страны, куда есть туры (не полный справочник).
   async getCountries(departureId?: number, onlyCharter?: boolean): Promise<Country[]> {
-    const key = this.getCacheKey('countries', { departureId, onlyCharter });
+    const depId =
+      departureId != null && Number.isFinite(Number(departureId)) && Number(departureId) > 0
+        ? Number(departureId)
+        : undefined;
+    const charter = onlyCharter ?? false;
+    const key = this.getCacheKey('countries', depId != null ? { departureId: depId, onlyCharter: charter } : { all: true });
     const fetchFromApi = async () => {
-      const fromApi = await tourvisorApi.getCountries(departureId, onlyCharter ?? false);
+      const fromApi = await tourvisorApi.getCountries(depId, charter);
       if (fromApi && fromApi.length > 0) {
-        if (departureId != null) {
-          setCountriesToFirestore(fromApi, departureId, onlyCharter ?? false).catch(() => {});
+        if (depId != null) {
+          setCountriesToFirestore(fromApi, depId, charter).catch(() => {});
         }
         return fromApi;
       }
@@ -307,7 +312,7 @@ class DictionaryService {
       return stale;
     }
 
-    const fromFirestore = await getCountriesFromFirestore(departureId, onlyCharter ?? false);
+    const fromFirestore = await getCountriesFromFirestore(depId, charter);
     if (fromFirestore && fromFirestore.length > 0) {
       await this.set(key, fromFirestore);
       this.queueBackgroundRefresh(key, fetchFromApi);
@@ -317,14 +322,14 @@ class DictionaryService {
     const fromApi = await this.fetchDictionaryFromApiWithQueue<Country[]>(key, fetchFromApi);
     if (fromApi.length === 0) {
       logger.warn('[DictionaryService] getCountries fallback empty', {
-        departureId,
-        onlyCharter: onlyCharter ?? false,
+        departureId: depId,
+        onlyCharter: charter,
       });
     }
     return fromApi;
   }
 
-  /** Полный список стран без фильтров (для отелей и «все страны» в турах) */
+  /** Полный список стран без привязки к вылету — только для отелей, не для туров. */
   async getCountriesAll(): Promise<Country[]> {
     return this.getCountries();
   }

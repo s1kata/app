@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   View,
   Text,
@@ -10,106 +10,197 @@ import {
   ActivityIndicator,
   StatusBar,
   Modal,
+  useWindowDimensions,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useAppContext } from '../contexts/AppContext';
 import { i18n } from '../config/i18n';
 import { dictionaryService } from '../services/DictionaryService';
 import { tourvisorApi } from '../services/TourvisorApiService';
 import { TourSearchParams, Country, Departure, Region, Meal } from '../types/tourvisor';
-import { platform } from '../utils/platform';
 import { filterMealsForUi, sanitizeTourMealParam } from '../utils/tourvisorMeals';
 import { logger } from '../utils/logger';
-import { radius, shadows } from '../config/designSystem';
-
+import { BRAND, radius, shadows, spacing, typography } from '../config/designSystem';
+import { useTabBarMetrics } from '../utils/tabBarMetrics';
 import type { NavigationProp } from '@react-navigation/native';
+import PrimaryButton from '../components/ui/PrimaryButton';
+import ScreenHeader from '../components/ui/ScreenHeader';
+import DateRangeCalendar from '../components/DateRangeCalendar';
+import BookingWizardProgress from '../components/ux/BookingWizardProgress';
+import { filterExcludedDestinationCountries } from '../config/homeDestinations';
+import { savePreferredDepartureId, resolvePreferredDepartureId } from '../services/IdeaCollectionService';
+import { safeGoBack } from '../utils/navHelpers';
+import { formatAdultsRu, formatChildrenRu, formatNightsRangeRu } from '../utils/pluralRu';
+import { toYmd } from '../utils/dateYmd';
+
+const SEARCH_WIZARD_STEPS = 5 as const;
+type WizardStep = 1 | 2 | 3 | 4 | 5;
+
+const NIGHT_PRESETS = [
+  { from: 5, to: 7, label: '5–7' },
+  { from: 7, to: 10, label: '7–10' },
+  { from: 7, to: 11, label: '7–11' },
+  { from: 7, to: 14, label: '7–14' },
+  { from: 10, to: 14, label: '10–14' },
+  { from: 14, to: 21, label: '14–21' },
+] as const;
+
+const MONTHS_SHORT = [
+  'янв',
+  'фев',
+  'мар',
+  'апр',
+  'мая',
+  'июн',
+  'июл',
+  'авг',
+  'сен',
+  'окт',
+  'ноя',
+  'дек',
+];
 
 type ApiTourSearchScreenProps = {
   navigation: NavigationProp<Record<string, object | undefined>>;
   route: { params?: Record<string, unknown> };
 };
 
-export default function ApiTourSearchScreen({ navigation, route }: ApiTourSearchScreenProps) {
-  const { apiReady, theme, isDark, currency } = useAppContext();
+function computePrefillStep(prefill: Partial<TourSearchParams>): WizardStep {
+  if (!prefill.departureId) return 1;
+  if (!prefill.countryId) return 2;
+  if (!prefill.dateFrom || !prefill.dateTo) return 3;
+  if (prefill.nightsFrom == null || prefill.nightsTo == null) return 4;
+  return 5;
+}
 
-  // Search parameters state (валюта из настроек приложения)
+export default function ApiTourSearchScreen({ navigation, route }: ApiTourSearchScreenProps) {
+  const { apiReady, theme, isDark, currency, fontScale } = useAppContext();
+  const insets = useSafeAreaInsets();
+  const { height: windowHeight } = useWindowDimensions();
+  const { contentBottomPadding } = useTabBarMetrics(insets, fontScale);
+  const bottomPad = contentBottomPadding({ includeFab: false, extra: 56 });
+  const calendarMinDate = useMemo(() => {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    return d;
+  }, []);
+
+  const [wizardStep, setWizardStep] = useState<WizardStep>(1);
+  const [nightsTouched, setNightsTouched] = useState(false);
   const [searchParams, setSearchParams] = useState<Partial<TourSearchParams>>({
     adults: 2,
     childs: [],
     currency,
     onlyCharter: false,
+    nightsFrom: 7,
+    nightsTo: 11,
   });
-
-  // Синхронизируем валюту из настроек при открытии экрана
-  useEffect(() => {
-    setSearchParams(prev => ({ ...prev, currency }));
-  }, [currency]);
-  /** {i18n.t('search.childrenAge')} как строки (для ввода). В параметры Tourvisor уходит массив чисел `childs`. */
+  /** Возраст детей как строки (для ввода). В Tourvisor уходит массив чисел `childs`. */
   const [childrenAgesInput, setChildrenAgesInput] = useState<string[]>([]);
 
-  // UI state
+  useEffect(() => {
+    setSearchParams((prev) => ({ ...prev, currency }));
+  }, [currency]);
+
+  // Prefill с главной («Идеи для путешествий») + прыжок на нужный шаг
+  useEffect(() => {
+    const prefill = route?.params?.searchPrefill as Partial<TourSearchParams> | undefined;
+    if (!prefill || typeof prefill !== 'object') return;
+    setSearchParams((prev) => ({
+      ...prev,
+      ...prefill,
+      currency: prefill.currency || prev.currency || currency,
+      nightsFrom: prefill.nightsFrom ?? prev.nightsFrom ?? 7,
+      nightsTo: prefill.nightsTo ?? prev.nightsTo ?? 11,
+    }));
+    if (Array.isArray(prefill.childs)) {
+      setChildrenAgesInput(prefill.childs.map((n) => String(n)));
+    }
+    setWizardStep(computePrefillStep(prefill));
+  }, [route?.params?.searchPrefill, route?.params?.ideaId, currency]);
+
   const [isLoading, setIsLoading] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
 
-  // Dictionary data state
   const [departures, setDepartures] = useState<Departure[]>([]);
   const [countries, setCountries] = useState<Country[]>([]);
+  const [countriesLoading, setCountriesLoading] = useState(false);
   const [regions, setRegions] = useState<Region[]>([]);
   const [meals, setMeals] = useState<Meal[]>([]);
-  const [availableDates, setAvailableDates] = useState<string[]>([]);
 
-  // Modal states
   const [showDepartureModal, setShowDepartureModal] = useState(false);
   const [showCountryModal, setShowCountryModal] = useState(false);
   const [showRegionModal, setShowRegionModal] = useState(false);
   const [showMealModal, setShowMealModal] = useState(false);
-  const [showDateModal, setShowDateModal] = useState(false);
-  const [dateType, setDateType] = useState<'dateFrom' | 'dateTo'>('dateFrom');
 
-  // Load dictionary data on mount
   useEffect(() => {
     if (apiReady) {
-      loadDictionaryData();
+      void loadDictionaryData();
     }
   }, [apiReady]);
 
-  // Подгрузка стран только для выбранного города вылета (только страны, в которые есть туры из этого города)
+  // Страны только для выбранного города вылета
   useEffect(() => {
     if (!apiReady || searchParams.departureId == null) {
       setCountries([]);
+      setCountriesLoading(false);
       return;
     }
     let cancelled = false;
+    setCountriesLoading(true);
     dictionaryService
       .getCountries(searchParams.departureId, searchParams.onlyCharter ?? false)
       .then((list) => {
-        if (!cancelled) setCountries(list);
+        if (cancelled) return;
+        const next = filterExcludedDestinationCountries(list || []);
+        setCountries(next);
+        setSearchParams((prev) => {
+          if (prev.countryId != null && !next.some((c) => c.id === prev.countryId)) {
+            const cleaned = { ...prev };
+            delete cleaned.countryId;
+            delete cleaned.regionIds;
+            return cleaned;
+          }
+          return prev;
+        });
       })
       .catch(() => {
         if (!cancelled) setCountries([]);
+      })
+      .finally(() => {
+        if (!cancelled) setCountriesLoading(false);
       });
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [apiReady, searchParams.departureId, searchParams.onlyCharter]);
+
+  const openCountryPicker = useCallback(() => {
+    if (!searchParams.departureId) {
+      Alert.alert(i18n.t('common.error'), 'Сначала выберите город вылета');
+      setWizardStep(1);
+      setShowDepartureModal(true);
+      return;
+    }
+    setShowCountryModal(true);
+  }, [searchParams.departureId]);
 
   const loadDictionaryData = async () => {
     try {
       setIsLoading(true);
-
-      // Загружаем справочники (страны подгружаются по выбранному городу вылета — только с турами из этого города)
       let departuresData: Departure[] = [];
       let mealsData: Meal[] = [];
-      
+
       try {
         departuresData = await dictionaryService.getDepartures();
-      } catch (error: any) {
-        logger.warn('Failed to load departures:', error?.message);
+      } catch (error: unknown) {
+        logger.warn('Failed to load departures:', (error as Error)?.message);
         departuresData = [];
       }
-      
+
       try {
-        mealsData = await dictionaryService.getMeals();
-        mealsData = filterMealsForUi(mealsData);
+        mealsData = filterMealsForUi(await dictionaryService.getMeals());
       } catch (error: unknown) {
         logger.warn('Failed to load meals:', (error as Error)?.message);
         mealsData = [];
@@ -118,17 +209,20 @@ export default function ApiTourSearchScreen({ navigation, route }: ApiTourSearch
       setDepartures(departuresData);
       setMeals(mealsData);
       setCountries([]);
-      // По умолчанию выбираем первый город вылета, чтобы сразу подгрузить список доступных стран
       if (departuresData.length > 0) {
-        setSearchParams(prev => ({ ...prev, departureId: prev.departureId ?? departuresData[0].id }));
+        const preferredId = await resolvePreferredDepartureId();
+        const preferred =
+          departuresData.find((d) => d.id === preferredId)?.id ?? departuresData[0].id;
+        setSearchParams((prev) => ({
+          ...prev,
+          departureId: prev.departureId ?? preferred,
+        }));
       }
-
       if (departuresData.length === 0) {
         logger.warn('Critical dictionary data not loaded. Search functionality may be limited.');
       }
     } catch (error) {
       logger.error('Failed to load dictionary data:', error);
-      // Устанавливаем пустые массивы, чтобы UI не зависал
       setDepartures([]);
       setCountries([]);
       setMeals([]);
@@ -137,49 +231,13 @@ export default function ApiTourSearchScreen({ navigation, route }: ApiTourSearch
     }
   };
 
-  // Load regions when departure and country are selected
   useEffect(() => {
     if (searchParams.departureId && searchParams.countryId) {
-      loadRegions();
-      loadAvailableDates();
+      void loadRegions();
+    } else {
+      setRegions([]);
     }
   }, [searchParams.departureId, searchParams.countryId]);
-
-  // Автоматический расчет nightsFrom/nightsTo на основе выбранных дат
-  // Согласно документации API: nightsFrom и nightsTo - обязательные параметры типа integer
-  useEffect(() => {
-    if (searchParams.dateFrom && searchParams.dateTo) {
-      // Парсим даты в формате YYYY-MM-DD, устанавливаем время в 00:00:00 для точного расчета
-      const dateFromParts = searchParams.dateFrom.split('-').map(Number);
-      const dateToParts = searchParams.dateTo.split('-').map(Number);
-      const dateFromObj = new Date(dateFromParts[0], dateFromParts[1] - 1, dateFromParts[2]);
-      const dateToObj = new Date(dateToParts[0], dateToParts[1] - 1, dateToParts[2]);
-      
-      // Вычисляем разницу в днях (календарные дни между датами)
-      // Например: вылет 1 января, возвращение 8 января = 7 дней = 7 ночей
-      const diffTime = dateToObj.getTime() - dateFromObj.getTime();
-      const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
-      
-      // Количество ночей = разница в календарных днях
-      // Например: вылет 1 января, возвращение 8 января = 7 ночей (ночь с 1 на 2, с 2 на 3, ..., с 7 на 8)
-      // Минимум 1 ночь, максимум 30 ночей (стандартное ограничение для туров)
-      const calculatedNights = Math.max(1, Math.min(diffDays, 30));
-      
-      // Используем диапазон ±2 ночи от вычисленного значения для гибкости поиска
-      const nightsFrom = Math.max(1, calculatedNights - 2);
-      const nightsTo = Math.min(30, calculatedNights + 2);
-      
-      // Убеждаемся, что nightsTo > nightsFrom (требование API)
-      const finalNightsFrom = nightsFrom;
-      const finalNightsTo = nightsTo > nightsFrom ? nightsTo : nightsFrom + 1;
-      
-      // Обновляем параметры только если они изменились
-      if (searchParams.nightsFrom !== finalNightsFrom || searchParams.nightsTo !== finalNightsTo) {
-        updateSearchParam('nightsFrom', finalNightsFrom);
-        updateSearchParam('nightsTo', finalNightsTo);
-      }
-    }
-  }, [searchParams.dateFrom, searchParams.dateTo]);
 
   const loadRegions = async () => {
     try {
@@ -190,85 +248,64 @@ export default function ApiTourSearchScreen({ navigation, route }: ApiTourSearch
     }
   };
 
-  const loadAvailableDates = async () => {
-    try {
-      const dates = await dictionaryService.getTourDates(
-        searchParams.departureId!,
-        searchParams.countryId!
-      );
-      setAvailableDates(dates);
-    } catch (error) {
-      logger.error('Failed to load available dates:', error);
-    }
+  const updateSearchParam = <K extends keyof TourSearchParams>(
+    key: K,
+    value: TourSearchParams[K] | undefined
+  ) => {
+    setSearchParams((prev) => ({ ...prev, [key]: value }));
   };
 
   const handleSearch = async () => {
-    // Валидация обязательных параметров согласно документации API
-    if (!searchParams.departureId || !searchParams.countryId ||
-        !searchParams.dateFrom || !searchParams.dateTo ||
-        !searchParams.adults) {
-      Alert.alert(i18n.t('common.error'), i18n.t('search.errorRequired'));
+    if (!searchParams.departureId) {
+      Alert.alert(i18n.t('common.error'), 'Выберите город вылета');
+      setWizardStep(1);
+      setShowDepartureModal(true);
       return;
     }
-    
-    // nightsFrom и nightsTo будут вычислены автоматически на основе дат
+    if (!searchParams.countryId) {
+      Alert.alert(i18n.t('common.error'), 'Выберите страну');
+      setWizardStep(2);
+      openCountryPicker();
+      return;
+    }
+    if (!searchParams.dateFrom || !searchParams.dateTo) {
+      Alert.alert(i18n.t('common.error'), 'Выберите даты вылета');
+      setWizardStep(3);
+      return;
+    }
+    if (!searchParams.adults) {
+      Alert.alert(i18n.t('common.error'), i18n.t('search.errorRequired'));
+      setWizardStep(5);
+      return;
+    }
 
-    // Валидация дат: проверяем, что даты не в прошлом
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    
+
     const dateFrom = new Date(searchParams.dateFrom!);
     dateFrom.setHours(0, 0, 0, 0);
     const dateTo = new Date(searchParams.dateTo!);
     dateTo.setHours(0, 0, 0, 0);
 
-    // Если dateFrom в прошлом, используем сегодняшнюю дату
     let validDateFrom = searchParams.dateFrom!;
     if (dateFrom < today) {
-      validDateFrom = today.toISOString().split('T')[0];
-      // Обновляем состояние с исправленной датой
+      validDateFrom = toYmd(today);
       updateSearchParam('dateFrom', validDateFrom);
     }
 
-    // Если dateTo раньше dateFrom, корректируем
     const validDateFromObj = new Date(validDateFrom);
     validDateFromObj.setHours(0, 0, 0, 0);
     let validDateTo = searchParams.dateTo!;
     if (dateTo < validDateFromObj) {
-      // Устанавливаем dateTo на dateFrom + 7 дней
       const newDateTo = new Date(validDateFromObj);
       newDateTo.setDate(newDateTo.getDate() + 7);
-      validDateTo = newDateTo.toISOString().split('T')[0];
+      validDateTo = toYmd(newDateTo);
       updateSearchParam('dateTo', validDateTo);
     }
 
-    // Вычисляем количество ночей на основе выбранных дат
-    // Согласно документации API: nightsFrom и nightsTo - обязательные integer параметры
-    // Парсим даты в формате YYYY-MM-DD, устанавливаем время в 00:00:00 для точного расчета
-    const dateFromParts = validDateFrom.split('-').map(Number);
-    const dateToParts = validDateTo.split('-').map(Number);
-    const dateFromObj = new Date(dateFromParts[0], dateFromParts[1] - 1, dateFromParts[2]);
-    const dateToObj = new Date(dateToParts[0], dateToParts[1] - 1, dateToParts[2]);
-    dateFromObj.setHours(0, 0, 0, 0);
-    dateToObj.setHours(0, 0, 0, 0);
-    
-    // Вычисляем разницу в днях (календарные дни между датами)
-    // Например: вылет 1 января, возвращение 8 января = 7 дней = 7 ночей
-    const diffTime = dateToObj.getTime() - dateFromObj.getTime();
-    const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
-    
-    // Количество ночей = разница в календарных днях
-    // Например: вылет 1 января, возвращение 8 января = 7 ночей (ночь с 1 на 2, с 2 на 3, ..., с 7 на 8)
-    // Минимум 1 ночь, максимум 30 ночей (стандартное ограничение для туров)
-    const calculatedNights = Math.max(1, Math.min(diffDays, 30));
-    
-    // Используем диапазон ±2 ночи от вычисленного значения для гибкости поиска
-    const nightsFrom = Math.max(1, calculatedNights - 2);
-    const nightsTo = Math.min(30, calculatedNights + 2);
-    
-    // Убеждаемся, что nightsTo > nightsFrom (требование API)
-    const finalNightsFrom = nightsFrom;
-    const finalNightsTo = nightsTo > nightsFrom ? nightsTo : nightsFrom + 1;
+    const finalNightsFrom = Math.max(1, Math.min(30, Number(searchParams.nightsFrom) || 7));
+    let finalNightsTo = Math.max(1, Math.min(30, Number(searchParams.nightsTo) || 11));
+    if (finalNightsTo < finalNightsFrom) finalNightsTo = finalNightsFrom;
 
     const childAges: number[] = [];
     if (childrenAgesInput.length > 0) {
@@ -277,10 +314,12 @@ export default function ApiTourSearchScreen({ navigation, route }: ApiTourSearch
         const age = Number(raw);
         if (!raw) {
           Alert.alert(i18n.t('common.error'), i18n.t('search.errorChildAge'));
+          setWizardStep(5);
           return;
         }
         if (!Number.isInteger(age) || age < 0 || age > 17) {
           Alert.alert(i18n.t('common.error'), i18n.t('search.errorChildAgeRange'));
+          setWizardStep(5);
           return;
         }
         childAges.push(age);
@@ -325,432 +364,809 @@ export default function ApiTourSearchScreen({ navigation, route }: ApiTourSearch
     }
   };
 
-  const updateSearchParam = <K extends keyof TourSearchParams>(
-    key: K,
-    value: TourSearchParams[K]
-  ) => {
-    setSearchParams(prev => ({ ...prev, [key]: value }));
-  };
-
-  const setChildrenCount = (nextCount: number) => {
-    const clamped = Math.max(0, Math.min(10, nextCount));
-    // При изменении количества детей очищаем значения возрастов,
-    // чтобы удалённые цифры не появлялись снова в TextInput.
-    setChildrenAgesInput(Array.from({ length: clamped }, () => ''));
-  };
-
-  const formatDate = (dateStr: string) => {
-    // Парсим дату в формате YYYY-MM-DD без учета временных зон
-    // Это предотвращает смещение даты на день назад/вперед
+  const formatDateShort = (dateStr: string) => {
     const parts = dateStr.split('-').map(Number);
-    const date = new Date(parts[0], parts[1] - 1, parts[2]);
-    
-    // Форматируем дату вручную, чтобы избежать проблем с временными зонами
-    const day = String(date.getDate()).padStart(2, '0');
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const year = date.getFullYear();
-    
-    return `${day}.${month}.${year}`;
+    const day = parts[2];
+    const month = MONTHS_SHORT[parts[1] - 1] || '';
+    return `${day} ${month}`;
   };
 
-  const getSelectedDeparture = () => {
-    return departures.find(d => d.id === searchParams.departureId);
+  const selectedDeparture = departures.find((d) => d.id === searchParams.departureId);
+  const selectedCountry = countries.find((c) => c.id === searchParams.countryId);
+  const selectedMeal = meals.find((m) => m.id === searchParams.meal);
+  const selectedRegion = regions.find((r) => r.id === searchParams.regionIds?.[0]);
+
+  const wizardLabels = useMemo(
+    () => [
+      i18n.t('search.wizardStepFrom'),
+      i18n.t('search.wizardStepTo'),
+      i18n.t('search.wizardStepWhen'),
+      i18n.t('search.wizardStepNights'),
+      i18n.t('search.wizardStepTourists'),
+    ],
+    []
+  );
+
+  const stepHint = useMemo(() => {
+    switch (wizardStep) {
+      case 1:
+        return i18n.t('search.wizardHintFrom');
+      case 2:
+        return i18n.t('search.wizardHintTo');
+      case 3:
+        return i18n.t('search.wizardHintWhen');
+      case 4:
+        return i18n.t('search.wizardHintNights');
+      case 5:
+        return i18n.t('search.wizardHintTourists');
+      default:
+        return '';
+    }
+  }, [wizardStep]);
+
+  const goToStep = useCallback((step: WizardStep) => {
+    setWizardStep(step);
+  }, []);
+
+  const addChild = () => {
+    if (childrenAgesInput.length >= 10) return;
+    setChildrenAgesInput((prev) => [...prev, '']);
   };
 
-  const getSelectedCountry = () => {
-    return countries.find(c => c.id === searchParams.countryId);
-  };
-
-  const getSelectedMeal = () => {
-    return meals.find(m => m.id === searchParams.meal);
-  };
-
-  const getSelectedRegion = () => {
-    return regions.find(r => r.id === searchParams.regionIds?.[0]);
+  const removeChild = (idx: number) => {
+    setChildrenAgesInput((prev) => prev.filter((_, i) => i !== idx));
   };
 
   if (!apiReady) {
     return (
-      <SafeAreaView edges={['top', 'bottom']} style={[styles.container, { backgroundColor: theme.background }]}>
+      <SafeAreaView edges={['top']} style={[styles.container, { backgroundColor: theme.background }]}>
         <StatusBar
           barStyle={isDark ? 'light-content' : 'dark-content'}
           backgroundColor={theme.background}
         />
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={theme.primary} />
-          <Text style={[styles.loadingText, { color: theme.text }]}>
-            Инициализация API...
-          </Text>
+          <Text style={[styles.loadingText, { color: theme.text }]}>Инициализация API...</Text>
         </View>
       </SafeAreaView>
     );
   }
 
+  const adultsCount = searchParams.adults || 2;
+  const kidsCount = childrenAgesInput.length;
+  const guestsSummary =
+    kidsCount > 0
+      ? `${formatAdultsRu(adultsCount)}, ${formatChildrenRu(kidsCount)}`
+      : formatAdultsRu(adultsCount);
+  const nightsSummary =
+    searchParams.nightsFrom != null && searchParams.nightsTo != null
+      ? formatNightsRangeRu(searchParams.nightsFrom, searchParams.nightsTo)
+      : formatNightsRangeRu(7, 11);
+  const whenSummary =
+    searchParams.dateFrom && searchParams.dateTo
+      ? `${formatDateShort(searchParams.dateFrom)} – ${formatDateShort(searchParams.dateTo)}`
+      : undefined;
+
+  const searchStackIndex = navigation.getState?.()?.index ?? 0;
+  const showBack = searchStackIndex > 0;
+
+  const renderSummaryChips = () => {
+    if (wizardStep <= 1) return null;
+    const chips: { key: string; label: string; step: WizardStep }[] = [];
+    if (selectedDeparture?.name) {
+      chips.push({ key: 'from', label: selectedDeparture.name, step: 1 });
+    }
+    if (wizardStep >= 2 && selectedCountry?.name) {
+      chips.push({ key: 'to', label: selectedCountry.name, step: 2 });
+    }
+    if (wizardStep >= 4 && whenSummary) {
+      chips.push({ key: 'when', label: whenSummary, step: 3 });
+    }
+    if (wizardStep >= 5) {
+      chips.push({ key: 'nights', label: nightsSummary, step: 4 });
+    }
+
+    if (chips.length === 0) return null;
+
+    return (
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={styles.chipsScroll}
+        contentContainerStyle={styles.chipsContent}
+      >
+        {chips.map((chip, index) => (
+          <React.Fragment key={chip.key}>
+            {index > 0 ? (
+              <Ionicons
+                name="chevron-forward"
+                size={12}
+                color={theme.secondaryText}
+                style={styles.chipArrow}
+              />
+            ) : null}
+            <TouchableOpacity
+              style={[
+                styles.summaryChip,
+                { backgroundColor: theme.secondaryBackground, borderColor: theme.border },
+              ]}
+              onPress={() => goToStep(chip.step)}
+              activeOpacity={0.7}
+              accessibilityRole="button"
+              accessibilityLabel={`Вернуться к шагу: ${chip.label}`}
+            >
+              <Text style={[styles.summaryChipText, { color: theme.text }]} numberOfLines={1}>
+                {chip.label}
+              </Text>
+            </TouchableOpacity>
+          </React.Fragment>
+        ))}
+      </ScrollView>
+    );
+  };
+
+  const renderNavRow = (opts: {
+    onBack?: () => void;
+    onNext?: () => void;
+    nextDisabled?: boolean;
+    nextTitle?: string;
+    nextLoading?: boolean;
+  }) => (
+    <View style={styles.navRow}>
+      {opts.onBack ? (
+        <PrimaryButton
+          title={i18n.t('common.back')}
+          onPress={opts.onBack}
+          outline
+          style={styles.navBtn}
+        />
+      ) : (
+        <View style={styles.navBtn} />
+      )}
+      {opts.onNext ? (
+        <PrimaryButton
+          title={opts.nextTitle ?? i18n.t('common.next')}
+          onPress={opts.onNext}
+          disabled={opts.nextDisabled}
+          loading={opts.nextLoading}
+          variant="cta"
+          style={styles.navBtn}
+        />
+      ) : null}
+    </View>
+  );
+
   return (
-    <SafeAreaView edges={['top', 'bottom']} style={[styles.container, { backgroundColor: theme.background }]}>
+    <SafeAreaView edges={['top']} style={[styles.container, { backgroundColor: theme.background }]}>
       <StatusBar
         barStyle={isDark ? 'light-content' : 'dark-content'}
         backgroundColor={theme.background}
       />
 
-      {/* Header */}
-      <View style={[styles.header, { backgroundColor: theme.card, borderBottomColor: theme.border }]}>
-        <View style={styles.headerSpacer} />
-        <Text style={[styles.headerTitle, { color: theme.text }]}>{i18n.t('search.title')}</Text>
-        <View style={styles.headerSpacer} />
-      </View>
+      <ScreenHeader
+        title={i18n.t('nav.search')}
+        onBack={showBack ? () => safeGoBack(navigation, 'Home') : undefined}
+        plain={!showBack}
+        noSafeTop
+      />
 
-      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-        {/* Departure City */}
-        <View style={[styles.section, { backgroundColor: theme.card }]}>
-          <Text style={[styles.sectionTitle, { color: theme.text }]}>Город вылета</Text>
-          <TouchableOpacity
-            style={[styles.selector, { borderColor: theme.border }]}
-            onPress={() => setShowDepartureModal(true)}
-            activeOpacity={0.7}
-          >
-            <Text style={[styles.selectorText, {
-              color: getSelectedDeparture() ? theme.text : theme.secondaryText
-            }]}>
-              {getSelectedDeparture()?.name || i18n.t('search.selectCity')}
+      <ScrollView
+        style={styles.content}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingBottom: bottomPad, paddingHorizontal: spacing.md }}
+        keyboardShouldPersistTaps="handled"
+      >
+        <Text style={[styles.heroSubtitle, { color: theme.secondaryText }]}>
+          {i18n.t('search.wizardHeroSubtitle')}
+        </Text>
+
+        <BookingWizardProgress
+          currentStep={wizardStep}
+          totalSteps={SEARCH_WIZARD_STEPS}
+          labels={wizardLabels}
+          showCurrentLabelInHeader
+        />
+
+        {renderSummaryChips()}
+
+        <Text style={[styles.stepHint, { color: theme.secondaryText }]}>{stepHint}</Text>
+
+        {isLoading ? (
+          <View style={styles.inlineLoading}>
+            <ActivityIndicator size="small" color={theme.primary} />
+            <Text style={[styles.inlineLoadingText, { color: theme.secondaryText }]}>
+              Загрузка справочников…
             </Text>
-            <Ionicons name="chevron-down" size={20} color={theme.secondaryText} />
-          </TouchableOpacity>
-        </View>
-
-        {/* Country */}
-        <View style={[styles.section, { backgroundColor: theme.card }]}>
-          <Text style={[styles.sectionTitle, { color: theme.text }]}>Страна</Text>
-          <TouchableOpacity
-            style={[styles.selector, { borderColor: theme.border }]}
-            onPress={() => setShowCountryModal(true)}
-            activeOpacity={0.7}
-            disabled={!searchParams.departureId}
-          >
-            <Text style={[styles.selectorText, {
-              color: getSelectedCountry() ? theme.text : theme.secondaryText
-            }]}>
-              {getSelectedCountry()?.name || 'Сначала выберите город вылета'}
-            </Text>
-            <Ionicons name="chevron-down" size={20} color={theme.secondaryText} />
-          </TouchableOpacity>
-        </View>
-
-        {/* Region */}
-        <View style={[styles.section, { backgroundColor: theme.card }]}>
-          <Text style={[styles.sectionTitle, { color: theme.text }]}>Регион</Text>
-          <TouchableOpacity
-            style={[styles.selector, { borderColor: theme.border }]}
-            onPress={() => setShowRegionModal(true)}
-            activeOpacity={0.7}
-            disabled={!searchParams.countryId}
-          >
-            <Text style={[styles.selectorText, {
-              color: getSelectedRegion() ? theme.text : theme.secondaryText
-            }]}>
-              {getSelectedRegion()?.name || i18n.t('search.selectRegion')}
-            </Text>
-            <Ionicons name="chevron-down" size={20} color={theme.secondaryText} />
-          </TouchableOpacity>
-        </View>
-
-        {/* Dates */}
-        <View style={[styles.section, { backgroundColor: theme.card }]}>
-          <Text style={[styles.sectionTitle, { color: theme.text }]}>Даты</Text>
-          <View style={styles.datesRow}>
-            <TouchableOpacity
-              style={[styles.dateSelector, { borderColor: theme.border }]}
-              onPress={() => {
-                setDateType('dateFrom');
-                setShowDateModal(true);
-              }}
-              activeOpacity={0.7}
-            >
-              <Text style={[styles.dateLabel, { color: theme.secondaryText }]}>С</Text>
-              <Text style={[styles.dateText, {
-                color: searchParams.dateFrom ? theme.text : theme.secondaryText
-              }]}>
-                {searchParams.dateFrom ? formatDate(searchParams.dateFrom) : i18n.t('search.select')}
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.dateSelector, { borderColor: theme.border }]}
-              onPress={() => {
-                setDateType('dateTo');
-                setShowDateModal(true);
-              }}
-              activeOpacity={0.7}
-            >
-              <Text style={[styles.dateLabel, { color: theme.secondaryText }]}>По</Text>
-              <Text style={[styles.dateText, {
-                color: searchParams.dateTo ? theme.text : theme.secondaryText
-              }]}>
-                {searchParams.dateTo ? formatDate(searchParams.dateTo) : i18n.t('search.select')}
-              </Text>
-            </TouchableOpacity>
           </View>
-        </View>
+        ) : null}
 
-        {/* Nights - автоматически рассчитывается на основе дат согласно документации API */}
-        {searchParams.dateFrom && searchParams.dateTo && (
-          <View style={[styles.section, { backgroundColor: theme.card }]}>
-            <Text style={[styles.sectionTitle, { color: theme.text }]}>{i18n.t('search.nightsCount')}</Text>
-            <View style={styles.nightsRow}>
-              <Text style={[styles.nightsText, { color: theme.text }]}>
-                {searchParams.nightsFrom || '-'} - {searchParams.nightsTo || '-'} {i18n.t('search.nights')}
-              </Text>
-              <Text style={[styles.nightsHint, { color: theme.secondaryText }]}>
-                (рассчитывается автоматически)
-              </Text>
+        {/* Step 1 — Откуда */}
+        {wizardStep === 1 ? (
+          <View style={[styles.stepCard, shadows.cardRaised, { backgroundColor: theme.card }]}>
+            <Text style={[styles.stepTitle, { color: theme.text }]}>
+              {i18n.t('search.wizardStepFrom')}
+            </Text>
+            <TouchableOpacity
+              style={[
+                styles.pickerRow,
+                { backgroundColor: theme.secondaryBackground, borderColor: theme.border },
+              ]}
+              onPress={() => setShowDepartureModal(true)}
+              activeOpacity={0.7}
+              accessibilityRole="button"
+              accessibilityLabel={
+                selectedDeparture?.name
+                  ? `${i18n.t('search.departureCityLabel')}: ${selectedDeparture.name}`
+                  : i18n.t('search.selectCity')
+              }
+            >
+              <View style={[styles.pickerIcon, { backgroundColor: BRAND.blueSubtle }]} accessible={false}>
+                <Ionicons name="airplane-outline" size={18} color={theme.primary} />
+              </View>
+              <View style={styles.pickerText} importantForAccessibility="no-hide-descendants">
+                <Text style={[styles.pickerLabel, { color: theme.secondaryText }]}>
+                  {i18n.t('search.departureCityLabel')}
+                </Text>
+                <Text
+                  style={[
+                    styles.pickerValue,
+                    { color: selectedDeparture ? theme.text : theme.secondaryText },
+                  ]}
+                  numberOfLines={1}
+                >
+                  {selectedDeparture?.name || i18n.t('search.selectCity')}
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={theme.secondaryText} />
+            </TouchableOpacity>
+            {renderNavRow({
+              onNext: () => {
+                if (!searchParams.departureId) {
+                  Alert.alert(i18n.t('common.error'), 'Выберите город вылета');
+                  setShowDepartureModal(true);
+                  return;
+                }
+                goToStep(2);
+              },
+              nextDisabled: !searchParams.departureId,
+            })}
+          </View>
+        ) : null}
+
+        {/* Step 2 — Куда */}
+        {wizardStep === 2 ? (
+          <View style={[styles.stepCard, shadows.cardRaised, { backgroundColor: theme.card }]}>
+            <Text style={[styles.stepTitle, { color: theme.text }]}>
+              {i18n.t('search.wizardStepTo')}
+            </Text>
+            <TouchableOpacity
+              style={[
+                styles.pickerRow,
+                { backgroundColor: theme.secondaryBackground, borderColor: theme.border },
+              ]}
+              onPress={() => {
+                if (!searchParams.departureId) {
+                  Alert.alert(i18n.t('common.error'), 'Сначала выберите город вылета');
+                  return;
+                }
+                openCountryPicker();
+              }}
+              activeOpacity={0.7}
+              disabled={!searchParams.departureId}
+              accessibilityRole="button"
+              accessibilityLabel={
+                selectedCountry?.name
+                  ? `${i18n.t('search.countryLabel')}: ${selectedCountry.name}`
+                  : i18n.t('search.selectCountry')
+              }
+            >
+              <View style={[styles.pickerIcon, { backgroundColor: BRAND.blueSubtle }]} accessible={false}>
+                <Ionicons name="earth-outline" size={18} color={theme.primary} />
+              </View>
+              <View style={styles.pickerText} importantForAccessibility="no-hide-descendants">
+                <Text style={[styles.pickerLabel, { color: theme.secondaryText }]}>
+                  {i18n.t('search.countryLabel')}
+                </Text>
+                <Text
+                  style={[
+                    styles.pickerValue,
+                    { color: selectedCountry ? theme.text : theme.secondaryText },
+                  ]}
+                  numberOfLines={1}
+                >
+                  {selectedCountry?.name ||
+                    (searchParams.departureId
+                      ? i18n.t('search.selectCountry')
+                      : 'Сначала выберите город вылета')}
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={theme.secondaryText} />
+            </TouchableOpacity>
+            {renderNavRow({
+              onBack: () => goToStep(1),
+              onNext: () => {
+                if (!searchParams.countryId) {
+                  Alert.alert(i18n.t('common.error'), 'Выберите страну');
+                  openCountryPicker();
+                  return;
+                }
+                goToStep(3);
+              },
+              nextDisabled: !searchParams.countryId,
+            })}
+          </View>
+        ) : null}
+
+        {/* Step 3 — Когда (календарь INLINE) */}
+        {wizardStep === 3 ? (
+          <View style={[styles.stepCard, shadows.cardRaised, { backgroundColor: theme.card }]}>
+            <Text style={[styles.stepTitle, { color: theme.text }]}>
+              {i18n.t('search.wizardStepWhen')}
+            </Text>
+            <Text style={[styles.whenExplain, { color: theme.secondaryText }]}>
+              {i18n.t('search.wizardWhenExplain')}
+            </Text>
+            {whenSummary ? (
+              <Text style={[styles.whenSelected, { color: theme.primary }]}>{whenSummary}</Text>
+            ) : null}
+            <View style={styles.calendarWrap}>
+              <DateRangeCalendar
+                variant="inline"
+                onDateRangeSelect={(dateFrom, dateTo) => {
+                  updateSearchParam('dateFrom', dateFrom);
+                  updateSearchParam('dateTo', dateTo);
+                  if (!nightsTouched) {
+                    const a = new Date(dateFrom + 'T12:00:00');
+                    const b = new Date(dateTo + 'T12:00:00');
+                    const diff = Math.max(
+                      1,
+                      Math.round((b.getTime() - a.getTime()) / 86400000),
+                    );
+                    const from = Math.max(1, Math.min(28, diff - 1));
+                    const to = Math.max(from, Math.min(28, diff + 1));
+                    updateSearchParam('nightsFrom', from);
+                    updateSearchParam('nightsTo', to);
+                  }
+                }}
+                initialDateFrom={searchParams.dateFrom}
+                initialDateTo={searchParams.dateTo}
+                minDate={calendarMinDate}
+              />
             </View>
+            {renderNavRow({
+              onBack: () => goToStep(2),
+              onNext: () => {
+                if (!searchParams.dateFrom || !searchParams.dateTo) {
+                  Alert.alert(i18n.t('common.error'), 'Выберите даты вылета');
+                  return;
+                }
+                goToStep(4);
+              },
+              nextDisabled: !searchParams.dateFrom || !searchParams.dateTo,
+            })}
           </View>
-        )}
+        ) : null}
 
-        {/* Passengers */}
-        <View style={[styles.section, { backgroundColor: theme.card }]}>
-          <Text style={[styles.sectionTitle, { color: theme.text }]}>Пассажиры</Text>
-          <View style={styles.passengersRow}>
-            <View style={styles.passengerItem}>
-              <Text style={[styles.passengerLabel, { color: theme.secondaryText }]}>Взрослые</Text>
+        {/* Step 4 — Ночи */}
+        {wizardStep === 4 ? (
+          <View style={[styles.stepCard, shadows.cardRaised, { backgroundColor: theme.card }]}>
+            <Text style={[styles.stepTitle, { color: theme.text }]}>
+              {i18n.t('search.wizardStepNights')}
+            </Text>
+            {searchParams.dateFrom && searchParams.dateTo && !nightsTouched ? (
+              <Text style={[styles.whenExplain, { color: theme.secondaryText }]}>
+                {`По датам: ${formatNightsRangeRu(
+                  searchParams.nightsFrom ?? 7,
+                  searchParams.nightsTo ?? 11,
+                )}. Можно изменить.`}
+              </Text>
+            ) : null}
+            <View style={styles.nightsGrid}>
+              {NIGHT_PRESETS.map((preset) => {
+                const selected =
+                  searchParams.nightsFrom === preset.from &&
+                  searchParams.nightsTo === preset.to;
+                return (
+                  <TouchableOpacity
+                    key={preset.label}
+                    style={[
+                      styles.nightsChip,
+                      {
+                        borderColor: selected ? theme.primary : theme.border,
+                        backgroundColor: selected
+                          ? `${theme.primary}18`
+                          : theme.secondaryBackground,
+                      },
+                    ]}
+                    onPress={() => {
+                      setNightsTouched(true);
+                      updateSearchParam('nightsFrom', preset.from);
+                      updateSearchParam('nightsTo', preset.to);
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <Text
+                      style={[
+                        styles.nightsChipText,
+                        { color: selected ? theme.primary : theme.text },
+                      ]}
+                    >
+                      {preset.label} {i18n.t('form.nightsShort')}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+            {renderNavRow({
+              onBack: () => goToStep(3),
+              onNext: () => goToStep(5),
+            })}
+          </View>
+        ) : null}
+
+        {/* Step 5 — Туристы + опционально регион/питание */}
+        {wizardStep === 5 ? (
+          <View style={[styles.stepCard, shadows.cardRaised, { backgroundColor: theme.card }]}>
+            <Text style={[styles.stepTitle, { color: theme.text }]}>
+              {i18n.t('search.wizardStepTourists')}
+            </Text>
+
+            <View
+              style={[
+                styles.touristsCard,
+                { backgroundColor: theme.secondaryBackground, borderColor: theme.border },
+              ]}
+            >
+              <Text style={[styles.passengerLabel, { color: theme.secondaryText }]}>
+                {i18n.t('form.adults')}
+              </Text>
               <View style={styles.counter}>
                 <TouchableOpacity
-                  style={[styles.counterButton, { borderColor: 'rgba(255, 255, 255, 0.18)' }]}
+                  style={[styles.counterButton, { borderColor: theme.border, backgroundColor: theme.card }]}
                   onPress={() => {
                     const current = searchParams.adults || 2;
                     updateSearchParam('adults', Math.max(1, current - 1));
                   }}
                   activeOpacity={0.7}
                 >
-                  <Ionicons name="remove" size={16} color={'#0066CC'} />
+                  <Ionicons name="remove" size={16} color={theme.primary} />
                 </TouchableOpacity>
                 <Text style={[styles.counterText, { color: theme.text }]}>
                   {searchParams.adults || 2}
                 </Text>
                 <TouchableOpacity
-                  style={[styles.counterButton, { borderColor: 'rgba(255, 255, 255, 0.18)' }]}
+                  style={[styles.counterButton, { borderColor: theme.border, backgroundColor: theme.card }]}
                   onPress={() => {
                     const current = searchParams.adults || 2;
                     updateSearchParam('adults', Math.min(10, current + 1));
                   }}
                   activeOpacity={0.7}
                 >
-                  <Ionicons name="add" size={16} color={'#0066CC'} />
+                  <Ionicons name="add" size={16} color={theme.primary} />
                 </TouchableOpacity>
               </View>
             </View>
 
-            <View style={styles.passengerItem}>
-              <Text style={[styles.passengerLabel, { color: theme.secondaryText }]}>Дети</Text>
-              <View style={styles.counter}>
-                <TouchableOpacity
-                  style={[styles.counterButton, { borderColor: 'rgba(255, 255, 255, 0.18)' }]}
-                  onPress={() => {
-                    setChildrenCount(childrenAgesInput.length - 1);
-                  }}
-                  activeOpacity={0.7}
-                  disabled={childrenAgesInput.length === 0}
-                >
-                  <Ionicons name="remove" size={16} color={'#0066CC'} />
-                </TouchableOpacity>
-                <Text style={[styles.counterText, { color: theme.text }]}>
-                  {childrenAgesInput.length}
-                </Text>
-                <TouchableOpacity
-                  style={[styles.counterButton, { borderColor: 'rgba(255, 255, 255, 0.18)' }]}
-                  onPress={() => {
-                    setChildrenCount(childrenAgesInput.length + 1);
-                  }}
-                  activeOpacity={0.7}
-                  disabled={childrenAgesInput.length >= 10}
-                >
-                  <Ionicons name="add" size={16} color={'#0066CC'} />
-                </TouchableOpacity>
-              </View>
-            </View>
+            <TouchableOpacity
+              style={[styles.addChildBtn, { borderColor: theme.primary }]}
+              onPress={addChild}
+              activeOpacity={0.7}
+              disabled={childrenAgesInput.length >= 10}
+            >
+              <Ionicons name="person-add-outline" size={18} color={theme.primary} />
+              <Text style={[styles.addChildBtnText, { color: theme.primary }]}>
+                {i18n.t('search.addChild')}
+              </Text>
+            </TouchableOpacity>
 
-            {childrenAgesInput.length > 0 && (
-              <View style={{ marginTop: 12 }}>
-                <Text style={[styles.passengerLabel, { color: theme.secondaryText, marginBottom: 8 }]}>
+            {childrenAgesInput.length > 0 ? (
+              <View style={styles.childrenList}>
+                <Text style={[styles.passengerLabel, { color: theme.secondaryText, marginBottom: spacing.xs }]}>
                   {i18n.t('search.childrenAge')}
                 </Text>
                 {childrenAgesInput.map((age, idx) => (
-                  <View key={`child_age_${idx}`} style={{ marginBottom: 10 }}>
-                    <Text style={[styles.passengerLabel, { color: theme.secondaryText, marginBottom: 6 }]}>
-                      Ребёнок {idx + 1}
-                    </Text>
-                    <TextInput
-                      style={[
-                        styles.childAgeInput,
-                        {
-                          borderColor: theme.border,
-                          backgroundColor: theme.secondaryBackground,
-                          color: theme.text,
-                        },
-                      ]}
-                      value={age}
-                      onChangeText={(v) =>
-                        setChildrenAgesInput((prev) => {
-                          const next = [...prev];
-                          next[idx] = v.replace(/\D/g, '').slice(0, 2);
-                          return next;
-                        })
-                      }
-                      placeholder="Например: 7"
-                      placeholderTextColor={theme.tertiaryText}
-                      keyboardType="number-pad"
-                      maxLength={2}
-                    />
+                  <View
+                    key={`child_${idx}`}
+                    style={[styles.childRow, { borderColor: theme.border }]}
+                  >
+                    <View style={{ flex: 1 }}>
+                      <Text
+                        style={[
+                          styles.pickerLabel,
+                          { color: theme.secondaryText, marginBottom: 6 },
+                        ]}
+                      >
+                        {i18n.t('search.childAgeLabel')} {idx + 1}
+                      </Text>
+                      <TextInput
+                        style={[
+                          styles.childAgeInput,
+                          {
+                            borderColor: theme.border,
+                            backgroundColor: theme.secondaryBackground,
+                            color: theme.text,
+                          },
+                        ]}
+                        value={age}
+                        onChangeText={(v) =>
+                          setChildrenAgesInput((prev) => {
+                            const next = [...prev];
+                            next[idx] = v.replace(/\D/g, '').slice(0, 2);
+                            return next;
+                          })
+                        }
+                        placeholder="Например: 7"
+                        placeholderTextColor={theme.tertiaryText}
+                        keyboardType="number-pad"
+                        maxLength={2}
+                      />
+                    </View>
+                    <TouchableOpacity
+                      onPress={() => removeChild(idx)}
+                      style={styles.removeChildBtn}
+                      accessibilityRole="button"
+                      accessibilityLabel="Удалить ребёнка"
+                    >
+                      <Ionicons name="trash-outline" size={20} color={theme.error || '#E53935'} />
+                    </TouchableOpacity>
                   </View>
                 ))}
               </View>
-            )}
-          </View>
-        </View>
+            ) : null}
 
-        {/* Meal Type */}
-        <View style={[styles.section, { backgroundColor: theme.card }]}>
-          <Text style={[styles.sectionTitle, { color: theme.text }]}>Тип питания</Text>
-          <TouchableOpacity
-            style={[styles.selector, { borderColor: 'rgba(255, 255, 255, 0.18)' }]}
-            onPress={() => setShowMealModal(true)}
-            activeOpacity={0.7}
-          >
-            <Text style={[styles.selectorText, {
-              color: getSelectedMeal() ? '#1D1D1F' : '#6E6E73'
-            }]}>
-              {getSelectedMeal()?.name || 'Любой тип питания'}
+            <Text style={[styles.optionalTitle, { color: theme.secondaryText }]}>
+              Регион и питание (необязательно)
             </Text>
-            <Ionicons name="chevron-down" size={20} color={theme.secondaryText} />
-          </TouchableOpacity>
-        </View>
 
-        {/* Search Button */}
-        <TouchableOpacity
-          style={[styles.searchButton, { backgroundColor: '#FF6B00' }]}
-          onPress={handleSearch}
-          disabled={isSearching}
-          activeOpacity={0.8}
-        >
-          {isSearching ? (
-            <ActivityIndicator size="small" color="#fff" />
-          ) : (
-            <>
-              <Ionicons name="search" size={20} color="#fff" />
-              <Text style={styles.searchButtonText}>{i18n.t('search.findTours')}</Text>
-            </>
-          )}
-        </TouchableOpacity>
+            <TouchableOpacity
+              style={[
+                styles.pickerRow,
+                { backgroundColor: theme.secondaryBackground, borderColor: theme.border },
+              ]}
+              onPress={() => {
+                if (!searchParams.countryId) {
+                  Alert.alert(i18n.t('common.error'), i18n.t('search.selectCountry'));
+                  return;
+                }
+                setShowRegionModal(true);
+              }}
+              activeOpacity={0.7}
+            >
+              <View style={[styles.pickerIcon, { backgroundColor: BRAND.blueSubtle }]}>
+                <Ionicons name="map-outline" size={18} color={theme.primary} />
+              </View>
+              <View style={styles.pickerText}>
+                <Text style={[styles.pickerLabel, { color: theme.secondaryText }]}>Регион</Text>
+                <Text
+                  style={[
+                    styles.pickerValue,
+                    { color: selectedRegion ? theme.text : theme.secondaryText },
+                  ]}
+                  numberOfLines={1}
+                >
+                  {selectedRegion?.name || i18n.t('search.anyRegion')}
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={theme.secondaryText} />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                styles.pickerRow,
+                {
+                  backgroundColor: theme.secondaryBackground,
+                  borderColor: theme.border,
+                  marginTop: spacing.sm,
+                },
+              ]}
+              onPress={() => setShowMealModal(true)}
+              activeOpacity={0.7}
+            >
+              <View style={[styles.pickerIcon, { backgroundColor: BRAND.blueSubtle }]}>
+                <Ionicons name="restaurant-outline" size={18} color={theme.primary} />
+              </View>
+              <View style={styles.pickerText}>
+                <Text style={[styles.pickerLabel, { color: theme.secondaryText }]}>Питание</Text>
+                <Text
+                  style={[
+                    styles.pickerValue,
+                    { color: selectedMeal ? theme.text : theme.secondaryText },
+                  ]}
+                  numberOfLines={1}
+                >
+                  {selectedMeal
+                    ? selectedMeal.russianName || selectedMeal.fullRussianName || selectedMeal.name
+                    : i18n.t('search.anyMeal')}
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={theme.secondaryText} />
+            </TouchableOpacity>
+
+            <Text style={[styles.guestsSummary, { color: theme.secondaryText }]}>
+              {guestsSummary} · {nightsSummary}
+            </Text>
+
+            {renderNavRow({
+              onBack: () => goToStep(4),
+            })}
+
+            <PrimaryButton
+              title={i18n.t('search.findTours')}
+              onPress={() => void handleSearch()}
+              loading={isSearching}
+              variant="cta"
+              iconLeft={<Ionicons name="search" size={20} color="#fff" />}
+              style={styles.findBtn}
+            />
+          </View>
+        ) : null}
       </ScrollView>
 
-      {/* Departure City Modal */}
+      {/* Departure Modal */}
       <Modal
         animationType="slide"
-        transparent={true}
+        transparent
         visible={showDepartureModal}
         onRequestClose={() => setShowDepartureModal(false)}
       >
-        <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, { backgroundColor: theme.card }]}>
+        <TouchableOpacity
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => setShowDepartureModal(false)}
+        >
+          <TouchableOpacity
+            activeOpacity={1}
+            onPress={() => {}}
+            style={[
+              styles.modalContent,
+              {
+                backgroundColor: theme.card,
+                maxHeight: windowHeight * 0.78,
+                paddingBottom: Math.max(insets.bottom, 16),
+              },
+            ]}
+          >
             <View style={[styles.modalHeader, { borderBottomColor: theme.border }]}>
-              <Text style={[styles.modalTitle, { color: theme.text }]}>{i18n.t('search.selectCity')}</Text>
+              <Text style={[styles.modalTitle, { color: theme.text }]}>
+                {i18n.t('search.selectCity')}
+              </Text>
               <TouchableOpacity onPress={() => setShowDepartureModal(false)}>
                 <Ionicons name="close" size={24} color={theme.text} />
               </TouchableOpacity>
             </View>
-            <ScrollView keyboardShouldPersistTaps="handled">
+            <ScrollView keyboardShouldPersistTaps="handled" style={styles.modalScroll}>
               {departures.map((item) => (
                 <TouchableOpacity
                   key={item.id}
                   style={[styles.modalItem, { borderBottomColor: theme.border }]}
                   onPress={() => {
                     updateSearchParam('departureId', item.id);
-                    // Очищаем страну, так как список стран зависит от города вылета
                     updateSearchParam('countryId', undefined);
+                    updateSearchParam('regionIds', undefined);
+                    void savePreferredDepartureId(item.id);
                     setShowDepartureModal(false);
                   }}
                 >
-                    <Text style={[styles.modalItemText, { color: theme.text }]}>{item.name}</Text>
-                  {searchParams.departureId === item.id && (
+                  <Text style={[styles.modalItemText, { color: theme.text }]}>{item.name}</Text>
+                  {searchParams.departureId === item.id ? (
                     <Ionicons name="checkmark" size={20} color={theme.primary} />
-                  )}
+                  ) : null}
                 </TouchableOpacity>
               ))}
             </ScrollView>
-          </View>
-        </View>
+          </TouchableOpacity>
+        </TouchableOpacity>
       </Modal>
 
       {/* Country Modal */}
       <Modal
         animationType="slide"
-        transparent={true}
+        transparent
         visible={showCountryModal}
         onRequestClose={() => setShowCountryModal(false)}
       >
-        <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, { backgroundColor: theme.card }]}>
+        <TouchableOpacity
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => setShowCountryModal(false)}
+        >
+          <TouchableOpacity
+            activeOpacity={1}
+            onPress={() => {}}
+            style={[
+              styles.modalContent,
+              {
+                backgroundColor: theme.card,
+                maxHeight: windowHeight * 0.78,
+                paddingBottom: Math.max(insets.bottom, 16),
+              },
+            ]}
+          >
             <View style={[styles.modalHeader, { borderBottomColor: theme.border }]}>
-              <Text style={[styles.modalTitle, { color: theme.text }]}>{i18n.t('search.selectCountry')}</Text>
+              <Text style={[styles.modalTitle, { color: theme.text }]}>
+                {i18n.t('search.selectCountry')}
+              </Text>
               <TouchableOpacity onPress={() => setShowCountryModal(false)}>
                 <Ionicons name="close" size={24} color={theme.text} />
               </TouchableOpacity>
             </View>
-            <ScrollView keyboardShouldPersistTaps="handled">
-              {countries.map((item) => (
-                <TouchableOpacity
-                  key={item.id}
-                  style={[styles.modalItem, { borderBottomColor: theme.border }]}
-                  onPress={() => {
-                    updateSearchParam('countryId', item.id);
-                    // Очищаем регионы, так как они зависят от страны
-                    updateSearchParam('regionIds', undefined);
-                    setShowCountryModal(false);
-                  }}
-                >
+            <ScrollView keyboardShouldPersistTaps="handled" style={styles.modalScroll}>
+              {countriesLoading ? (
+                <ActivityIndicator color={theme.primary} style={styles.modalLoading} />
+              ) : countries.length === 0 ? (
+                <Text style={[styles.modalEmpty, { color: theme.secondaryText }]}>
+                  Нет направлений для этого города вылета
+                </Text>
+              ) : (
+                countries.map((item) => (
+                  <TouchableOpacity
+                    key={item.id}
+                    style={[styles.modalItem, { borderBottomColor: theme.border }]}
+                    onPress={() => {
+                      updateSearchParam('countryId', item.id);
+                      updateSearchParam('regionIds', undefined);
+                      setShowCountryModal(false);
+                    }}
+                  >
                     <Text style={[styles.modalItemText, { color: theme.text }]}>{item.name}</Text>
-                  {searchParams.countryId === item.id && (
-                    <Ionicons name="checkmark" size={20} color={'#0066CC'} />
-                  )}
-                </TouchableOpacity>
-              ))}
+                    {searchParams.countryId === item.id ? (
+                      <Ionicons name="checkmark" size={20} color={theme.primary} />
+                    ) : null}
+                  </TouchableOpacity>
+                ))
+              )}
             </ScrollView>
-          </View>
-        </View>
+          </TouchableOpacity>
+        </TouchableOpacity>
       </Modal>
 
       {/* Region Modal */}
       <Modal
         animationType="slide"
-        transparent={true}
+        transparent
         visible={showRegionModal}
         onRequestClose={() => setShowRegionModal(false)}
       >
-        <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, { backgroundColor: theme.card }]}>
-            <View style={[styles.modalHeader, { borderBottomColor: 'rgba(255, 255, 255, 0.18)' }]}>
-              <Text style={[styles.modalTitle, { color: '#1D1D1F' }]}>{i18n.t('search.selectRegion')}</Text>
+        <TouchableOpacity
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => setShowRegionModal(false)}
+        >
+          <TouchableOpacity
+            activeOpacity={1}
+            onPress={() => {}}
+            style={[
+              styles.modalContent,
+              {
+                backgroundColor: theme.card,
+                maxHeight: windowHeight * 0.78,
+                paddingBottom: Math.max(insets.bottom, 16),
+              },
+            ]}
+          >
+            <View style={[styles.modalHeader, { borderBottomColor: theme.border }]}>
+              <Text style={[styles.modalTitle, { color: theme.text }]}>
+                {i18n.t('search.selectRegion')}
+              </Text>
               <TouchableOpacity onPress={() => setShowRegionModal(false)}>
-                <Ionicons name="close" size={24} color={'#1D1D1F'} />
+                <Ionicons name="close" size={24} color={theme.text} />
               </TouchableOpacity>
             </View>
-
-            <ScrollView keyboardShouldPersistTaps="handled">
+            <ScrollView keyboardShouldPersistTaps="handled" style={styles.modalScroll}>
               <TouchableOpacity
-                style={[styles.modalItem, { borderBottomColor: 'rgba(255, 255, 255, 0.18)' }]}
+                style={[styles.modalItem, { borderBottomColor: theme.border }]}
                 onPress={() => {
                   updateSearchParam('regionIds', undefined);
                   setShowRegionModal(false);
                 }}
               >
-                <Text style={[styles.modalItemText, { color: '#1D1D1F' }]}>
-                  Любой регион
+                <Text style={[styles.modalItemText, { color: theme.text }]}>
+                  {i18n.t('search.anyRegion')}
                 </Text>
-                {!searchParams.regionIds?.length && (
-                  <Ionicons name="checkmark" size={20} color={'#0066CC'} />
-                )}
+                {!searchParams.regionIds?.length ? (
+                  <Ionicons name="checkmark" size={20} color={theme.primary} />
+                ) : null}
               </TouchableOpacity>
-
               {regions.map((region) => (
                 <TouchableOpacity
                   key={region.id}
@@ -760,51 +1176,64 @@ export default function ApiTourSearchScreen({ navigation, route }: ApiTourSearch
                     setShowRegionModal(false);
                   }}
                 >
-                  <Text style={[styles.modalItemText, { color: '#1D1D1F' }]}>
-                    {region.name}
-                  </Text>
-                  {searchParams.regionIds?.[0] === region.id && (
-                    <Ionicons name="checkmark" size={20} color={'#0066CC'} />
-                  )}
+                  <Text style={[styles.modalItemText, { color: theme.text }]}>{region.name}</Text>
+                  {searchParams.regionIds?.[0] === region.id ? (
+                    <Ionicons name="checkmark" size={20} color={theme.primary} />
+                  ) : null}
                 </TouchableOpacity>
               ))}
             </ScrollView>
-          </View>
-        </View>
+          </TouchableOpacity>
+        </TouchableOpacity>
       </Modal>
 
       {/* Meal Modal */}
       <Modal
         animationType="slide"
-        transparent={true}
+        transparent
         visible={showMealModal}
         onRequestClose={() => setShowMealModal(false)}
       >
-        <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, { backgroundColor: theme.card }]}>
-            <View style={[styles.modalHeader, { borderBottomColor: 'rgba(255, 255, 255, 0.18)' }]}>
-              <Text style={[styles.modalTitle, { color: '#1D1D1F' }]}>{i18n.t('search.selectMeal')}</Text>
+        <TouchableOpacity
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => setShowMealModal(false)}
+        >
+          <TouchableOpacity
+            activeOpacity={1}
+            onPress={() => {}}
+            style={[
+              styles.modalContent,
+              {
+                backgroundColor: theme.card,
+                maxHeight: windowHeight * 0.78,
+                paddingBottom: Math.max(insets.bottom, 16),
+              },
+            ]}
+          >
+            <View style={[styles.modalHeader, { borderBottomColor: theme.border }]}>
+              <Text style={[styles.modalTitle, { color: theme.text }]}>
+                {i18n.t('search.selectMeal')}
+              </Text>
               <TouchableOpacity onPress={() => setShowMealModal(false)}>
-                <Ionicons name="close" size={24} color={'#1D1D1F'} />
+                <Ionicons name="close" size={24} color={theme.text} />
               </TouchableOpacity>
             </View>
-
-            <ScrollView keyboardShouldPersistTaps="handled">
+            <ScrollView keyboardShouldPersistTaps="handled" style={styles.modalScroll}>
               <TouchableOpacity
-                style={[styles.modalItem, { borderBottomColor: 'rgba(255, 255, 255, 0.18)' }]}
+                style={[styles.modalItem, { borderBottomColor: theme.border }]}
                 onPress={() => {
                   updateSearchParam('meal', undefined);
                   setShowMealModal(false);
                 }}
               >
-                <Text style={[styles.modalItemText, { color: '#1D1D1F' }]}>
-                  Любой тип питания
+                <Text style={[styles.modalItemText, { color: theme.text }]}>
+                  {i18n.t('search.anyMeal')}
                 </Text>
-                {!searchParams.meal && (
-                  <Ionicons name="checkmark" size={20} color={'#0066CC'} />
-                )}
+                {!searchParams.meal ? (
+                  <Ionicons name="checkmark" size={20} color={theme.primary} />
+                ) : null}
               </TouchableOpacity>
-
               {meals.map((meal) => (
                 <TouchableOpacity
                   key={meal.id}
@@ -815,59 +1244,17 @@ export default function ApiTourSearchScreen({ navigation, route }: ApiTourSearch
                     setShowMealModal(false);
                   }}
                 >
-                  <Text style={[styles.modalItemText, { color: '#1D1D1F' }]}>
-                    {meal.name}
+                  <Text style={[styles.modalItemText, { color: theme.text }]}>
+                    {meal.russianName || meal.fullRussianName || meal.name}
                   </Text>
-                  {searchParams.meal === meal.id && (
-                    <Ionicons name="checkmark" size={20} color={'#0066CC'} />
-                  )}
+                  {searchParams.meal === meal.id ? (
+                    <Ionicons name="checkmark" size={20} color={theme.primary} />
+                  ) : null}
                 </TouchableOpacity>
               ))}
             </ScrollView>
-          </View>
-        </View>
-      </Modal>
-
-      {/* Date Modal */}
-      <Modal
-        animationType="slide"
-        transparent={true}
-        visible={showDateModal}
-        onRequestClose={() => setShowDateModal(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, { backgroundColor: theme.card }]}>
-            <View style={[styles.modalHeader, { borderBottomColor: 'rgba(255, 255, 255, 0.18)' }]}>
-              <Text style={[styles.modalTitle, { color: '#1D1D1F' }]}>
-                {i18n.t('search.select')} {dateType === 'dateFrom' ? i18n.t('search.selectDateDeparture') : i18n.t('search.selectDateReturn')}
-              </Text>
-              <TouchableOpacity onPress={() => setShowDateModal(false)}>
-                <Ionicons name="close" size={24} color={'#1D1D1F'} />
-              </TouchableOpacity>
-            </View>
-
-            <ScrollView keyboardShouldPersistTaps="handled">
-              {availableDates.map((date) => (
-                <TouchableOpacity
-                  key={date}
-                  style={[styles.modalItem, { borderBottomColor: theme.border }]}
-                  onPress={() => {
-                    updateSearchParam(dateType === 'dateFrom' ? 'dateFrom' : 'dateTo', date);
-                    setShowDateModal(false);
-                  }}
-                >
-                  <Text style={[styles.modalItemText, { color: '#1D1D1F' }]}>
-                    {formatDate(date)}
-                  </Text>
-                  {((dateType === 'dateFrom' && searchParams.dateFrom === date) ||
-                    (dateType === 'dateTo' && searchParams.dateTo === date)) && (
-                    <Ionicons name="checkmark" size={20} color={'#0066CC'} />
-                  )}
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-          </View>
-        </View>
+          </TouchableOpacity>
+        </TouchableOpacity>
       </Modal>
     </SafeAreaView>
   );
@@ -888,127 +1275,152 @@ const styles = StyleSheet.create({
     marginTop: 12,
     textAlign: 'center',
   },
-  header: {
+  topBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    ...platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.1,
-        shadowRadius: 2,
-      },
-      android: {
-        elevation: 2,
-      },
-    }),
+    justifyContent: 'space-between',
+    paddingHorizontal: spacing.md,
+    paddingTop: spacing.xs,
+    paddingBottom: spacing.sm,
   },
-  backButton: {
+  pageTitle: {
+    ...typography.h2,
+    flex: 1,
+    paddingRight: spacing.sm,
+  },
+  supportBtn: {
     width: 40,
     height: 40,
-    borderRadius: 20,
+    borderRadius: radius.sm,
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 12,
-  },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    flex: 1,
-  },
-  headerSpacer: {
-    width: 40,
+    borderWidth: 1,
   },
   content: {
     flex: 1,
-    padding: 16,
   },
-  section: {
-    marginBottom: 16,
-    padding: 16,
-    borderRadius: 12,
-    ...shadows.card,
+  heroSubtitle: {
+    ...typography.caption,
+    marginBottom: spacing.md,
   },
-  sectionTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    marginBottom: 12,
+  stepHint: {
+    ...typography.body,
+    marginBottom: spacing.md,
   },
-  selector: {
+  chipsScroll: {
+    marginBottom: spacing.sm,
+    maxHeight: 48,
+  },
+  chipsContent: {
+    alignItems: 'center',
+    paddingRight: spacing.md,
+    gap: 4,
+  },
+  summaryChip: {
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 6,
+    borderRadius: radius.full ?? radius.lg,
+    borderWidth: 1,
+    maxWidth: 148,
+    flexShrink: 1,
+  },
+  summaryChipText: {
+    ...typography.captionBold,
+  },
+  chipArrow: {
+    marginHorizontal: 2,
+  },
+  inlineLoading: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: 12,
-    borderWidth: 1,
-    borderRadius: 8,
+    gap: spacing.sm,
+    marginBottom: spacing.sm,
   },
-  childAgeInput: {
-    borderWidth: 1,
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 16,
+  inlineLoadingText: {
+    ...typography.caption,
   },
-  selectorText: {
-    fontSize: 16,
-    flex: 1,
+  stepCard: {
+    borderRadius: radius.xxl,
+    padding: spacing.md,
+    marginBottom: spacing.lg,
   },
-  datesRow: {
-    flexDirection: 'row',
-    gap: 12,
+  stepTitle: {
+    ...typography.h3,
+    marginBottom: spacing.sm,
   },
-  dateSelector: {
-    flex: 1,
-    padding: 12,
-    borderWidth: 1,
-    borderRadius: 8,
-    alignItems: 'center',
+  whenExplain: {
+    ...typography.caption,
+    marginBottom: spacing.sm,
   },
-  dateLabel: {
-    fontSize: 12,
-    marginBottom: 4,
+  whenSelected: {
+    ...typography.bodyBold,
+    marginBottom: spacing.sm,
   },
-  dateText: {
-    fontSize: 14,
+  calendarWrap: {
+    marginBottom: spacing.sm,
   },
-  nightsRow: {
+  pickerRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: 16,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.sm,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    gap: spacing.sm,
   },
-  nightSelector: {
+  pickerIcon: {
     width: 40,
     height: 40,
-    borderWidth: 1,
-    borderRadius: 20,
+    borderRadius: radius.sm,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  nightsText: {
-    fontSize: 16,
-    fontWeight: '600',
-    minWidth: 80,
-    textAlign: 'center',
+  pickerText: {
+    flex: 1,
+    minWidth: 0,
   },
-  nightsHint: {
-    fontSize: 12,
-    marginTop: 4,
-    textAlign: 'center',
+  pickerLabel: {
+    ...typography.small,
+    marginBottom: 2,
   },
-  passengersRow: {
-    gap: 16,
+  pickerValue: {
+    ...typography.bodyBold,
   },
-  passengerItem: {
+  navRow: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    marginTop: spacing.md,
+  },
+  navBtn: {
+    flex: 1,
+  },
+  nightsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+  },
+  nightsChip: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.md,
+    borderWidth: 1.5,
+    minWidth: '30%',
+    alignItems: 'center',
+  },
+  nightsChipText: {
+    ...typography.captionBold,
+  },
+  touristsCard: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    padding: spacing.md,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    marginBottom: spacing.sm,
   },
   passengerLabel: {
-    fontSize: 16,
+    ...typography.body,
   },
   counter: {
     flexDirection: 'row',
@@ -1029,21 +1441,55 @@ const styles = StyleSheet.create({
     minWidth: 20,
     textAlign: 'center',
   },
-  searchButton: {
+  addChildBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    padding: 16,
-    borderRadius: 12,
-    gap: 8,
-    marginTop: 8,
-    marginBottom: 32,
-    ...shadows.button,
+    gap: spacing.xs,
+    paddingVertical: spacing.sm,
+    borderWidth: 1.5,
+    borderRadius: radius.md,
+    borderStyle: 'dashed',
+    marginBottom: spacing.sm,
   },
-  searchButtonText: {
-    color: '#fff',
+  addChildBtnText: {
+    ...typography.captionBold,
+  },
+  childrenList: {
+    marginBottom: spacing.md,
+  },
+  childRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: spacing.sm,
+    marginBottom: spacing.sm,
+    paddingBottom: spacing.sm,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  childAgeInput: {
+    borderWidth: 1,
+    borderRadius: radius.xs,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
     fontSize: 16,
-    fontWeight: '600',
+  },
+  removeChildBtn: {
+    padding: spacing.sm,
+    marginBottom: 2,
+  },
+  optionalTitle: {
+    ...typography.captionBold,
+    marginTop: spacing.sm,
+    marginBottom: spacing.sm,
+  },
+  guestsSummary: {
+    ...typography.caption,
+    marginTop: spacing.md,
+    textAlign: 'center',
+  },
+  findBtn: {
+    marginTop: spacing.sm,
+    alignSelf: 'stretch',
   },
   modalOverlay: {
     flex: 1,
@@ -1051,11 +1497,20 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
   },
   modalContent: {
-    backgroundColor: '#fff',
     borderTopLeftRadius: radius.lg,
     borderTopRightRadius: radius.lg,
-    paddingBottom: 20,
-    maxHeight: '80%',
+    width: '100%',
+  },
+  modalScroll: {
+    flexGrow: 0,
+  },
+  modalLoading: {
+    marginVertical: 28,
+  },
+  modalEmpty: {
+    padding: 20,
+    textAlign: 'center',
+    fontSize: 15,
   },
   modalHeader: {
     flexDirection: 'row',
@@ -1063,7 +1518,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: 16,
     borderBottomWidth: 1,
-    borderColor: '#eee',
   },
   modalTitle: {
     fontSize: 18,
@@ -1075,7 +1529,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: 16,
     borderBottomWidth: 1,
-    borderColor: '#eee',
   },
   modalItemText: {
     fontSize: 16,

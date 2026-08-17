@@ -16,8 +16,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import ScreenContainer from '../config/ScreenContainer';
-import { PrimaryButton } from '../components/ui';
-import { spacing, typography, radius } from '../config/designSystem';
+import { ScreenHeader, StickyTourBar } from '../components/ui';
+import { spacing, typography, radius, shadows, BRAND } from '../config/designSystem';
 import { tourvisorApi } from '../services/TourvisorApiService';
 import { TourOutput, TourFlightsOutput, TourSearchParams } from '../types/tourvisor';
 import { platform } from '../utils/platform';
@@ -30,6 +30,9 @@ import { i18n } from '../config/i18n';
 import { logger } from '../utils/logger';
 import TourReviewsSection from '../components/TourReviewsSection';
 import AuthRequiredCard from '../components/ux/AuthRequiredCard';
+import { navigateRoot, safeGoBack } from '../utils/navHelpers';
+import { formatAdultsRu, formatChildrenRu, formatNightsRu } from '../utils/pluralRu';
+import { isPlausiblePackagePrice } from '../utils/tourPriceSanity';
 
 interface ApiTourDetailsScreenProps {
   navigation: any;
@@ -173,7 +176,7 @@ export default function ApiTourDetailsScreen({ navigation, route }: ApiTourDetai
       if (staleCache && isMountedRef.current) {
         setTour(staleCache);
       } else if (!staleCache && isMountedRef.current) {
-        navigation.goBack();
+        setTour(null);
       }
     } finally {
       if (isMountedRef.current) {
@@ -256,7 +259,14 @@ export default function ApiTourDetailsScreen({ navigation, route }: ApiTourDetai
     return urls;
   }, [tour]);
   
-  // Вспомогательные функции (не хуки) — цены в валюте из настроек
+  // Точные суммы без «от» (сборы / итог в блоке деталей)
+  const formatExactPrice = (price: number, fromCurrency: string) => {
+    const converted = settingsService.convertPrice(price, fromCurrency as Currency, currency);
+    const symbol = settingsService.getCurrencySymbol(currency);
+    return `${converted ? converted.toLocaleString('ru-RU') : '—'} ${symbol}`;
+  };
+
+  // Display-цена тура с «от » — formatTourPrice; в карточках предпочтительнее TourPriceLabel
   const formatPrice = (price: number, fromCurrency: string) =>
     settingsService.formatTourPrice(price, fromCurrency as Currency, currency);
 
@@ -279,7 +289,8 @@ export default function ApiTourDetailsScreen({ navigation, route }: ApiTourDetai
     }
   };
 
-  const formatTime = (timeStr: string) => {
+  const formatTime = (timeStr?: string) => {
+    if (!timeStr) return '—';
     return timeStr.substring(0, 5);
   };
 
@@ -307,15 +318,20 @@ export default function ApiTourDetailsScreen({ navigation, route }: ApiTourDetai
 
     const countryName = tour.hotel?.country?.name;
     const stars = (tour.hotel as any)?.category ?? 0;
-    const chipBg = isDark ? 'rgba(0,102,204,0.18)' : '#EBF4FF';
-    const chipTextColor = theme.primary;
+    const chipBg = isDark ? 'rgba(93,169,164,0.18)' : BRAND.blueSubtle;
+    const chipTextColor = BRAND.blue;
 
     const infoChips = [
       tour.date ? { icon: 'calendar-outline', label: formatDate(tour.date) } : null,
-      tour.nights ? { icon: 'moon-outline', label: `${tour.nights} ${i18n.t('tours.nightsShort')}` } : null,
+      tour.nights ? { icon: 'moon-outline', label: formatNightsRu(tour.nights) } : null,
       (tour.adults > 0) ? {
         icon: 'people-outline',
-        label: `${tour.adults} ${i18n.t('tours.adultsShort')}${tour.childs > 0 ? ` + ${tour.childs} ${i18n.t('tours.childrenShort')}` : ''}`,
+        label: [
+          formatAdultsRu(tour.adults),
+          tour.childs > 0 ? formatChildrenRu(tour.childs) : null,
+        ]
+          .filter(Boolean)
+          .join(' + '),
       } : null,
       tour.meal?.name ? { icon: 'restaurant-outline', label: tour.meal.name } : null,
       tour.roomType ? { icon: 'bed-outline', label: normalizeAreaUnit(tour.roomType) } : null,
@@ -326,14 +342,14 @@ export default function ApiTourDetailsScreen({ navigation, route }: ApiTourDetai
       <View style={[styles.section, { backgroundColor: theme.card }]}>
         {/* Название отеля */}
         <Text style={[styles.tourTitle, { color: theme.text }]} numberOfLines={3}>
-          {tour.hotel.name}
+          {tour.hotel?.name || 'Тур'}
         </Text>
 
         {/* Звёзды */}
         {stars > 0 && (
           <View style={styles.starsRow}>
             {Array.from({ length: 5 }, (_, i) => (
-              <Ionicons key={i} name="star" size={14} color={i < stars ? '#FF6B00' : (isDark ? '#444' : '#DDD')} />
+              <Ionicons key={i} name="star" size={14} color={i < stars ? '#FF6B6B' : (isDark ? '#444' : '#DDD')} />
             ))}
           </View>
         )}
@@ -417,26 +433,51 @@ export default function ApiTourDetailsScreen({ navigation, route }: ApiTourDetai
                   <Text style={[styles.paramValue, { color: theme.text }]}>{normalizeAreaUnit(tour.placement)}</Text>
                 </View>
               )}
-              {tour.hotel.rating > 0 && (
-                <View style={styles.paramBlock}>
+              {(tour.hotel?.rating ?? 0) > 0 && (
+                <TouchableOpacity
+                  style={styles.paramBlock}
+                  onPress={() =>
+                    navigation.navigate('Reviews', {
+                      tourId: String(tour.id),
+                      hotelId: tour.hotel?.id != null ? String(tour.hotel.id) : undefined,
+                      hotelName: tour.hotel?.name,
+                      countryName: tour.hotel?.country?.name,
+                      title: i18n.t('tour.reviewsTitle'),
+                    })
+                  }
+                  activeOpacity={0.7}
+                >
                   <Text style={[styles.paramLabel, { color: theme.tertiaryText }]}>Рейтинг</Text>
-                  <Text style={[styles.paramValue, { color: theme.text }]}>{tour.hotel.rating.toFixed(1)} ★</Text>
-                </View>
+                  <Text style={[styles.paramValue, { color: theme.primary }]}>
+                    {Number(tour.hotel?.rating).toFixed(1)} ★ · отзывы
+                  </Text>
+                </TouchableOpacity>
               )}
               {tour.fuelCharge > 0 && (
                 <View style={styles.paramBlock}>
                   <Text style={[styles.paramLabel, { color: theme.tertiaryText }]}>Топл. сбор</Text>
-                  <Text style={[styles.paramValue, { color: theme.text }]}>{formatPrice(tour.fuelCharge, tour.currency)}</Text>
+                  <Text style={[styles.paramValue, { color: theme.text }]}>{formatExactPrice(tour.fuelCharge, tour.currency)}</Text>
                 </View>
               )}
             </View>
           </View>
         </View>
 
+        {/* Отзывы — до цены и брони, чтобы было видно до sticky-бара */}
+        <View style={[styles.reviewsInline, { borderColor: theme.border }]}>
+          <TourReviewsSection
+            tourId={String(tour.id)}
+            hotelId={tour.hotel?.id}
+            hotelName={tour.hotel?.name}
+            countryName={tour.hotel?.country?.name}
+            navigation={navigation}
+          />
+        </View>
+
         {/* Цена */}
         <View style={[styles.priceBlock, { borderColor: theme.border }]}>
           <Text style={[styles.priceLabelText, { color: theme.secondaryText }]}>Итоговая стоимость</Text>
-          <Text style={[styles.priceValue, { color: theme.primary }]}>
+          <Text style={[styles.priceValue, { color: theme.accent || theme.primary }]}>
             {formatPrice(tour.price, tour.currency)}
           </Text>
         </View>
@@ -486,20 +527,20 @@ export default function ApiTourDetailsScreen({ navigation, route }: ApiTourDetai
                         {direction.number}
                       </Text>
                       <Text style={[styles.airline, { color: theme.secondaryText }]}>
-                        {direction.company.name}
+                        {direction.company?.name || '—'}
                       </Text>
                     </View>
 
                     <View style={styles.flightRoute}>
                       <View style={styles.routePoint}>
                         <Text style={[styles.airportCode, { color: theme.primary }]}>
-                          {direction.departure.port.id}
+                          {direction.departure?.port?.id || '—'}
                         </Text>
                         <Text style={[styles.airportName, { color: theme.text }]}>
-                          {direction.departure.port.name}
+                          {direction.departure?.port?.name || '—'}
                         </Text>
                         <Text style={[styles.time, { color: theme.secondaryText }]}>
-                          {formatTime(direction.departure.time)}
+                          {formatTime(direction.departure?.time)}
                         </Text>
                       </View>
 
@@ -509,13 +550,13 @@ export default function ApiTourDetailsScreen({ navigation, route }: ApiTourDetai
 
                       <View style={styles.routePoint}>
                         <Text style={[styles.airportCode, { color: theme.primary }]}>
-                          {direction.arrival.port.id}
+                          {direction.arrival?.port?.id || '—'}
                         </Text>
                         <Text style={[styles.airportName, { color: theme.text }]}>
-                          {direction.arrival.port.name}
+                          {direction.arrival?.port?.name || '—'}
                         </Text>
                         <Text style={[styles.time, { color: theme.secondaryText }]}>
-                          {formatTime(direction.arrival.time)}
+                          {formatTime(direction.arrival?.time)}
                         </Text>
                       </View>
                     </View>
@@ -549,20 +590,20 @@ export default function ApiTourDetailsScreen({ navigation, route }: ApiTourDetai
                         {direction.number}
                       </Text>
                       <Text style={[styles.airline, { color: theme.secondaryText }]}>
-                        {direction.company.name}
+                        {direction.company?.name || '—'}
                       </Text>
                     </View>
 
                     <View style={styles.flightRoute}>
                       <View style={styles.routePoint}>
                         <Text style={[styles.airportCode, { color: theme.primary }]}>
-                          {direction.departure.port.id}
+                          {direction.departure?.port?.id || '—'}
                         </Text>
                         <Text style={[styles.airportName, { color: theme.text }]}>
-                          {direction.departure.port.name}
+                          {direction.departure?.port?.name || '—'}
                         </Text>
                         <Text style={[styles.time, { color: theme.secondaryText }]}>
-                          {formatTime(direction.departure.time)}
+                          {formatTime(direction.departure?.time)}
                         </Text>
                       </View>
 
@@ -572,13 +613,13 @@ export default function ApiTourDetailsScreen({ navigation, route }: ApiTourDetai
 
                       <View style={styles.routePoint}>
                         <Text style={[styles.airportCode, { color: theme.primary }]}>
-                          {direction.arrival.port.id}
+                          {direction.arrival?.port?.id || '—'}
                         </Text>
                         <Text style={[styles.airportName, { color: theme.text }]}>
-                          {direction.arrival.port.name}
+                          {direction.arrival?.port?.name || '—'}
                         </Text>
                         <Text style={[styles.time, { color: theme.secondaryText }]}>
-                          {formatTime(direction.arrival.time)}
+                          {formatTime(direction.arrival?.time)}
                         </Text>
                       </View>
                     </View>
@@ -607,7 +648,7 @@ export default function ApiTourDetailsScreen({ navigation, route }: ApiTourDetai
               <View key={index} style={styles.surchargeItem}>
                 <Text style={[styles.surchargeName, { color: theme.text }]}>{surcharge.name}</Text>
                 <Text style={[styles.surchargeAmount, { color: theme.primary }]}>
-                  {formatPrice(surcharge.amount, surcharge.currency)}
+                  {formatExactPrice(surcharge.amount, surcharge.currency)}
                 </Text>
               </View>
             ))}
@@ -641,7 +682,7 @@ export default function ApiTourDetailsScreen({ navigation, route }: ApiTourDetai
           </Text>
           <TouchableOpacity
             style={[styles.backButton, { backgroundColor: theme.primary }]}
-            onPress={() => navigation.goBack()}
+            onPress={() => safeGoBack(navigation, 'Search')}
             activeOpacity={0.8}
           >
             <Text style={styles.backButtonText}>Вернуться</Text>
@@ -657,42 +698,60 @@ export default function ApiTourDetailsScreen({ navigation, route }: ApiTourDetai
       setShowAuthCard(true);
       return;
     }
+    if (
+      !isPlausiblePackagePrice(Number(tour.price) || 0, {
+        currency: tour.currency,
+        countryId: tour.hotel?.country?.id,
+        nights: tour.nights,
+      })
+    ) {
+      Alert.alert(
+        'Цена требует проверки',
+        'У этого предложения подозрительно низкая стоимость. Выберите другой тур или уточните у менеджера.',
+      );
+      return;
+    }
     navigation.navigate('TourBooking', { tour, searchParams });
   };
 
-  const stickyBottom = insets.bottom + 16;
+  const stickyPriceRaw = settingsService.convertPrice(
+    tour.price,
+    (tour.currency || 'RUB') as Currency,
+    currency,
+  );
+  const stickyPrice = isPlausiblePackagePrice(Number(tour.price) || 0, {
+    currency: tour.currency,
+    countryId: tour.hotel?.country?.id,
+    nights: tour.nights,
+  })
+    ? stickyPriceRaw
+    : 0;
 
   return (
-    <ScreenContainer>
+    <ScreenContainer edges={['top']}>
 
-      {/* Шапка */}
-      <View style={[styles.header, { backgroundColor: theme.card, borderBottomColor: theme.border }]}>
-        <TouchableOpacity
-          style={styles.headerBackBtn}
-          onPress={() => navigation.goBack()}
-          activeOpacity={0.7}
-        >
-          <Ionicons name="arrow-back" size={22} color={theme.text} />
-        </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: theme.text }]} numberOfLines={1}>
-          Детали тура
-        </Text>
-        <TouchableOpacity
-          style={styles.headerFavorite}
-          onPress={handleFavoritePress}
-          activeOpacity={0.7}
-        >
-          <Ionicons
-            name={isFavorite ? 'heart' : 'heart-outline'}
-            size={24}
-            color={isFavorite ? theme.error : theme.primary}
-          />
-        </TouchableOpacity>
-      </View>
+      <ScreenHeader
+        title="Детали тура"
+        onBack={() => safeGoBack(navigation, 'Search')}
+        noSafeTop
+        right={
+          <TouchableOpacity
+            style={styles.headerFavorite}
+            onPress={handleFavoritePress}
+            activeOpacity={0.7}
+          >
+            <Ionicons
+              name={isFavorite ? 'heart' : 'heart-outline'}
+              size={24}
+              color={isFavorite ? '#FF6B6B' : theme.primary}
+            />
+          </TouchableOpacity>
+        }
+      />
 
       <ScrollView 
         style={styles.content} 
-        contentContainerStyle={[styles.scrollContent, { paddingBottom: stickyBottom + 68 }]}
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: 100 + insets.bottom }]}
         showsVerticalScrollIndicator={false}
       >
         {/* Свайпаемая галерея */}
@@ -737,30 +796,15 @@ export default function ApiTourDetailsScreen({ navigation, route }: ApiTourDetai
         
         {renderTourInfo()}
         {renderFlights()}
-        {tourId ? (
-          <TourReviewsSection
-            tourId={String(tourId)}
-            hotelId={tour?.hotel?.id}
-            hotelName={tour?.hotel?.name}
-            countryName={tour?.hotel?.country?.name}
-            navigation={navigation}
-          />
-        ) : null}
       </ScrollView>
 
-      {/* Sticky кнопка «Забронировать» */}
-      <View style={[styles.stickyFooter, { 
-        backgroundColor: theme.card, 
-        borderTopColor: theme.border,
-        paddingBottom: stickyBottom,
-      }]}>
-        <PrimaryButton
-          title={i18n.t('tours.book')}
-          onPress={handleBookPress}
-          variant="cta"
-          style={styles.bookingButton}
-        />
-      </View>
+      <StickyTourBar
+        price={stickyPrice}
+        currency={currency}
+        priceCaption="цена за тур"
+        buttonTitle={i18n.t('tours.book')}
+        onPress={handleBookPress}
+      />
       <AuthRequiredCard
         visible={showAuthCard}
         title={i18n.t('ux.authRequiredTitle')}
@@ -772,42 +816,22 @@ export default function ApiTourDetailsScreen({ navigation, route }: ApiTourDetai
         onLater={() => setShowAuthCard(false)}
         onLogin={() => {
           setShowAuthCard(false);
-          navigation.navigate('Login');
+          navigateRoot(navigation, 'Login');
         }}
         onRegister={() => {
           setShowAuthCard(false);
-          navigation.navigate('Register');
+          navigateRoot(navigation, 'Register');
         }}
       />
     </ScreenContainer>
   );
 }
 
-const GALLERY_HEIGHT = 240;
+const GALLERY_HEIGHT = 280;
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
 
-  // Шапка
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-  },
-  headerBackBtn: {
-    width: 40,
-    height: 40,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    flex: 1,
-    marginHorizontal: 4,
-  },
   headerFavorite: {
     width: 40,
     height: 40,
@@ -845,26 +869,27 @@ const styles = StyleSheet.create({
 
   // Основная секция тура
   section: {
-    marginHorizontal: 16,
-    marginBottom: 8,
-    padding: 16,
-    borderRadius: 16,
-    ...platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.07,
-        shadowRadius: 10,
-      },
-      android: { elevation: 3 },
-    }),
+    marginHorizontal: spacing.md,
+    marginBottom: spacing.sm,
+    padding: spacing.md,
+    borderRadius: radius.xl,
+    ...shadows.card,
+  },
+  reviewsSection: {
+    paddingTop: spacing.sm,
+  },
+  reviewsInline: {
+    marginTop: spacing.md,
+    paddingTop: spacing.md,
+    borderTopWidth: StyleSheet.hairlineWidth,
   },
 
   tourTitle: {
     fontSize: 22,
-    fontWeight: '700',
+    fontWeight: '800',
     lineHeight: 28,
     marginBottom: 8,
+    letterSpacing: -0.3,
   },
 
   starsRow: {
@@ -899,6 +924,7 @@ const styles = StyleSheet.create({
     paddingVertical: 7,
     borderRadius: 20,
     gap: 6,
+    flexShrink: 0,
   },
   chipIcon: {
     fontSize: 14,
@@ -906,6 +932,7 @@ const styles = StyleSheet.create({
   chipLabel: {
     fontSize: 13,
     fontWeight: '600',
+    flexShrink: 0,
   },
 
   // Бейджи
@@ -982,16 +1009,12 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   priceValue: {
-    fontSize: 26,
-    fontWeight: '700',
+    fontSize: 28,
+    fontWeight: '800',
+    letterSpacing: -0.4,
   },
 
-  // Sticky footer
-  stickyFooter: {
-    paddingHorizontal: 16,
-    paddingTop: 12,
-    borderTopWidth: 1,
-  },
+  // Sticky footer (legacy styles removed — StickyTourBar)
   bookingButton: {
     width: '100%',
   },

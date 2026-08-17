@@ -1,5 +1,5 @@
 /**
- * Изображение с кэшированием (expo-image), плейсхолдером и индикатором загрузки.
+ * Изображение с кэшированием (expo-image), плейсхолдером и fallback при ошибке.
  */
 
 import React from 'react';
@@ -11,6 +11,7 @@ import {
   StyleProp,
 } from 'react-native';
 import { Image } from 'expo-image';
+import { DEFAULT_HOTEL_IMAGE } from '../../constants/images';
 
 type CachedImageProps = {
   source: string | { uri: string };
@@ -20,6 +21,8 @@ type CachedImageProps = {
   transition?: number;
   /** Для списков: стабильный ключ кэша ячейки (expo-image) */
   recyclingKey?: string;
+  /** Картинка при ошибке загрузки (по умолчанию DEFAULT_HOTEL_IMAGE) */
+  fallbackUri?: string;
 };
 
 export default function CachedImage({
@@ -29,13 +32,18 @@ export default function CachedImage({
   placeholder,
   transition = 250,
   recyclingKey,
+  fallbackUri = DEFAULT_HOTEL_IMAGE,
 }: CachedImageProps) {
-  const uri = typeof source === 'string' ? source : source?.uri || '';
-  const [loading, setLoading] = React.useState(!!uri);
+  const primary = typeof source === 'string' ? source : source?.uri || '';
+  const [uri, setUri] = React.useState(primary);
+  const [loading, setLoading] = React.useState(!!primary);
+  const failedRef = React.useRef(false);
 
   React.useEffect(() => {
-    setLoading(!!uri);
-  }, [uri]);
+    failedRef.current = false;
+    setUri(primary);
+    setLoading(!!primary);
+  }, [primary]);
 
   return (
     <View style={[styles.wrapper, style]}>
@@ -48,12 +56,32 @@ export default function CachedImage({
           cachePolicy="memory-disk"
           recyclingKey={recyclingKey ?? uri}
           onLoad={() => setLoading(false)}
-          onError={() => setLoading(false)}
+          onError={() => {
+            setLoading(false);
+            if (!failedRef.current && fallbackUri && uri !== fallbackUri) {
+              failedRef.current = true;
+              setUri(fallbackUri);
+              setLoading(true);
+            }
+          }}
         />
       ) : null}
       {loading && uri ? (
-        <View style={[StyleSheet.absoluteFill, styles.overlay]} pointerEvents="none">
-          {placeholder || <ActivityIndicator size="small" color="#9CA3AF" />}
+        <View
+          style={[StyleSheet.absoluteFill, styles.overlay]}
+          pointerEvents="none"
+          accessible={false}
+          accessibilityElementsHidden
+          importantForAccessibility="no-hide-descendants"
+        >
+          {placeholder || (
+            <ActivityIndicator
+              size="small"
+              color="#9CA3AF"
+              accessible={false}
+              importantForAccessibility="no"
+            />
+          )}
         </View>
       ) : null}
     </View>

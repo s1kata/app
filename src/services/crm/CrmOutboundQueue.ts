@@ -194,24 +194,34 @@ class CrmOutboundQueue {
         );
       }
 
-      if (crm.success && crm.data?.id) {
-        try {
-          const { firestoreBookingId } = await this.persistHandler(p, String(crm.data.id), task.idempotencyKey);
-          this.tasks = this.tasks.filter((t) => t.id !== task.id);
-          await saveQueueToStorage(this.tasks);
-          logger.info(`[CrmQueue] task ${task.id} → CRM OK, Firestore ${firestoreBookingId}`);
-          return { ok: true, firestoreBookingId };
-        } catch (e: any) {
-          task.lastError = e?.message || 'Firestore error';
-          task.retries += 1;
-          task.status = 'pending';
-          task.updatedAt = Date.now();
-          await saveQueueToStorage(this.tasks);
-          logger.error('[CrmQueue] persist after CRM failed:', e);
-          const delay = BASE_BACKOFF_MS * Math.pow(2, task.retries - 1);
-          await new Promise((r) => setTimeout(r, delay));
-          continue;
+      if (crm.success) {
+        const crmId = String(
+          crm.data?.id || crm.data?.requestId || crm.data?.bookingNumber || '',
+        ).trim();
+        if (crmId) {
+          try {
+            const { firestoreBookingId } = await this.persistHandler(p, crmId, task.idempotencyKey);
+            this.tasks = this.tasks.filter((t) => t.id !== task.id);
+            await saveQueueToStorage(this.tasks);
+            logger.info(`[CrmQueue] task ${task.id} → CRM OK, local ${firestoreBookingId}`);
+            return { ok: true, firestoreBookingId };
+          } catch (e: any) {
+            task.lastError = e?.message || 'Persist error';
+            task.retries += 1;
+            task.status = 'pending';
+            task.updatedAt = Date.now();
+            await saveQueueToStorage(this.tasks);
+            logger.error('[CrmQueue] persist after CRM failed:', e);
+            const delay = BASE_BACKOFF_MS * Math.pow(2, task.retries - 1);
+            await new Promise((r) => setTimeout(r, delay));
+            continue;
+          }
         }
+        // CRM сказал success, но без id — считаем ошибкой, иначе «тихий» фейл
+        crm = {
+          success: false,
+          error: 'CRM не вернул id обращения',
+        };
       }
 
       const errMsg = crm.error || 'Ошибка CRM';

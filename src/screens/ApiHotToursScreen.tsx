@@ -9,7 +9,6 @@ import {
   ActivityIndicator,
   StatusBar,
   ScrollView,
-  Linking,
   Modal,
   TextInput,
   Pressable,
@@ -23,7 +22,7 @@ import { dictionaryService } from '../services/DictionaryService';
 import { tourvisorApi } from '../services/TourvisorApiService';
 import { TourHotel, Country, Departure, HotToursParams, TourHot } from '../types/tourvisor';
 import { platform } from '../utils/platform';
-import { preCacheTourDetailsFromSearchResults, cacheTourFromSearchResult, tourHotsToTourHotels } from '../utils/tourDetailsCache';
+import { preCacheTourDetailsFromSearchResults, cacheTourFromSearchResult, tourHotsToTourHotels, buildTourOutputFromSearchResult } from '../utils/tourDetailsCache';
 import { FavoritesService } from '../services/FavoritesService';
 import AuthRequiredCard from '../components/ux/AuthRequiredCard';
 import { cacheService, CacheType } from '../services/CacheService';
@@ -33,9 +32,19 @@ import { notificationService } from '../services/NotificationService';
 import { i18n } from '../config/i18n';
 import { logger } from '../utils/logger';
 import CachedImage from '../components/ui/CachedImage';
+import ScreenHeader from '../components/ui/ScreenHeader';
+import FilterChip from '../components/ui/FilterChip';
+import TourPriceLabel from '../components/ui/TourPriceLabel';
+import {
+  isPlausibleHotItem,
+  pickSaneCheapestTour,
+  saneMinTourPrice,
+} from '../utils/tourPriceSanity';
 import { DEFAULT_HOTEL_IMAGE } from '../constants/images';
 import { LinearGradient } from 'expo-linear-gradient';
 import { fetchHotToursViaBackend } from '../services/sync/NextPatchBackendClient';
+import { radius, shadows, spacing } from '../config/designSystem';
+import { navigateRoot } from '../utils/navHelpers';
 
 const DEPARTURE_PREF_KEY = 'user_preferred_departure_id';
 
@@ -158,7 +167,7 @@ export default function ApiHotToursScreen({ navigation, route }: ApiHotToursScre
       }
     } else {
       // Если countryId не передан, загружаем как обычно (для всех стран или выбранных)
-      if (apiReady && selectedDeparture && !hasFailedOnce) {
+      if (apiReady && selectedDeparture) {
         setHasFailedOnce(false);
         loadHotTours();
       }
@@ -219,7 +228,6 @@ export default function ApiHotToursScreen({ navigation, route }: ApiHotToursScre
 
   const loadHotTours = async () => {
     if (!selectedDeparture) return;
-    if (hasFailedOnce) return;
     if (isLoading) return;
 
     try {
@@ -259,9 +267,8 @@ export default function ApiHotToursScreen({ navigation, route }: ApiHotToursScre
         }
       }
 
-      const uniqueHotels = tourHotsToTourHotels(hots);
+      const uniqueHotels = tourHotsToTourHotels(hots.filter(isPlausibleHotItem));
       if (uniqueHotels.length === 0) {
-        setHasFailedOnce(true);
         logger.warn('[HotTours] No tours found');
       }
 
@@ -350,12 +357,6 @@ export default function ApiHotToursScreen({ navigation, route }: ApiHotToursScre
     [isGuest, user, navigation]
   );
 
-  const formatPrice = useCallback(
-    (price: number, fromCurrency: string = 'RUB') =>
-      settingsService.formatTourPrice(price, fromCurrency as Currency, currency),
-    [currency]
-  );
-
   const formatDate = useCallback((dateStr: string) => {
     const date = new Date(dateStr);
     return date.toLocaleDateString('ru-RU', {
@@ -365,31 +366,77 @@ export default function ApiHotToursScreen({ navigation, route }: ApiHotToursScre
     });
   }, []);
 
-  /** Маршрута Search/Map в приложении нет — открываем координаты первого отеля в картографическом приложении. */
+  /** Маршрут ToursMap — пины всех отелей с координатами. */
   const openHotToursMap = useCallback(() => {
     if (hotTours.length === 0) return;
-    const h = hotTours[0];
-    const lat = typeof h.latitude === 'number' ? h.latitude : null;
-    const lng = typeof h.longitude === 'number' ? h.longitude : null;
-    if (lat == null || lng == null) {
-      Alert.alert(i18n.t('common.error'), 'Нет координат для отображения на карте.');
+    const pins = hotTours
+      .map((h) => {
+        const lat = typeof h.latitude === 'number' ? h.latitude : null;
+        const lng = typeof h.longitude === 'number' ? h.longitude : null;
+        if (lat == null || lng == null) return null;
+        const firstTour = h.tours?.[0];
+        const minPrice =
+          h.tours && h.tours.length > 0
+            ? saneMinTourPrice(
+                h.tours.map((t) => ({
+                  price: t.price,
+                  currency: t.currency,
+                  nights: t.nights,
+                  country: h.country,
+                })),
+                h.country?.id,
+              ) || undefined
+            : Number(h.price) || undefined;
+        return {
+          id: String(h.id),
+          lat,
+          lng,
+          title: h.name || h.region?.name || '',
+          price: Number(minPrice) || undefined,
+          tourId: firstTour?.id ? String(firstTour.id) : undefined,
+        };
+      })
+      .filter(Boolean) as Array<{
+      id: string;
+      lat: number;
+      lng: number;
+      title: string;
+      price?: number;
+      tourId?: string;
+    }>;
+    if (!pins.length) {
+      Alert.alert(i18n.t('common.error'), i18n.t('map.noCoords'));
       return;
     }
-    const url = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(String(lat))},${encodeURIComponent(String(lng))}`;
-    Linking.openURL(url).catch(() => {
-      Alert.alert(i18n.t('common.error'), 'Не удалось открыть карту.');
+    navigation.navigate('ToursMap', {
+      title: i18n.t('hotTours.onMap'),
+      pins,
     });
-  }, [hotTours]);
+  }, [hotTours, navigation]);
 
   const renderHotTourItem = useCallback(({ item }: { item: TourHotel }) => {
-    // TourHotel содержит массив туров, берем первый тур для отображения или минимальную цену
-    const firstTour = item.tours && item.tours.length > 0 ? item.tours[0] : null;
-    const minPrice = item.tours && item.tours.length > 0 
-      ? Math.min(...item.tours.map(t => t.price))
-      : item.price;
+    // TourHotel содержит массив туров — берём правдоподобно дешёвый, не сырой min (мусор API)
+    const firstTour =
+      pickSaneCheapestTour(
+        (item.tours || []).map((t) => ({
+          ...t,
+          country: item.country,
+        })),
+        item.country?.id,
+      ) || (item.tours && item.tours.length > 0 ? item.tours[0] : null);
+    const minPrice =
+      saneMinTourPrice(
+        (item.tours || []).map((t) => ({
+          price: t.price,
+          currency: t.currency,
+          nights: t.nights,
+          country: item.country,
+        })),
+        item.country?.id,
+      ) || item.price;
 
-    if (!firstTour) {
-      return null; // Пропускаем отели без туров
+    if (!firstTour || !(Number(minPrice) > 0)) {
+      return null; // Пропускаем отели без туров / с битой ценой
     }
 
     return (
@@ -484,11 +531,16 @@ export default function ApiHotToursScreen({ navigation, route }: ApiHotToursScre
           </View>
 
           <View style={styles.priceSection}>
-            <View style={styles.priceContainer}>
-              <Text style={[styles.currentPrice, { color: theme.primary }]}>
-                {i18n.t('hotTours.from')} {formatPrice(minPrice, firstTour.currency || 'RUB')}
-              </Text>
-            </View>
+            <TourPriceLabel
+              amount={settingsService.convertPrice(
+                minPrice,
+                (firstTour.currency || 'RUB') as Currency,
+                currency,
+              )}
+              currencySymbol={settingsService.getCurrencySymbol(currency)}
+              caption="за тур"
+              accent
+            />
           </View>
         </View>
       </TouchableOpacity>
@@ -496,7 +548,7 @@ export default function ApiHotToursScreen({ navigation, route }: ApiHotToursScre
   }, [
     favoriteIds,
     formatDate,
-    formatPrice,
+    currency,
     handleFavoritePress,
     navigation,
     theme,
@@ -518,25 +570,12 @@ export default function ApiHotToursScreen({ navigation, route }: ApiHotToursScre
         {countries.slice(0, 10).map(country => {
           const isSelected = selectedCountries.some(c => c.id === country.id);
           return (
-            <TouchableOpacity
+            <FilterChip
               key={country.id}
-              style={[
-                styles.countryChip,
-                {
-                  backgroundColor: isSelected ? theme.primary : theme.secondaryBackground,
-                  borderColor: theme.border
-                }
-              ]}
+              label={country.name}
+              active={isSelected}
               onPress={() => toggleCountryFilter(country)}
-              activeOpacity={0.7}
-            >
-              <Text style={[
-                styles.countryChipText,
-                { color: isSelected ? theme.surface : theme.text }
-              ]}>
-                {country.name}
-              </Text>
-            </TouchableOpacity>
+            />
           );
         })}
       </ScrollView>
@@ -567,40 +606,35 @@ export default function ApiHotToursScreen({ navigation, route }: ApiHotToursScre
         backgroundColor={theme.card}
       />
 
-      {/* Header */}
-      <View style={[styles.header, { backgroundColor: theme.card, borderBottomColor: theme.border }]}>
-        <TouchableOpacity
-          onPress={() => navigation.goBack()}
-          style={styles.backButton}
-        >
-          <Ionicons name="arrow-back" size={24} color={theme.text} />
-        </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: theme.text }]} numberOfLines={1}>
-          {route?.params?.countryName ? `${i18n.t('hotTours.titleCountry')} ${route.params.countryName}` : i18n.t('hotTours.title')}
-        </Text>
-        <View style={styles.headerRight}>
-          {hotTours.length > 0 && (
+      <ScreenHeader
+        title={route?.params?.countryName ? `${i18n.t('hotTours.titleCountry')} ${route.params.countryName}` : i18n.t('hotTours.title')}
+        onBack={() => navigation.goBack()}
+        noSafeTop
+        right={
+          <View style={styles.headerRight}>
+            {hotTours.length > 0 && (
+              <TouchableOpacity
+                style={styles.mapButton}
+                onPress={openHotToursMap}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="map" size={22} color={theme.primary} />
+              </TouchableOpacity>
+            )}
             <TouchableOpacity
-              style={styles.mapButton}
-              onPress={openHotToursMap}
+              style={styles.filterButton}
+              onPress={() => setShowFilters(!showFilters)}
               activeOpacity={0.7}
             >
-              <Ionicons name="map" size={22} color={theme.primary} />
+              <Ionicons
+                name="filter"
+                size={22}
+                color={showFilters ? theme.primary : theme.text}
+              />
             </TouchableOpacity>
-          )}
-          <TouchableOpacity
-            style={styles.filterButton}
-            onPress={() => setShowFilters(!showFilters)}
-            activeOpacity={0.7}
-          >
-            <Ionicons
-              name="filter"
-              size={22}
-              color={showFilters ? theme.primary : theme.text}
-            />
-          </TouchableOpacity>
-        </View>
-      </View>
+          </View>
+        }
+      />
 
       {/* Departure Selector */}
       <View style={[styles.departureSelector, { backgroundColor: theme.card }]}>
@@ -741,11 +775,11 @@ export default function ApiHotToursScreen({ navigation, route }: ApiHotToursScre
         onLater={() => setShowAuthCard(false)}
         onLogin={() => {
           setShowAuthCard(false);
-          navigation.navigate('Login');
+          navigateRoot(navigation, 'Login');
         }}
         onRegister={() => {
           setShowAuthCard(false);
-          navigation.navigate('Register');
+          navigateRoot(navigation, 'Register');
         }}
       />
     </SafeAreaView>
@@ -946,7 +980,7 @@ const styles = StyleSheet.create({
   mapButtonText: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#0066CC',
+    color: '#5DA9A4',
   },
   toursList: {
     padding: 16,
@@ -969,8 +1003,9 @@ const styles = StyleSheet.create({
   },
   cardImageWrap: {
     width: '100%',
-    height: 160,
+    aspectRatio: 16 / 10,
     position: 'relative',
+    backgroundColor: '#E8EEF5',
   },
   cardImage: {
     width: '100%',
@@ -1070,8 +1105,14 @@ const styles = StyleSheet.create({
     textDecorationLine: 'line-through',
   },
   currentPrice: {
-    fontSize: 18,
-    fontWeight: '700',
+    fontSize: 22,
+    fontWeight: '800',
+    letterSpacing: -0.3,
+  },
+  priceFromLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    marginBottom: 2,
   },
   discountBadge: {
     paddingHorizontal: 8,

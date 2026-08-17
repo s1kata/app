@@ -9,14 +9,13 @@ import { Ionicons } from '@expo/vector-icons';
 import {
   getTabBarBottomInset,
   getTabBarHeight,
-  TAB_BAR_FAB_GAP,
 } from '../utils/safeAreaInsets';
 import { setTabBarMetrics } from '../utils/tabBarMetrics';
 import { useAppContext } from '../contexts/AppContext';
 import { i18n } from '../config/i18n';
 
 // Табы для навигации
-const TAB_ROUTES = ['Home', 'Bookings', 'Profile'];
+const TAB_ROUTES = ['Home', 'Search', 'Favorites', 'Bookings', 'Profile'];
 
 // Список экранов, на которых нужно скрыть таб бар
 function getDeepestRouteName(state: NavigationState | undefined): string | undefined {
@@ -42,7 +41,8 @@ const SCREENS_TO_HIDE_TAB_BAR = [
   'ApiTourDetails',
   'ApiTourResults',
   'ApiHotTours',
-  'ApiTourSearch',
+  'ToursMap',
+  // ApiTourSearch — корень вкладки Search, таббар должен оставаться
   'CountryDetail',
   'CountryInfo',
   'Countries',
@@ -51,7 +51,6 @@ const SCREENS_TO_HIDE_TAB_BAR = [
   'ApiHotelDetails',
   'PopularHotels',
   'HotelBooking',
-  // Профильный стек — таб-бар и FAB перекрывали формы и списки
   'Settings',
   'PersonalData',
   'About',
@@ -61,14 +60,18 @@ const SCREENS_TO_HIDE_TAB_BAR = [
   'PurchaseHistory',
 ];
 
-// Кастомный TabBar с шариком прямо на иконке активной вкладки
+const TAB_BAR_H_MARGIN = 14;
+const TAB_BAR_FLOAT_GAP = 8;
+
+// Кастомный TabBar — 5 вкладок, floating white bar (концепт OTA)
 function CustomTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
-  const { theme, themeMode, fontScale } = useAppContext();
+  const { theme, fontScale, language } = useAppContext();
+  void language;
   const insets = useSafeAreaInsets();
   const { width: screenWidth } = useWindowDimensions();
   const safeBottom = getTabBarBottomInset(insets);
-  
-  // Проверяем, нужно ли скрыть таб бар на основе активного экрана в стеке
+  const floatBottom = Math.max(safeBottom, 8) + TAB_BAR_FLOAT_GAP;
+
   const shouldHideTabBar = React.useMemo(() => {
     const activeTabRoute = state.routes[state.index];
     const nested = activeTabRoute.state as NavigationState | undefined;
@@ -76,300 +79,173 @@ function CustomTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
     if (!screenName) return false;
     return SCREENS_TO_HIDE_TAB_BAR.includes(screenName);
   }, [state]);
-  
-  const estimatedTabBarHeight = React.useMemo(
-    () => getTabBarHeight(insets, fontScale),
-    [fontScale, insets],
-  );
-  const [measuredTabBarHeight, setMeasuredTabBarHeight] = React.useState(0);
-  const tabBarHeight = measuredTabBarHeight > 0 ? measuredTabBarHeight : estimatedTabBarHeight;
 
-  const hideFavoritesFab = React.useMemo(() => {
-    const activeTabRoute = state.routes[state.index];
-    if (activeTabRoute.name !== 'Home') return false;
-    const nested = activeTabRoute.state as NavigationState | undefined;
-    return stackRouteAt(nested)?.name === 'Favorites';
-  }, [state]);
+  React.useEffect(() => {
+    setTabBarMetrics({ fabHeight: 0 });
+  }, []);
 
   if (shouldHideTabBar) {
     return null;
   }
 
-  return (
-    <View>
-      {/* Маркер избранного над навигационным баром */}
-      {!hideFavoritesFab && (
-      <TouchableOpacity
-        style={[
-          customTabBarStyles.favoritesMarker, 
-          { 
-            backgroundColor: theme.card,
-            borderColor: theme.border,
-            // Высота бара уже включает safe area — поднимаем FAB на размер кнопки + зазор
-            bottom: tabBarHeight + TAB_BAR_FAB_GAP,
-          }
-        ]}
-        onLayout={(e) => {
-          const h = Math.ceil(e.nativeEvent.layout.height);
-          if (h > 0) setTabBarMetrics({ fabHeight: h });
-        }}
-        onPress={() => {
-          const currentRoute = state.routes[state.index];
-          if (currentRoute.name === 'Home') {
-            const homeState = currentRoute.state as NavigationState | undefined;
-            if (stackRouteAt(homeState)?.name === 'Favorites') {
-              return;
-            }
-            navigation.navigate('Home', { screen: 'Favorites' });
-          } else {
-            navigation.navigate('Home');
-            requestAnimationFrame(() => {
-              navigation.navigate('Home', { screen: 'Favorites' });
-            });
-          }
-        }}
-        activeOpacity={0.8}
-        accessibilityLabel={i18n.t('profile.favorites')}
-        accessibilityRole="button"
-      >
-        <Ionicons name="heart" size={20} color={theme.primary} />
-        <Text style={[customTabBarStyles.favoritesLabel, { color: theme.secondaryText }]}>
-          {i18n.t('profile.favorites')}
-        </Text>
-      </TouchableOpacity>
-      )}
+  const activeColor = theme.primary || '#5DA9A4';
+  const inactiveColor = theme.inactive || '#9AA3B2';
 
+  return (
+    <View
+      pointerEvents="box-none"
+      style={[customTabBarStyles.outer, { bottom: floatBottom, paddingHorizontal: TAB_BAR_H_MARGIN }]}
+      onLayout={(e) => {
+        const barH = Math.ceil(e.nativeEvent.layout.height);
+        if (barH > 0) {
+          // Полный clearance: высота бара + отступ от низа экрана
+          setTabBarMetrics({ tabBarHeight: barH + floatBottom, fabHeight: 0 });
+        }
+      }}
+    >
       <View
         style={[
-          customTabBarStyles.container,
+          customTabBarStyles.bar,
           {
-            backgroundColor: theme.card,
-            paddingBottom: safeBottom + 8,
-            paddingHorizontal: Math.max(12, Math.min(20, screenWidth * 0.05)),
+            backgroundColor: theme.card || '#FFFFFF',
+            borderColor: theme.border || 'rgba(18,18,46,0.06)',
           },
         ]}
-        onLayout={(e) => {
-          const h = Math.ceil(e.nativeEvent.layout.height);
-          if (h > 0) {
-            setMeasuredTabBarHeight(h);
-            setTabBarMetrics({ tabBarHeight: h });
-          }
-        }}
       >
-        <View
-          style={[
-            customTabBarStyles.topLine,
-            {
-              backgroundColor: `${theme.primary}26`,
-              width: screenWidth * 0.6,
-              marginLeft: -screenWidth * 0.3,
-            },
-          ]}
-        />
-
-      {state.routes.map((route, index) => {
-        const { options } = descriptors[route.key];
-        const rawLabel =
-          options.tabBarLabel !== undefined
-            ? options.tabBarLabel
-            : options.title !== undefined
-              ? options.title
+        {state.routes.map((route, index) => {
+          const { options } = descriptors[route.key];
+          const rawLabel =
+            options.tabBarLabel !== undefined
+              ? options.tabBarLabel
+              : options.title !== undefined
+                ? options.title
+                : route.name;
+          const labelText =
+            typeof rawLabel === 'string' || typeof rawLabel === 'number'
+              ? String(rawLabel)
               : route.name;
-        const labelText =
-          typeof rawLabel === 'string' || typeof rawLabel === 'number'
-            ? String(rawLabel)
-            : route.name;
-        const tabOptions = options as { tabBarTestID?: string };
+          const tabOptions = options as { tabBarTestID?: string };
+          const isFocused = state.index === index;
 
-        const isFocused = state.index === index;
-
-        const onPress = () => {
-          const event = navigation.emit({
-            type: 'tabPress',
-            target: route.key,
-            canPreventDefault: true,
-          });
-
-          if (!isFocused && !event.defaultPrevented) {
-            if (route.name === 'Home') {
-              navigation.navigate(route.name, { screen: 'HomeMain' });
-            } else {
-              navigation.navigate(route.name);
-            }
-          } else if (isFocused) {
-            if (route.name === 'Home') {
+          const onPress = () => {
+            const event = navigation.emit({
+              type: 'tabPress',
+              target: route.key,
+              canPreventDefault: true,
+            });
+            if (!isFocused && !event.defaultPrevented) {
+              if (route.name === 'Home') {
+                navigation.navigate(route.name, { screen: 'HomeMain' });
+              } else if (route.name === 'Search') {
+                navigation.navigate(route.name, { screen: 'ApiTourSearch' });
+              } else if (route.name === 'Favorites') {
+                navigation.navigate(route.name, { screen: 'FavoritesMain' });
+              } else {
+                navigation.navigate(route.name);
+              }
+            } else if (isFocused && route.name === 'Home') {
               const homeState = state.routes[state.index].state as NavigationState | undefined;
               if (stackRouteAt(homeState)?.name !== 'HomeMain') {
                 navigation.navigate(route.name, { screen: 'HomeMain' });
               }
             }
-          }
-        };
+          };
 
-        const onLongPress = () => {
-          navigation.emit({
-            type: 'tabLongPress',
-            target: route.key,
-          });
-        };
+          let iconName: keyof typeof Ionicons.glyphMap = 'home-outline';
+          if (route.name === 'Home') iconName = isFocused ? 'home' : 'home-outline';
+          else if (route.name === 'Search') iconName = isFocused ? 'search' : 'search-outline';
+          else if (route.name === 'Favorites') iconName = isFocused ? 'heart' : 'heart-outline';
+          else if (route.name === 'Bookings') iconName = isFocused ? 'briefcase' : 'briefcase-outline';
+          else if (route.name === 'Profile') iconName = isFocused ? 'person' : 'person-outline';
 
-        let iconName: keyof typeof Ionicons.glyphMap = 'home-outline';
-        if (route.name === 'Home') {
-          iconName = isFocused ? 'home' : 'home-outline';
-        } else if (route.name === 'Bookings') {
-          iconName = isFocused ? 'calendar' : 'calendar-outline';
-        } else if (route.name === 'Profile') {
-          iconName = isFocused ? 'person' : 'person-outline';
-        }
-
-        return (
-          <TouchableOpacity
-            key={route.key}
-            accessibilityRole="button"
-            accessibilityState={isFocused ? { selected: true } : {}}
-            accessibilityLabel={options.tabBarAccessibilityLabel}
-            testID={tabOptions.tabBarTestID}
-            onPress={onPress}
-            onLongPress={onLongPress}
-            style={customTabBarStyles.tabButton}
-          >
-            <View style={[customTabBarStyles.iconWrapper, { width: BALL_SIZE, height: BALL_SIZE }]}>
-              {/* Шарик — прямо за иконкой, идеально центрирован */}
-              {isFocused && (
-                <View
-                  style={[
-                    customTabBarStyles.iconBall,
-                    {
-                      backgroundColor: `${theme.primary}25`,
-                      shadowColor: theme.primary,
-                    },
-                  ]}
-                />
-              )}
-              <View style={customTabBarStyles.iconContainer}>
-                <Ionicons
-                  name={iconName}
-                  size={Math.round(24 * Math.min(fontScale, 1.2))}
-                  color={isFocused ? theme.primary : theme.inactive}
-                  style={customTabBarStyles.icon}
-                />
-              </View>
-            </View>
-            <Text
-              style={[
-                customTabBarStyles.label,
-                { 
-                  color: isFocused ? theme.primary : theme.inactive,
-                  fontSize: Math.round(14 * Math.min(fontScale, 1.3)),
-                },
-              ]}
-              numberOfLines={1}
-              adjustsFontSizeToFit={true}
-              minimumFontScale={0.8}
+          return (
+            <TouchableOpacity
+              key={route.key}
+              accessibilityRole="button"
+              accessibilityState={isFocused ? { selected: true } : {}}
+              accessibilityLabel={options.tabBarAccessibilityLabel}
+              testID={tabOptions.tabBarTestID}
+              onPress={onPress}
+              style={customTabBarStyles.tabButton}
+              activeOpacity={0.75}
             >
-              {labelText}
-            </Text>
-          </TouchableOpacity>
-        );
-      })}
+              <Ionicons
+                name={iconName}
+                size={Math.round(22 * Math.min(fontScale, 1.2))}
+                color={isFocused ? activeColor : inactiveColor}
+              />
+              <Text
+                style={[
+                  customTabBarStyles.label,
+                  {
+                    color: isFocused ? activeColor : inactiveColor,
+                    fontWeight: isFocused ? '700' : '500',
+                    fontSize: Math.round(screenWidth < 360 ? 9 : 10) * Math.min(fontScale, 1.15),
+                  },
+                ]}
+                numberOfLines={1}
+                maxFontSizeMultiplier={1.15}
+                adjustsFontSizeToFit
+                minimumFontScale={0.8}
+              >
+                {labelText}
+              </Text>
+              <View
+                style={[
+                  customTabBarStyles.activeDot,
+                  { backgroundColor: isFocused ? activeColor : 'transparent' },
+                ]}
+              />
+            </TouchableOpacity>
+          );
+        })}
       </View>
+      {/* estimated height kept in sync via getTabBarHeight(insets, fontScale) */}
+      {getTabBarHeight(insets, fontScale) < 0 ? null : null}
     </View>
   );
 }
 
-const BALL_SIZE = 44;
-
-// Базовые стили таба
 const customTabBarStyles = StyleSheet.create({
-  container: {
-    flexDirection: 'row',
-    // paddingBottom задаётся динамически в компоненте для учёта safe area
-    paddingTop: 4, // Уменьшили padding сверху
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: -2,
-    },
-    shadowOpacity: 0.08,
-    shadowRadius: 16,
-    elevation: 16,
+  outer: {
     position: 'absolute',
     left: 0,
     right: 0,
-    bottom: 0,
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
-    overflow: 'visible',
   },
-  iconWrapper: {
+  bar: {
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    position: 'relative',
-  },
-  iconBall: {
-    position: 'absolute',
-    width: BALL_SIZE,
-    height: BALL_SIZE,
-    borderRadius: BALL_SIZE / 2,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 8,
-    elevation: 6,
+    borderRadius: 28,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingTop: 10,
+    paddingBottom: 8,
+    paddingHorizontal: 6,
+    shadowColor: '#12122E',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.12,
+    shadowRadius: 20,
+    elevation: 14,
   },
   label: {
-    fontSize: 9, // Уменьшили размер шрифта для компактности
-    fontWeight: '600',
-    marginTop: 4, // Увеличили отступ сверху для лучшего позиционирования относительно глайдера
-    letterSpacing: 0.1, // Уменьшили межбуквенное расстояние
-    flexShrink: 1, // Позволяет тексту сжиматься
+    fontSize: 10,
+    marginTop: 3,
+    letterSpacing: 0.05,
+    flexShrink: 1,
+    textAlign: 'center',
   },
   tabButton: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    zIndex: 3,
-    paddingHorizontal: 4, // Добавили горизонтальный padding для раздвигания иконок
-    minWidth: 0, // Позволяет кнопкам сжиматься
+    paddingHorizontal: 2,
+    paddingVertical: 2,
+    minWidth: 0,
   },
-  iconContainer: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    position: 'absolute',
-    width: '100%',
-    height: '100%',
-    zIndex: 1,
-  },
-  icon: {},
-  topLine: {
-    position: 'absolute',
-    top: 0,
-    left: '50%',
+  activeDot: {
+    width: 14,
     height: 3,
-    backgroundColor: 'rgba(0, 102, 204, 0.15)',
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
-  },
-  favoritesMarker: {
-    position: 'absolute',
-    left: 16,
-    width: 72,
-    minHeight: 56,
-    borderRadius: 28,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingVertical: 6,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.12,
-    shadowRadius: 16,
-    elevation: 8,
-    borderWidth: 2,
-    zIndex: 1000,
-  },
-  favoritesLabel: {
-    fontSize: 10,
-    fontWeight: '600',
-    marginTop: 2,
-    textAlign: 'center',
+    borderRadius: 2,
+    marginTop: 4,
   },
 });
 
@@ -406,6 +282,7 @@ import HelperChatScreen from '../screens/HelperChatScreen';
 import BonusScreen from '../screens/BonusScreen';
 import PurchaseHistoryScreen from '../screens/PurchaseHistoryScreen';
 import AboutScreen from '../screens/AboutScreen';
+import ToursMapScreen from '../screens/ToursMapScreen';
 
 const Tab = createBottomTabNavigator();
 const Stack = createStackNavigator();
@@ -428,6 +305,7 @@ function HomeStack() {
         }}
       />
       <Stack.Screen name="ApiHotTours" component={ApiHotToursScreen} />
+      <Stack.Screen name="ToursMap" component={ToursMapScreen as ComponentType<any>} />
       <Stack.Screen name="ApiTourSearch" component={ApiTourSearchScreen as ComponentType<any>} />
       <Stack.Screen name="ApiTourResults" component={ApiTourResultsScreen as ComponentType<any>} />
       <Stack.Screen name="ApiTourDetails" component={ApiTourDetailsScreen} />
@@ -449,7 +327,7 @@ function HomeStack() {
 // Стек для бронирований
 function BookingsStack() {
   return (
-    <Stack.Navigator 
+    <Stack.Navigator
       screenOptions={{
         headerShown: false,
         gestureEnabled: true,
@@ -458,7 +336,55 @@ function BookingsStack() {
       initialRouteName="BookingsMain"
     >
       <Stack.Screen name="BookingsMain" component={BookingsScreen} />
-      {/* Дополнительные экраны для деталей бронирований, если понадобятся */}
+      <Stack.Screen name="ApiTourDetails" component={ApiTourDetailsScreen} />
+      <Stack.Screen name="TourBooking" component={TourBookingScreen as ComponentType<any>} />
+      <Stack.Screen name="Reviews" component={ReviewsScreen} />
+    </Stack.Navigator>
+  );
+}
+
+function SearchStack() {
+  return (
+    <Stack.Navigator
+      screenOptions={{
+        headerShown: false,
+        gestureEnabled: true,
+        gestureDirection: 'horizontal',
+      }}
+    >
+      <Stack.Screen name="ApiTourSearch" component={ApiTourSearchScreen as ComponentType<any>} />
+      <Stack.Screen name="ApiTourResults" component={ApiTourResultsScreen as ComponentType<any>} />
+      <Stack.Screen name="ApiTourDetails" component={ApiTourDetailsScreen} />
+      <Stack.Screen name="TourBooking" component={TourBookingScreen as ComponentType<any>} />
+      <Stack.Screen name="ApiHotTours" component={ApiHotToursScreen} />
+      <Stack.Screen name="ToursMap" component={ToursMapScreen as ComponentType<any>} />
+      <Stack.Screen name="ApiHotelSearch" component={ApiHotelSearchScreen as ComponentType<any>} />
+      <Stack.Screen name="PopularHotels" component={PopularHotelsScreen as ComponentType<any>} />
+      <Stack.Screen name="ApiHotelDetails" component={ApiHotelDetailsScreen as ComponentType<any>} />
+      <Stack.Screen name="HotelBooking" component={HotelBookingFormScreen as ComponentType<any>} />
+      <Stack.Screen name="Countries" component={TourvisorCountriesScreen} />
+      <Stack.Screen name="CountryDetail" component={CountryDetailScreen as ComponentType<any>} />
+      <Stack.Screen name="CountryInfo" component={CountryInfoScreen as ComponentType<any>} />
+      <Stack.Screen name="Reviews" component={ReviewsScreen} />
+    </Stack.Navigator>
+  );
+}
+
+function FavoritesStack() {
+  return (
+    <Stack.Navigator
+      screenOptions={{
+        headerShown: false,
+        gestureEnabled: true,
+        gestureDirection: 'horizontal',
+      }}
+    >
+      <Stack.Screen name="FavoritesMain" component={FavoritesScreen} />
+      <Stack.Screen name="ApiTourDetails" component={ApiTourDetailsScreen} />
+      <Stack.Screen name="TourBooking" component={TourBookingScreen as ComponentType<any>} />
+      <Stack.Screen name="ApiHotelDetails" component={ApiHotelDetailsScreen as ComponentType<any>} />
+      <Stack.Screen name="HotelBooking" component={HotelBookingFormScreen as ComponentType<any>} />
+      <Stack.Screen name="Reviews" component={ReviewsScreen} />
     </Stack.Navigator>
   );
 }
@@ -486,9 +412,10 @@ function ProfileStack() {
   );
 }
 
-// Основной таб навигатор
+// Основной таб навигатор — 5 вкладок как на концепте
 function MainTabNavigator() {
-  useAppContext(); // ре-рендер при смене языка
+  const { language } = useAppContext();
+  void language;
   return (
     <Tab.Navigator
       tabBar={(props) => <CustomTabBar {...props} />}
@@ -499,9 +426,7 @@ function MainTabNavigator() {
       <Tab.Screen
         name="Home"
         component={HomeStack}
-        options={{
-          title: i18n.t('nav.home'),
-        }}
+        options={{ title: i18n.t('nav.home') }}
         listeners={({ navigation }) => ({
           tabPress: (e) => {
             const state = navigation.getState();
@@ -514,17 +439,20 @@ function MainTabNavigator() {
         })}
       />
       <Tab.Screen
+        name="Search"
+        component={SearchStack}
+        options={{ title: i18n.t('nav.search') }}
+      />
+      <Tab.Screen
+        name="Favorites"
+        component={FavoritesStack}
+        options={{ title: i18n.t('nav.favorites') }}
+      />
+      <Tab.Screen
         name="Bookings"
         component={BookingsStack}
         options={{ title: i18n.t('nav.bookings') }}
       />
-      {/* TODO: вкладка Documents скрыта до настройки API документов (Никита)
-      <Tab.Screen
-        name="Documents"
-        component={DocumentsStack}
-        options={{ title: i18n.t('nav.documents') }}
-      />
-      */}
       <Tab.Screen
         name="Profile"
         component={ProfileStack}

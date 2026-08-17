@@ -26,6 +26,10 @@ function isFresh(lastUpdated: string): boolean {
   return age < TTL_MS;
 }
 
+function isEmptyCachePayload<T>(data: T): boolean {
+  return Array.isArray(data) && data.length === 0;
+}
+
 export class FreshCacheService {
   private readonly ttlMs: number;
 
@@ -67,7 +71,15 @@ export class FreshCacheService {
     // 1. AsyncStorage (только данные, ранее полученные из API)
     const asyncEntry = await this.getFromAsyncStorage<T>(key);
     if (asyncEntry && isFresh(asyncEntry.metadata.lastUpdated)) {
-      return asyncEntry.data;
+      if (isEmptyCachePayload(asyncEntry.data)) {
+        try {
+          await AsyncStorage.removeItem(ASYNC_PREFIX + key);
+        } catch {
+          /* ignore */
+        }
+      } else {
+        return asyncEntry.data;
+      }
     }
 
     // 2. Firestore не используется — только свежие данные из API или локального кэша
@@ -75,6 +87,10 @@ export class FreshCacheService {
     // 3. API — пользователь ждёт, получает только свежее
     if (__DEV__) console.log(`[FreshCache] ${key}: запрос к API`);
     const data = await apiFetcher();
+    if (isEmptyCachePayload(data)) {
+      // Пустую выдачу не кэшируем — иначе у другого пользователя «залипает» 0 туров
+      return data;
+    }
     const entry: CacheEntry<T> = {
       data,
       metadata: { lastUpdated },

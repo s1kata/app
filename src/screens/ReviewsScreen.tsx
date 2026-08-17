@@ -28,8 +28,11 @@ import { mapReviewDto, type ReviewListItem } from '../utils/reviewMappers';
 import { reviewsRefreshBus } from '../services/ReviewsRefreshBus';
 import ReviewFormModal from '../components/ReviewFormModal';
 import AuthRequiredCard from '../components/ux/AuthRequiredCard';
+import { ScreenHeader } from '../components/ui';
+import { radius, shadows, spacing, typography } from '../config/designSystem';
 import { i18n } from '../config/i18n';
 import { logger } from '../utils/logger';
+import { navigateRoot } from '../utils/navHelpers';
 
 interface Review extends ReviewListItem {
   userAvatar?: string;
@@ -159,11 +162,38 @@ export default function ReviewsScreen({ navigation, route }: ReviewsScreenProps)
     try {
       setIsLoading(true);
       setLoadError(null);
-      const items = await listReviews({
-        tourId: tourIdStr,
-        scope: tourIdStr ? 'tour' : 'all',
-        withAuth: isAuthenticated && !isGuest,
-      });
+      const items = await (async () => {
+        if (tourIdStr || hotelIdStr) {
+          const [byTour, byHotel] = await Promise.all([
+            tourIdStr
+              ? listReviews({
+                  tourId: tourIdStr,
+                  scope: 'tour',
+                  withAuth: isAuthenticated && !isGuest,
+                }).catch(() => [] as ReviewDto[])
+              : Promise.resolve([] as ReviewDto[]),
+            hotelIdStr
+              ? listReviews({
+                  hotelId: hotelIdStr,
+                  scope: 'tour',
+                  withAuth: isAuthenticated && !isGuest,
+                }).catch(() => [] as ReviewDto[])
+              : Promise.resolve([] as ReviewDto[]),
+          ]);
+          const seen = new Set<string>();
+          return [...byTour, ...byHotel]
+            .filter((r) => {
+              if (!r?.id || seen.has(r.id)) return false;
+              seen.add(r.id);
+              return true;
+            })
+            .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+        }
+        return listReviews({
+          scope: 'all',
+          withAuth: isAuthenticated && !isGuest,
+        });
+      })();
       const loadedReviews: Review[] = items.map((r: ReviewDto) => ({
         ...mapReviewDto(r),
         photos: [],
@@ -180,7 +210,7 @@ export default function ReviewsScreen({ navigation, route }: ReviewsScreenProps)
     } finally {
       setIsLoading(false);
     }
-  }, [tourIdStr, isAuthenticated, authReady, user?.uid, user?.isAnonymous]);
+  }, [tourIdStr, hotelIdStr, isAuthenticated, authReady, user?.uid, user?.isAnonymous]);
 
   useEffect(() => {
     void loadReviews();
@@ -372,19 +402,8 @@ export default function ReviewsScreen({ navigation, route }: ReviewsScreenProps)
   };
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
-      <View style={[styles.header, { backgroundColor: theme.background }]}>
-        <TouchableOpacity
-          onPress={() => navigation.goBack()}
-          style={styles.backIcon}
-        >
-          <Ionicons name="arrow-back" size={24} color={theme.text} />
-        </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: theme.text }]}>
-          {screenTitle}
-        </Text>
-        <View style={{ width: 24 }} />
-      </View>
+    <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]} edges={['top', 'bottom']}>
+      <ScreenHeader title={screenTitle} onBack={() => navigation.goBack()} noSafeTop />
 
       {isLoading && reviews.length === 0 ? (
         <View style={styles.loadingContainer}>
@@ -408,7 +427,7 @@ export default function ReviewsScreen({ navigation, route }: ReviewsScreenProps)
         contentContainerStyle={styles.scrollContent}
       >
         {/* Общая статистика */}
-        <View style={[styles.statsCard, { backgroundColor: theme.card }]}>
+        <View style={[styles.statsCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
           <View style={styles.ratingSummary}>
             <Text style={[styles.averageRating, { color: theme.text }]}>
               {averageRating.toFixed(1)}
@@ -510,7 +529,7 @@ export default function ReviewsScreen({ navigation, route }: ReviewsScreenProps)
         {sortedReviews.map((review) => (
           <View
             key={review.id}
-            style={[styles.reviewCard, { backgroundColor: theme.card }]}
+            style={[styles.reviewCard, { backgroundColor: theme.card, borderColor: theme.border }]}
           >
             <View style={styles.reviewHeader}>
               <View style={styles.userInfo}>
@@ -630,9 +649,9 @@ export default function ReviewsScreen({ navigation, route }: ReviewsScreenProps)
         )}
 
         {/* Кнопка добавления отзыва в конце страницы */}
-        <View style={[styles.addReviewSection, { backgroundColor: theme.card }]}>
+        <View style={[styles.addReviewSection, { backgroundColor: theme.card, borderColor: theme.border }]}>
           <TouchableOpacity
-            style={[styles.addReviewButton, { backgroundColor: theme.primary }]}
+            style={[styles.addReviewButton, { backgroundColor: theme.accent }]}
             onPress={() => {
               if (!isAuthenticated || !user || isGuestUser) {
                 promptAuthForReview();
@@ -683,11 +702,11 @@ export default function ReviewsScreen({ navigation, route }: ReviewsScreenProps)
         onLater={() => setShowAuthCard(false)}
         onLogin={() => {
           setShowAuthCard(false);
-          navigation.navigate('Login');
+          navigateRoot(navigation, 'Login');
         }}
         onRegister={() => {
           setShowAuthCard(false);
-          navigation.navigate('Register');
+          navigateRoot(navigation, 'Register');
         }}
       />
     </SafeAreaView>
@@ -698,120 +717,110 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(0, 0, 0, 0.1)',
-  },
-  backIcon: {
-    padding: 8,
-  },
-  headerTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-  },
   scrollView: {
     flexGrow: 1,
   },
   scrollContent: {
-    padding: 16,
-    paddingBottom: 32,
+    padding: spacing.md,
+    paddingBottom: spacing.xxl,
   },
   statsCard: {
-    padding: 20,
-    borderRadius: 16,
-    marginBottom: 20,
+    padding: spacing.lg,
+    borderRadius: radius.xl,
+    marginBottom: spacing.lg,
+    borderWidth: 1,
+    borderColor: 'rgba(18, 18, 46, 0.08)',
+    ...shadows.card,
   },
   ratingSummary: {
     alignItems: 'center',
-    marginBottom: 24,
+    marginBottom: spacing.xl,
   },
   averageRating: {
     fontSize: 48,
     fontWeight: '800',
-    marginBottom: 8,
+    marginBottom: spacing.xs,
   },
   starsContainer: {
     flexDirection: 'row',
-    gap: 4,
-    marginBottom: 8,
+    gap: spacing.xxs,
+    marginBottom: spacing.xs,
   },
   reviewsCount: {
-    fontSize: 14,
+    ...typography.caption,
   },
   distribution: {
-    gap: 12,
+    gap: spacing.sm,
   },
   distributionRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    minHeight: 36,
   },
   distributionRating: {
-    fontSize: 14,
-    fontWeight: '600',
+    ...typography.captionBold,
     width: 20,
   },
   distributionBar: {
     height: 8,
-    borderRadius: 4,
+    borderRadius: radius.full,
     flex: 1,
   },
   distributionFill: {
     height: '100%',
-    borderRadius: 4,
+    borderRadius: radius.full,
   },
   distributionCount: {
-    fontSize: 12,
+    ...typography.small,
     width: 30,
     textAlign: 'right',
   },
   filtersContainer: {
-    marginBottom: 16,
+    marginBottom: spacing.md,
   },
   filtersRow: {
     flexDirection: 'row',
-    gap: 8,
+    gap: spacing.xs,
   },
   filterButton: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 20,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.full,
+    minHeight: 40,
+    justifyContent: 'center',
   },
   filterButtonText: {
-    fontSize: 14,
-    fontWeight: '600',
+    ...typography.captionBold,
   },
   reviewCard: {
-    padding: 16,
-    borderRadius: 16,
-    marginBottom: 16,
+    padding: spacing.md,
+    borderRadius: radius.xl,
+    marginBottom: spacing.md,
+    borderWidth: 1,
+    borderColor: 'rgba(18, 18, 46, 0.08)',
+    ...shadows.card,
   },
   reviewHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
-    marginBottom: 12,
+    marginBottom: spacing.sm,
   },
   userInfo: {
     flexDirection: 'row',
     flex: 1,
   },
   avatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 12,
+    marginRight: spacing.sm,
   },
   avatarText: {
     color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '700',
+    ...typography.bodyBold,
   },
   userDetails: {
     flex: 1,
@@ -819,44 +828,43 @@ const styles = StyleSheet.create({
   userNameRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 4,
+    marginBottom: spacing.xxs,
   },
   userName: {
-    fontSize: 16,
-    fontWeight: '700',
+    ...typography.bodyBold,
   },
   reviewDate: {
-    fontSize: 12,
+    ...typography.small,
   },
   ratingContainer: {
     flexDirection: 'row',
     gap: 2,
   },
   reviewText: {
-    fontSize: 14,
+    ...typography.caption,
     lineHeight: 20,
-    marginBottom: 12,
+    marginBottom: spacing.sm,
   },
   tourMeta: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    paddingTop: 8,
-    marginBottom: 12,
-    borderTopWidth: 1,
+    gap: spacing.xxs,
+    paddingTop: spacing.xs,
+    marginBottom: spacing.sm,
+    borderTopWidth: StyleSheet.hairlineWidth,
   },
   tourMetaText: {
-    fontSize: 12,
+    ...typography.small,
     flex: 1,
   },
   photosContainer: {
-    marginBottom: 12,
+    marginBottom: spacing.sm,
   },
   photo: {
     width: 80,
     height: 80,
-    borderRadius: 8,
-    marginRight: 8,
+    borderRadius: radius.sm,
+    marginRight: spacing.xs,
   },
   reviewFooter: {
     flexDirection: 'row',
@@ -865,71 +873,79 @@ const styles = StyleSheet.create({
   helpfulButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: spacing.xxs,
+    minHeight: 44,
   },
   helpfulText: {
-    fontSize: 12,
+    ...typography.small,
   },
   emptyContainer: {
     alignItems: 'center',
-    padding: 32,
+    padding: spacing.xxl,
   },
   emptyText: {
-    fontSize: 20,
-    fontWeight: '700',
-    marginTop: 16,
-    marginBottom: 8,
+    ...typography.h2,
+    marginTop: spacing.md,
+    marginBottom: spacing.xs,
   },
   emptySubtext: {
-    fontSize: 14,
+    ...typography.caption,
     textAlign: 'center',
   },
   addReviewSection: {
-    marginTop: 24,
-    marginBottom: 16,
-    padding: 16,
-    borderRadius: 16,
+    marginTop: spacing.xl,
+    marginBottom: spacing.md,
+    padding: spacing.md,
+    borderRadius: radius.xl,
+    borderWidth: 1,
+    borderColor: 'rgba(18, 18, 46, 0.08)',
+    ...shadows.card,
   },
   addReviewButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 16,
-    borderRadius: 16,
-    gap: 8,
+    paddingVertical: spacing.md,
+    borderRadius: radius.lg,
+    gap: spacing.xs,
+    minHeight: 54,
   },
   addReviewButtonText: {
     color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '700',
+    ...typography.button,
   },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 32,
+    padding: spacing.xxl,
   },
   loadingText: {
-    marginTop: 16,
-    fontSize: 14,
+    marginTop: spacing.md,
+    ...typography.caption,
     textAlign: 'center',
   },
   retryButton: {
-    marginTop: 16,
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 12,
+    marginTop: spacing.md,
+    paddingHorizontal: spacing.xl,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.lg,
+    minHeight: 48,
+    justifyContent: 'center',
   },
   retryButtonText: {
     color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '600',
+    ...typography.button,
   },
   reviewActions: {
     flexDirection: 'row',
-    gap: 12,
+    gap: spacing.sm,
   },
   actionButton: {
-    padding: 4,
+    padding: spacing.xs,
+    minWidth: 44,
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });

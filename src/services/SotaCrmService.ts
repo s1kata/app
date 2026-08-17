@@ -380,13 +380,22 @@ class SotaCrmService {
    * Отправка данных бронирования в SOTA (U-ON: создание обращения lead/create).
    * Вызывается после сохранения в Firestore. Документация: https://api.u-on.ru/doc
    */
-  /** Нормализация телефона для API: только цифры и + */
+  /** Нормализация телефона для API: E.164 (+7…) */
   private normalizePhone(phone: string): string {
-    const s = (phone || '').trim().replace(/\s/g, '');
-    if (!s) return '';
-    if (/^\+?[1-9]\d{1,14}$/.test(s)) return s.startsWith('+') ? s : `+${s}`;
-    if (/^8\d{10}$/.test(s)) return '+7' + s.slice(1);
-    return s;
+    const raw = (phone || '').trim();
+    if (!raw) return '';
+    const digits = raw.replace(/\D+/g, '');
+    if (!digits) return '';
+    if (digits.length === 11 && (digits[0] === '8' || digits[0] === '7')) {
+      return `+7${digits.slice(1)}`;
+    }
+    if (digits.length === 10) {
+      return `+7${digits}`;
+    }
+    if (digits.length >= 11 && digits.length <= 15) {
+      return `+${digits}`;
+    }
+    return '';
   }
 
   async sendBookingToCrm(payload: {

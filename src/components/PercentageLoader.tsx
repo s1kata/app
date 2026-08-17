@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useMemo } from 'react';
 import {
   View,
   Text,
@@ -9,12 +9,21 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import { useAppContext } from '../contexts/AppContext';
+import { i18n } from '../config/i18n';
 
 interface PercentageLoaderProps {
   visible: boolean;
   onComplete?: () => void;
   /** Внешний прогресс 0-100. При 100 вызывается onComplete */
   progress?: number;
+}
+
+function phaseLabel(pct: number): string {
+  if (pct < 20) return i18n.t('search.preparing');
+  if (pct < 45) return i18n.t('search.searchingTours');
+  if (pct < 70) return i18n.t('search.checkingHotels');
+  if (pct < 92) return i18n.t('search.bestOptions');
+  return i18n.t('search.almostReady');
 }
 
 export default function PercentageLoader({
@@ -29,6 +38,8 @@ export default function PercentageLoader({
   const opacity = useRef(new Animated.Value(0)).current;
   const scale = useRef(new Animated.Value(0.9)).current;
   const [displayPercent, setDisplayPercent] = React.useState(0);
+
+  const label = useMemo(() => phaseLabel(displayPercent), [displayPercent]);
 
   useEffect(() => {
     if (!visible) return;
@@ -62,7 +73,7 @@ export default function PercentageLoader({
       setDisplayPercent(Math.round(value));
     });
 
-    const duration = typeof externalProgress === 'number' ? 180 : 1200;
+    const duration = typeof externalProgress === 'number' ? 220 : 1200;
 
     Animated.timing(animatedProgress, {
       toValue,
@@ -127,7 +138,10 @@ export default function PercentageLoader({
               ]}
             />
           </View>
-          <Text style={[styles.label, { color: theme.text }]}>Загрузка...</Text>
+          <Text style={[styles.label, { color: theme.text }]}>{label}</Text>
+          <Text style={[styles.hint, { color: theme.secondaryText }]}>
+            {i18n.t('search.loadingSlow')}
+          </Text>
         </Animated.View>
       </Animated.View>
     </Modal>
@@ -162,6 +176,13 @@ const styles = StyleSheet.create({
   label: {
     marginTop: 16,
     fontSize: 16,
-    fontWeight: '500',
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  hint: {
+    marginTop: 8,
+    fontSize: 13,
+    textAlign: 'center',
+    maxWidth: 260,
   },
 });

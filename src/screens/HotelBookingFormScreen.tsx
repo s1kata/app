@@ -34,6 +34,10 @@ import { validatePhone } from '../utils/validation';
 import { DEFAULT_HOTEL_IMAGE } from '../constants/images';
 import { websiteTourService } from '../services/WebsiteTourService';
 import { networkService } from '../services/NetworkService';
+import ScreenHeader from '../components/ui/ScreenHeader';
+import PrimaryButton from '../components/ui/PrimaryButton';
+import { radius, shadows, spacing } from '../config/designSystem';
+import { navigateRoot, navigateTab } from '../utils/navHelpers';
 
 /** Отель, переданный с экрана деталей (mappedHotel) */
 export interface HotelBookingParams {
@@ -124,8 +128,8 @@ export default function HotelBookingFormScreen({ navigation, route }: HotelBooki
         i18n.t('booking.hotelAuthRequiredDesc'),
         [
           { text: i18n.t('common.cancel'), style: 'cancel', onPress: () => navigation.goBack() },
-          { text: i18n.t('auth.login'), onPress: () => navigation.navigate('Login', { returnTo: { name: 'HotelBooking', params: { hotel } } }) },
-          { text: i18n.t('auth.registration'), onPress: () => navigation.navigate('Register', { returnTo: { name: 'HotelBooking', params: { hotel } } }) },
+          { text: i18n.t('auth.login'), onPress: () => navigateRoot(navigation, 'Login', { returnTo: { name: 'HotelBooking', params: { hotel } } }) },
+          { text: i18n.t('auth.registration'), onPress: () => navigateRoot(navigation, 'Register', { returnTo: { name: 'HotelBooking', params: { hotel } } }) },
         ]
       );
       return;
@@ -273,7 +277,7 @@ export default function HotelBookingFormScreen({ navigation, route }: HotelBooki
           : i18n.t('booking.hotelAuthRequiredDesc');
       Alert.alert(i18n.t('favorites.authRequired'), body, [
         { text: i18n.t('common.cancel'), style: 'cancel', onPress: () => navigation.goBack() },
-        { text: i18n.t('auth.login'), onPress: () => navigation.navigate('Login', { returnTo: { name: 'HotelBooking', params: { hotel } } }) },
+        { text: i18n.t('auth.login'), onPress: () => navigateRoot(navigation, 'Login', { returnTo: { name: 'HotelBooking', params: { hotel } } }) },
       ]);
       return;
     }
@@ -352,7 +356,7 @@ export default function HotelBookingFormScreen({ navigation, route }: HotelBooki
         Alert.alert(
           i18n.t('booking.hotelQueuedTitle'),
           i18n.t('booking.hotelQueuedBody'),
-          [{ text: i18n.t('common.ok'), onPress: () => navigation.navigate('MainTabs', { screen: 'Bookings' }) }],
+          [{ text: i18n.t('common.ok'), onPress: () => navigateTab(navigation, 'Bookings') }],
         );
         return;
       }
@@ -368,7 +372,7 @@ export default function HotelBookingFormScreen({ navigation, route }: HotelBooki
         Alert.alert(
           i18n.t('booking.hotelSentTitle'),
           (canPayNow ? i18n.t('booking.hotelSentCanPayBody') : i18n.t('booking.hotelSentManagerBody')) + crmWarning,
-          [{ text: i18n.t('common.ok'), onPress: () => navigation.navigate('MainTabs', { screen: 'Bookings' }) }],
+          [{ text: i18n.t('common.ok'), onPress: () => navigateTab(navigation, 'Bookings') }],
         );
         return;
       }
@@ -407,7 +411,7 @@ export default function HotelBookingFormScreen({ navigation, route }: HotelBooki
                   paymentResult.transactionId!,
                   browserResult,
                 );
-                const goBookings = () => navigation.navigate('MainTabs', { screen: 'Bookings' });
+                const goBookings = () => navigateTab(navigation, 'Bookings');
                 presentPaymentPollOutcome({
                   transactionId: paymentResult.transactionId!,
                   result: statusResult,
@@ -499,13 +503,11 @@ export default function HotelBookingFormScreen({ navigation, route }: HotelBooki
     <SafeAreaView edges={['top', 'bottom']} style={[styles.container, { backgroundColor: theme.background }]}>
       <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={theme.card} />
 
-      <View style={[styles.header, { backgroundColor: theme.card, borderBottomColor: theme.border }]}>
-        <TouchableOpacity style={styles.headerBack} onPress={() => navigation.goBack()} activeOpacity={0.7}>
-          <Ionicons name="arrow-back" size={24} color={theme.text} />
-        </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: theme.text }]}>{i18n.t('booking.hotelHeaderTitle')}</Text>
-        <View style={styles.headerSpacer} />
-      </View>
+      <ScreenHeader
+        title={i18n.t('booking.hotelHeaderTitle')}
+        onBack={() => navigation.goBack()}
+        noSafeTop
+      />
 
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.keyboard}>
         <ScrollView
@@ -514,10 +516,10 @@ export default function HotelBookingFormScreen({ navigation, route }: HotelBooki
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
         >
-          <View style={[styles.hotelCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+          <View style={[styles.hotelCard, shadows.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
             <Image source={{ uri: hotelImage }} style={styles.hotelImg} resizeMode="cover" />
             <View style={styles.hotelInfo}>
-              <Text style={[styles.hotelName, { color: theme.text }]} numberOfLines={2}>{hotel.name}</Text>
+              <Text style={[styles.hotelName, { color: theme.deep || theme.text }]} numberOfLines={2}>{hotel.name}</Text>
               <View style={styles.hotelMeta}>
                 <Ionicons name="location-outline" size={14} color={theme.secondaryText} />
                 <Text style={[styles.hotelLocation, { color: theme.secondaryText }]}>
@@ -533,7 +535,7 @@ export default function HotelBookingFormScreen({ navigation, route }: HotelBooki
               )}
               <View style={styles.hotelPriceRow}>
                 <Text style={[styles.hotelPriceLabel, { color: theme.secondaryText }]}>Цена за ночь:</Text>
-                <Text style={[styles.hotelPriceValue, { color: theme.primary }]}>
+                <Text style={[styles.hotelPriceValue, { color: theme.accent || theme.primary }]}>
                   {hotel.price > 0 ? formatPrice(hotel.price, hotel.currency) : 'Стоимость уточняется'}
                 </Text>
               </View>
@@ -862,10 +864,13 @@ export default function HotelBookingFormScreen({ navigation, route }: HotelBooki
             </Text>
           )}
 
-          {/* Кнопка: Забронировать (без оплаты) или Забронировать и оплатить (с оплатой) */}
           {(canPayNow ? bookingMethod : true) && (
-            <TouchableOpacity
-              style={[styles.submitBtn, { backgroundColor: theme.primary }, !canBook && styles.submitBtnDisabled]}
+            <PrimaryButton
+              title={
+                canPayNow
+                  ? (bookingMethod === 'with_payment' ? 'Забронировать и оплатить' : 'Забронировать')
+                  : 'Отправить заявку на бронирование'
+              }
               onPress={() => {
                 if (!canBook) {
                   Alert.alert(i18n.t('booking.requirePersonalData'), i18n.t('booking.requirePersonalDataDesc'), [
@@ -876,22 +881,11 @@ export default function HotelBookingFormScreen({ navigation, route }: HotelBooki
                 }
                 handleBooking(canPayNow ? bookingMethod === 'with_payment' : false);
               }}
-              disabled={isSubmitting || loadingProfile || !canBook || (canPayNow && bookingMethod === 'with_payment' && !selectedPaymentProvider)}
-              activeOpacity={0.85}
-            >
-              {isSubmitting ? (
-                <ActivityIndicator size="small" color="#fff" />
-              ) : (
-                <>
-                  <Ionicons name={canPayNow && bookingMethod === 'with_payment' ? 'card' : 'calendar'} size={20} color="#fff" />
-                  <Text style={styles.submitBtnText}>
-                    {canPayNow
-                      ? (bookingMethod === 'with_payment' ? 'Забронировать и оплатить' : 'Забронировать')
-                      : 'Отправить заявку на бронирование'}
-                  </Text>
-                </>
-              )}
-            </TouchableOpacity>
+              loading={isSubmitting}
+              disabled={loadingProfile || !canBook || (canPayNow && bookingMethod === 'with_payment' && !selectedPaymentProvider)}
+              variant="cta"
+              style={{ marginTop: 8 }}
+            />
           )}
         </ScrollView>
       </KeyboardAvoidingView>
@@ -919,24 +913,24 @@ const styles = StyleSheet.create({
   scroll: { flexGrow: 1 },
   scrollContent: { padding: 16, paddingBottom: 40 },
   hotelCard: {
-    borderRadius: 12,
+    borderRadius: radius.xl,
     borderWidth: 1,
     overflow: 'hidden',
     marginBottom: 16,
   },
-  hotelImg: { width: '100%', height: 160 },
-  hotelInfo: { padding: 14 },
-  hotelName: { fontSize: 18, fontWeight: '700', marginBottom: 6 },
+  hotelImg: { width: '100%', aspectRatio: 16 / 10 },
+  hotelInfo: { padding: spacing.md },
+  hotelName: { fontSize: 18, fontWeight: '800', marginBottom: 6 },
   hotelMeta: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   hotelLocation: { fontSize: 14 },
   nightsText: { fontSize: 13, marginTop: 6 },
   hotelPriceRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 10 },
   hotelPriceLabel: { fontSize: 14 },
-  hotelPriceValue: { fontSize: 16, fontWeight: '700' },
+  hotelPriceValue: { fontSize: 18, fontWeight: '800' },
   formCard: {
-    borderRadius: 12,
+    borderRadius: radius.xl,
     borderWidth: 1,
-    padding: 16,
+    padding: spacing.md,
     marginBottom: 16,
   },
   sectionTitle: { fontSize: 17, fontWeight: '600', marginBottom: 14 },

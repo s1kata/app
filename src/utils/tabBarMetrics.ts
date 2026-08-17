@@ -2,19 +2,18 @@ import { useSyncExternalStore } from 'react';
 import {
   getTabBarHeight,
   getTabScreenBottomPadding,
-  TAB_BAR_FAB_GAP,
-  TAB_BAR_FAB_SIZE,
 } from './safeAreaInsets';
 import type { EdgeInsets } from 'react-native-safe-area-context';
 
 type Metrics = {
   tabBarHeight: number;
+  /** 0 = FAB отключён (концепт с 5 табами без плавающей кнопки) */
   fabHeight: number;
 };
 
 let metrics: Metrics = {
   tabBarHeight: 0,
-  fabHeight: TAB_BAR_FAB_SIZE,
+  fabHeight: 0,
 };
 
 const listeners = new Set<() => void>();
@@ -51,15 +50,17 @@ export function useTabBarMetrics(
   const measured = useSyncExternalStore(subscribe, getTabBarMetrics, getTabBarMetrics);
   const fallbackTab = getTabBarHeight(insets, fontScale);
   const tabBarHeight = measured.tabBarHeight > 0 ? measured.tabBarHeight : fallbackTab;
-  const fabHeight = measured.fabHeight > 0 ? measured.fabHeight : TAB_BAR_FAB_SIZE;
+  // Важно: fabHeight=0 валиден (FAB убран). Не подставлять TAB_BAR_FAB_SIZE.
+  const fabHeight = measured.fabHeight;
 
   return {
     tabBarHeight,
     fabHeight,
     contentBottomPadding: (options) => {
-      const includeFab = options?.includeFab !== false;
+      // По умолчанию без FAB — 5 табов как на концепте
+      const includeFab = options?.includeFab === true;
       const extra = options?.extra ?? 16;
-      const fabClearance = includeFab ? fabHeight + TAB_BAR_FAB_GAP : 0;
+      const fabClearance = includeFab && fabHeight > 0 ? fabHeight + 12 : 0;
       return tabBarHeight + fabClearance + extra;
     },
   };
@@ -73,10 +74,13 @@ export function estimateTabScreenBottomPadding(
 ): number {
   const m = getTabBarMetrics();
   if (m.tabBarHeight > 0) {
-    const includeFab = options?.includeFab !== false;
+    const includeFab = options?.includeFab === true;
     const extra = options?.extra ?? 16;
-    const fabH = m.fabHeight > 0 ? m.fabHeight : TAB_BAR_FAB_SIZE;
-    return m.tabBarHeight + (includeFab ? fabH + TAB_BAR_FAB_GAP : 0) + extra;
+    const fabClearance = includeFab && m.fabHeight > 0 ? m.fabHeight + 12 : 0;
+    return m.tabBarHeight + fabClearance + extra;
   }
-  return getTabScreenBottomPadding(insets, fontScale, options);
+  return getTabScreenBottomPadding(insets, fontScale, {
+    includeFab: options?.includeFab === true,
+    extra: options?.extra,
+  });
 }

@@ -9,27 +9,35 @@ import {
   StyleSheet,
   ScrollView,
   Alert,
-  ActivityIndicator,
   StatusBar,
+  useWindowDimensions,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Image as ExpoImage } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 
 import { tourvisorApi } from '../services/TourvisorApiService';
 import { hotelCacheService } from '../services/HotelCacheService';
 import { Hotel, HotelCompact, TourSearchParams } from '../types/tourvisor';
-import { platform } from '../utils/platform';
 import { useAppContext } from '../contexts/AppContext';
 import AppLoader from '../components/AppLoader';
 import CachedImage from '../components/ui/CachedImage';
 import { DEFAULT_HOTEL_IMAGE } from '../constants/images';
-import { getHotelImageUrl, getHotelImageUrls, normalizeHotelImages } from '../utils/hotelImages';
+import { getHotelImageUrls, normalizeHotelImages } from '../utils/hotelImages';
 import { logger } from '../utils/logger';
 import { fetchHotelDetailsViaBackend } from '../services/sync/NextPatchBackendClient';
-import { buildTourSearchParamsForHotel, hotelListPrice } from '../utils/hotelTourSearch';
+import { buildTourSearchParamsForHotel } from '../utils/hotelTourSearch';
 import { i18n } from '../config/i18n';
 import HotelToursSection from '../components/HotelToursSection';
+import ScreenHeader from '../components/ui/ScreenHeader';
+import PrimaryButton from '../components/ui/PrimaryButton';
+import StickyTourBar from '../components/ui/StickyTourBar';
+import TourPriceLabel from '../components/ui/TourPriceLabel';
+import { radius, shadows, spacing } from '../config/designSystem';
+import { FavoritesService } from '../services/FavoritesService';
+import AuthRequiredCard from '../components/ux/AuthRequiredCard';
+import { navigateRoot } from '../utils/navHelpers';
+import type { Hotel as AppHotel } from '../types';
 
 interface ApiHotelDetailsScreenProps {
   navigation: any;
@@ -56,8 +64,11 @@ function normalizeHtmlText(raw: string | undefined | null): string {
 }
 
 export default function ApiHotelDetailsScreen({ navigation, route }: ApiHotelDetailsScreenProps) {
-  const { theme, isDark } = useAppContext();
+  const { theme, isDark, user } = useAppContext();
+  const insets = useSafeAreaInsets();
+  const { width: screenWidth } = useWindowDimensions();
   const { hotelId, hotelPreview, tourContext, focusTours } = route.params || {};
+  const isGuest = user?.uid?.startsWith('guest_') || user?.isAnonymous === true;
 
   const initialHotel = useMemo((): DisplayHotel | null => {
     if (hotelPreview && hotelId != null && hotelPreview.id === hotelId) {
@@ -73,6 +84,8 @@ export default function ApiHotelDetailsScreen({ navigation, route }: ApiHotelDet
   const [hotel, setHotel] = useState<DisplayHotel | null>(initialHotel);
   const [isLoading, setIsLoading] = useState(!initialHotel);
   const [activeImageIndex, setActiveImageIndex] = useState(0);
+  const [isFavorite, setIsFavorite] = useState(false);
+  const [showAuthCard, setShowAuthCard] = useState(false);
 
   // Скрываем нижнюю навигацию на экране просмотра деталей отеля
   useLayoutEffect(() => {
@@ -101,6 +114,56 @@ export default function ApiHotelDetailsScreen({ navigation, route }: ApiHotelDet
   useEffect(() => {
     loadHotelDetails();
   }, [hotelId]);
+
+  useEffect(() => {
+    if (!hotelId || !user || isGuest) {
+      setIsFavorite(false);
+      return;
+    }
+    void FavoritesService.getInstance()
+      .isHotelFavorite(hotelId)
+      .then(setIsFavorite)
+      .catch(() => setIsFavorite(false));
+  }, [hotelId, user, isGuest]);
+
+  const handleFavoritePress = async () => {
+    if (!hotel) return;
+    if (!user || isGuest) {
+      setShowAuthCard(true);
+      return;
+    }
+    try {
+      const appHotel: AppHotel = {
+        id: String(hotel.id),
+        name: String(hotel.name || ''),
+        description: '',
+        location: hotel.region?.name || '',
+        country: hotel.country?.name || '',
+        category: String(hotel.category || ''),
+        rating: Number(hotel.rating) || 0,
+        reviews: 0,
+        price: Number((hotel as { price?: number }).price || (hotel as { minPrice?: number }).minPrice) || 0,
+        currency: 'RUB',
+        image: (hotel as { picturelink?: string }).picturelink || '',
+        gallery: (hotel as { picturelink?: string }).picturelink
+          ? [(hotel as { picturelink?: string }).picturelink as string]
+          : [],
+        amenities: [],
+        stars: Number(hotel.category) || 0,
+        mealTypes: [],
+        available: true,
+      };
+      const result = await FavoritesService.getInstance().toggleHotelFavorite(appHotel);
+      if (result.success) {
+        setIsFavorite(result.isFavorite);
+      } else if (result.error) {
+        Alert.alert(i18n.t('common.error'), result.error);
+      }
+    } catch (e) {
+      logger.error('[ApiHotelDetails] favorite:', e);
+      Alert.alert(i18n.t('common.error'), i18n.t('favorites.updateFailed'));
+    }
+  };
 
   const loadHotelDetails = async () => {
     const preview = hotelPreview?.id === hotelId ? hotelPreview : null;
@@ -152,7 +215,7 @@ export default function ApiHotelDetailsScreen({ navigation, route }: ApiHotelDet
 
   const renderStars = (category: number) => {
     return Array.from({ length: Math.min(5, category) }, (_, i) => (
-      <Ionicons key={i} name="star" size={16} color="#FFD700" />
+      <Ionicons key={i} name="star" size={16} color={theme.accent || theme.primary} />
     ));
   };
 
@@ -160,9 +223,6 @@ export default function ApiHotelDetailsScreen({ navigation, route }: ApiHotelDet
     (h as { price?: number; priceFrom?: number }).price ??
     (h as { price?: number; priceFrom?: number }).priceFrom ??
     0;
-
-  const getHotelCurrency = (h: DisplayHotel): string =>
-    (h as { currency?: string }).currency ?? 'RUB';
 
   const openToursForHotel = async () => {
     if (!hotel) return;
@@ -195,14 +255,40 @@ export default function ApiHotelDetailsScreen({ navigation, route }: ApiHotelDet
     return limited;
   })();
 
+  const heroHeight = Math.max(220, Math.min(300, Math.round(screenWidth * 0.62)));
+
   const renderImageCarousel = () => {
     if (galleryUrls.length === 0) {
       return (
-        <View style={[styles.imagePlaceholder, { backgroundColor: theme.secondaryBackground }]}>
+        <View style={[styles.imagePlaceholder, { backgroundColor: theme.secondaryBackground, height: heroHeight }]}>
           <Ionicons name="image-outline" size={48} color={theme.secondaryText} />
           <Text style={[styles.placeholderText, { color: theme.secondaryText }]}>
             Фото недоступны
           </Text>
+        </View>
+      );
+    }
+
+    // Концепт 14: крупное фото слева + сетка справа
+    if (galleryUrls.length >= 3) {
+      const side = galleryUrls.slice(1, 5);
+      return (
+        <View style={[styles.mosaic, { height: heroHeight }]}>
+          <CachedImage
+            source={galleryUrls[0]}
+            style={styles.mosaicMain}
+            recyclingKey={`hotel-detail-${hotelId}-0`}
+          />
+          <View style={styles.mosaicSide}>
+            {side.map((url, i) => (
+              <CachedImage
+                key={`${url}-${i}`}
+                source={url}
+                style={styles.mosaicTile}
+                recyclingKey={`hotel-detail-${hotelId}-${i + 1}`}
+              />
+            ))}
+          </View>
         </View>
       );
     }
@@ -224,7 +310,7 @@ export default function ApiHotelDetailsScreen({ navigation, route }: ApiHotelDet
             <CachedImage
               key={`${imageUrl}-${index}`}
               source={imageUrl}
-              style={styles.hotelImage}
+              style={[styles.hotelImage, { width: screenWidth, height: heroHeight }]}
               recyclingKey={`hotel-detail-${hotelId}-${index}`}
             />
           ))}
@@ -249,25 +335,21 @@ export default function ApiHotelDetailsScreen({ navigation, route }: ApiHotelDet
 
     return (
       <View style={[styles.section, { backgroundColor: theme.card }]}>
-        <Text style={[styles.hotelName, { color: theme.text }]}>
+        <Text style={[styles.hotelName, { color: theme.deep || theme.text }]}>
           {hotel.name}
         </Text>
 
         <View style={styles.hotelMeta}>
           <View style={styles.metaItem}>
-            <Ionicons name="location" size={16} color={theme.secondaryText} />
-            <Text style={[styles.metaText, { color: theme.secondaryText }]}>
-              {hotel.region.name}
-              {hotel.subRegion && `, ${hotel.subRegion.name}`}
-            </Text>
-          </View>
-
-          <View style={styles.metaItem}>
             <View style={{ flexDirection: 'row' }}>
               {renderStars(hotel.category)}
             </View>
-            <Text style={[styles.categoryText, { color: theme.secondaryText }]}>
-              {hotel.category}*
+          </View>
+          <View style={styles.metaItem}>
+            <Ionicons name="location" size={16} color={theme.secondaryText} />
+            <Text style={[styles.metaText, { color: theme.secondaryText }]}>
+              {hotel.region.name}
+              {hotel.country?.name ? `, ${hotel.country.name}` : ''}
             </Text>
           </View>
 
@@ -293,24 +375,24 @@ export default function ApiHotelDetailsScreen({ navigation, route }: ApiHotelDet
             </Text>
           )}
 
-        <View style={[styles.priceRow, { borderTopColor: theme.border }]}>
-          <View style={{ flex: 1, paddingRight: 12 }}>
-            <Text style={[styles.priceLabel, { color: theme.secondaryText }]}>
-              Цены на туры
-            </Text>
-            <Text style={[styles.priceHint, { color: theme.secondaryText }]}>
-              {getHotelPrice(hotel) > 0
-                ? `от ${getHotelPrice(hotel).toLocaleString('ru-RU')} ${getHotelCurrency(hotel)}`
-                : 'Актуальные цены — в блоке туров ниже'}
-            </Text>
+        <View style={[styles.priceRow, { backgroundColor: theme.secondaryBackground }]}>
+          <View style={{ flex: 1, paddingRight: 12, minWidth: 0 }}>
+            <Text style={[styles.priceLabel, { color: theme.secondaryText }]}>Цены на туры</Text>
+            {getHotelPrice(hotel) > 0 ? (
+              <TourPriceLabel amount={getHotelPrice(hotel)} caption="цена за тур" large />
+            ) : (
+              <Text style={[styles.priceHint, { color: theme.deep || theme.text }]}>
+                Актуальные цены — в блоке туров ниже
+              </Text>
+            )}
           </View>
-          <TouchableOpacity
-            style={[styles.priceCta, { backgroundColor: theme.primary }]}
+          <PrimaryButton
+            title="Смотреть туры"
             onPress={() => void openToursForHotel()}
-            activeOpacity={0.85}
-          >
-            <Text style={styles.priceCtaText}>Смотреть</Text>
-          </TouchableOpacity>
+            variant="cta"
+            small
+            style={{ minWidth: 132 }}
+          />
         </View>
       </View>
     );
@@ -384,8 +466,8 @@ export default function ApiHotelDetailsScreen({ navigation, route }: ApiHotelDet
         {svc.tags && svc.tags.length > 0 && (
           <View style={styles.serviceTags}>
             {svc.tags.map((tag, index) => (
-              <View key={index} style={[styles.tagContainer, { backgroundColor: theme.primary }]}>
-                <Text style={[styles.tagText, { color: theme.text }]}>{tag.name}</Text>
+              <View key={index} style={[styles.tagContainer, { backgroundColor: theme.secondaryBackground }]}>
+                <Text style={[styles.tagText, { color: theme.primary }]}>{tag.name}</Text>
               </View>
             ))}
           </View>
@@ -506,28 +588,49 @@ export default function ApiHotelDetailsScreen({ navigation, route }: ApiHotelDet
     );
   }
 
+  const stickyPrice = hotel ? getHotelPrice(hotel) : 0;
+
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
+    <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]} edges={['top']}>
       <StatusBar
         barStyle={isDark ? 'light-content' : 'dark-content'}
-        backgroundColor={theme.card}
+        backgroundColor={theme.background}
       />
 
-      <View style={[styles.header, { backgroundColor: theme.card, borderBottomColor: theme.border }]}>
-        <TouchableOpacity
-          style={styles.headerBackBtn}
-          onPress={() => navigation.goBack()}
-          activeOpacity={0.7}
-        >
-          <Ionicons name="arrow-back" size={24} color={theme.text} />
-        </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: theme.text }]} numberOfLines={1}>
-          {hotel.name}
-        </Text>
-        <View style={styles.headerSpacer} />
-      </View>
+      <ScreenHeader
+        title={hotel.name}
+        subtitle={hotel.region?.name}
+        onBack={() => navigation.goBack()}
+        noSafeTop
+        right={
+          <TouchableOpacity
+            onPress={() => void handleFavoritePress()}
+            hitSlop={10}
+            style={{
+              width: 40,
+              height: 40,
+              borderRadius: 20,
+              alignItems: 'center',
+              justifyContent: 'center',
+              backgroundColor: theme.card,
+              borderWidth: 1,
+              borderColor: theme.border,
+            }}
+          >
+            <Ionicons
+              name={isFavorite ? 'heart' : 'heart-outline'}
+              size={20}
+              color={isFavorite ? '#FF6B6B' : theme.deep || theme.text}
+            />
+          </TouchableOpacity>
+        }
+      />
 
-      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        style={styles.content}
+        contentContainerStyle={{ paddingBottom: 100 + insets.bottom }}
+        showsVerticalScrollIndicator={false}
+      >
         {renderImageCarousel()}
         {renderHotelInfo()}
         {focusTours ? (
@@ -537,6 +640,7 @@ export default function ApiHotelDetailsScreen({ navigation, route }: ApiHotelDet
             theme={theme}
             navigation={navigation}
             enabled={!!hotel?.id}
+            hotelImage={galleryUrls[0]}
           />
         ) : null}
         {renderLocationInfo()}
@@ -550,23 +654,43 @@ export default function ApiHotelDetailsScreen({ navigation, route }: ApiHotelDet
             theme={theme}
             navigation={navigation}
             enabled={!!hotel?.id}
+            hotelImage={galleryUrls[0]}
           />
         ) : null}
 
-        <View style={[styles.bookingSection, { backgroundColor: theme.card }]}>
+        <View style={[styles.bookingSection, shadows.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
           <Text style={[styles.bookingSectionText, { color: theme.secondaryText }]}>
             Нужны другие даты или вылет — откройте полный поиск по этому отелю.
           </Text>
-          <TouchableOpacity
-            style={[styles.bookingButton, { backgroundColor: theme.primary }]}
+          <PrimaryButton
+            title="Изменить даты поиска"
             onPress={handleBooking}
-            activeOpacity={0.85}
-          >
-            <Ionicons name="options-outline" size={20} color="#fff" />
-            <Text style={styles.bookingButtonText}>Изменить даты поиска</Text>
-          </TouchableOpacity>
+            variant="primary"
+            iconLeft={<Ionicons name="options-outline" size={18} color="#fff" />}
+          />
         </View>
       </ScrollView>
+
+      <StickyTourBar
+        price={stickyPrice}
+        priceCaption="цена за тур"
+        buttonTitle="Смотреть туры"
+        onPress={() => void openToursForHotel()}
+      />
+      <AuthRequiredCard
+        visible={showAuthCard}
+        title={i18n.t('favorites.authRequired')}
+        message={i18n.t('auth.favoritesRequired')}
+        onLater={() => setShowAuthCard(false)}
+        onLogin={() => {
+          setShowAuthCard(false);
+          navigateRoot(navigation, 'Login');
+        }}
+        onRegister={() => {
+          setShowAuthCard(false);
+          navigateRoot(navigation, 'Register');
+        }}
+      />
     </SafeAreaView>
   );
 }
@@ -602,60 +726,41 @@ const styles = StyleSheet.create({
   backButton: {
     paddingHorizontal: 20,
     paddingVertical: 10,
-    borderRadius: 8,
+    borderRadius: radius.lg,
   },
   backButtonText: {
     color: '#fff',
     fontSize: 16,
     fontWeight: '600',
   },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    ...platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.1,
-        shadowRadius: 2,
-      },
-      android: {
-        elevation: 2,
-      },
-    }),
-  },
-  headerBackBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 12,
-  },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    flex: 1,
-  },
-  headerSpacer: {
-    width: 40,
-  },
   content: {
     flex: 1,
+  },
+  mosaic: {
+    flexDirection: 'row',
+    gap: 4,
+    backgroundColor: '#E8EEF5',
+  },
+  mosaicMain: {
+    flex: 1.45,
+    height: '100%',
+  },
+  mosaicSide: {
+    flex: 1,
+    gap: 4,
+  },
+  mosaicTile: {
+    flex: 1,
+    width: '100%',
   },
   imageContainer: {
     position: 'relative',
   },
   hotelImage: {
-    width: '100%',
-    height: 250,
+    height: 280,
   },
   imagePlaceholder: {
     width: '100%',
-    height: 250,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -678,26 +783,17 @@ const styles = StyleSheet.create({
     borderRadius: 4,
   },
   section: {
-    margin: 16,
-    marginBottom: 8,
-    padding: 16,
-    borderRadius: 12,
-    ...platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.1,
-        shadowRadius: 4,
-      },
-      android: {
-        elevation: 3,
-      },
-    }),
+    margin: spacing.md,
+    marginBottom: spacing.sm,
+    padding: spacing.md,
+    borderRadius: radius.xl,
+    ...shadows.card,
   },
   hotelName: {
     fontSize: 24,
-    fontWeight: '700',
+    fontWeight: '800',
     marginBottom: 12,
+    letterSpacing: -0.3,
   },
   hotelMeta: {
     flexDirection: 'row',
@@ -713,10 +809,6 @@ const styles = StyleSheet.create({
   },
   metaText: {
     fontSize: 14,
-  },
-  categoryText: {
-    fontSize: 14,
-    marginLeft: 4,
   },
   ratingBadge: {
     flexDirection: 'row',
@@ -738,9 +830,11 @@ const styles = StyleSheet.create({
   priceRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 12,
-    paddingTop: 12,
-    borderTopWidth: StyleSheet.hairlineWidth,
+    marginTop: 14,
+    marginHorizontal: -4,
+    paddingHorizontal: 12,
+    paddingVertical: 14,
+    borderRadius: radius.lg,
   },
   priceLabel: {
     fontSize: 13,
@@ -748,26 +842,13 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   priceHint: {
-    fontSize: 13,
-    lineHeight: 18,
-  },
-  priceCta: {
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 10,
-  },
-  priceCtaText: {
-    color: '#fff',
-    fontWeight: '700',
     fontSize: 14,
-  },
-  priceValue: {
-    fontSize: 18,
+    lineHeight: 20,
     fontWeight: '700',
   },
   sectionTitle: {
     fontSize: 18,
-    fontWeight: '600',
+    fontWeight: '700',
     marginBottom: 12,
   },
   infoRow: {
@@ -780,13 +861,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     flex: 1,
     lineHeight: 24,
-  },
-  coordinates: {
-    marginTop: 8,
-  },
-  coordinatesText: {
-    fontSize: 14,
-    fontStyle: 'italic',
   },
   serviceItem: {
     marginBottom: 16,
@@ -813,39 +887,18 @@ const styles = StyleSheet.create({
   },
   tagText: {
     fontSize: 12,
-    fontWeight: '500',
+    fontWeight: '600',
   },
   bookingSection: {
-    margin: 16,
-    marginBottom: 32,
-    padding: 20,
-    borderRadius: 12,
-    ...platform.select({
-      ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 4 },
-      android: { elevation: 3 },
-    }),
-  },
-  bookingSectionTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    marginBottom: 8,
+    margin: spacing.md,
+    marginBottom: 24,
+    padding: spacing.lg,
+    borderRadius: radius.xl,
+    borderWidth: 1,
   },
   bookingSectionText: {
     fontSize: 14,
     marginBottom: 16,
     lineHeight: 20,
-  },
-  bookingButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 14,
-    borderRadius: 12,
-    gap: 10,
-  },
-  bookingButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '700',
   },
 });

@@ -1,0 +1,38 @@
+---
+description: TravelHub development conveyor — PM → design → backend → app → QA → release
+alwaysApply: true
+---
+
+# TravelHub Conveyor
+
+You are the delivery pipeline for TravelHub: PHP site (`travelhub-v2`) + Expo app (`mobile-app/app`).
+
+## Default flow for any feature
+1. **PM** — goal, scope, out-of-scope, acceptance criteria (use Linear MCP if available).
+2. **Design** — follow concept screens / Figma; never invent generic AI UI. Owner is backend-first: you own visual quality.
+3. **Backend** — contracts first (request/response, errors, auth). Prefer improving existing PHP/CRM over rewrite.
+4. **App/Web** — implement against contracts; keep Tourvisor/CRM/payment flows working.
+5. **Security + CI** — no secrets in git; validate inputs; prefer preview OTA before store.
+6. **QA** — Android via adb when connected; iOS TestFlight needs user screenshots (Windows has no iOS USB automation).
+7. **Release** — preview OTA / TestFlight / production only when asked.
+
+## Product locks
+- Tabs: **Главная · Поиск · Избранное · Бронирования · Профиль**
+- Prices: **`от … ₽`** + **`за тур` / `цена за тур`**
+- Do not ship brand year **2026** in UI
+- Prefer real logo / AppLogo; no IT jargon in client copy
+- Cyrillic: never PowerShell `Set-Content` on TSX (corrupts UTF-8)
+
+## MCP usage
+- **GitHub** — PRs, checks, releases
+- **Sentry** — crashes before guessing
+- **Linear** — tasks / acceptance
+- **Figma** — when frames exist; else concept PNGs in `docs/TravelHub-концепт-для-заказчика`
+- **Context7** — library docs over memory
+- **Playwright / browser** — website QA
+- **RN-dev / mobile / ExpoSnap** — app runtime
+- **Memory** — persist durable product decisions
+
+## Communication
+- Be concise; backend owner — explain design/PM decisions plainly.
+- Ask before production store submit / destructive git / rewriting backend stacks.

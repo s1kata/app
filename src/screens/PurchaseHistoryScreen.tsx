@@ -6,7 +6,6 @@ import {
   ScrollView,
   RefreshControl,
   ActivityIndicator,
-  TouchableOpacity,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -15,7 +14,8 @@ import { i18n } from '../config/i18n';
 import { bookingService } from '../services/BookingService';
 import { mapLocalBookingToSota } from '../services/sync/bookingMapper';
 import { SotaBooking } from '../types';
-import { PrimaryButton } from '../components/ui';
+import { PrimaryButton, ScreenHeader } from '../components/ui';
+import { radius, shadows, spacing, typography } from '../config/designSystem';
 
 function formatDate(s: string): string {
   if (!s) return '—';
@@ -78,7 +78,8 @@ export default function PurchaseHistoryScreen({ navigation }: any) {
 
   if (loading && !refreshing) {
     return (
-      <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]} edges={['top', 'bottom']}>
+      <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]} edges={['bottom']}>
+        <ScreenHeader title={i18n.t('purchaseHistory.title')} onBack={() => navigation.goBack()} />
         <View style={styles.centered}>
           <ActivityIndicator size="large" color={theme.primary} />
           <Text style={[styles.loadingText, { color: theme.secondaryText }]}>
@@ -90,13 +91,8 @@ export default function PurchaseHistoryScreen({ navigation }: any) {
   }
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]} edges={['top', 'bottom']}>
-      <View style={[styles.header, { borderBottomColor: theme.border }]}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
-          <Ionicons name="chevron-back" size={28} color={theme.primary} />
-        </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: theme.text }]}>{i18n.t('purchaseHistory.title')}</Text>
-      </View>
+    <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]} edges={['bottom']}>
+      <ScreenHeader title={i18n.t('purchaseHistory.title')} onBack={() => navigation.goBack()} />
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={styles.scrollContent}
@@ -137,7 +133,17 @@ export default function PurchaseHistoryScreen({ navigation }: any) {
                 <Text style={[styles.metaText, { color: theme.secondaryText }]}>
                   {formatDate(b.departureDate)} — {formatDate(b.returnDate)}
                 </Text>
-                <Text style={[styles.status, { color: theme.tertiaryText }]}>{b.status || '—'}</Text>
+                <View
+                  style={[
+                    styles.statusPill,
+                    {
+                      backgroundColor: theme.primary + '18',
+                      borderColor: theme.primary + '33',
+                    },
+                  ]}
+                >
+                  <Text style={[styles.statusPillText, { color: theme.primary }]}>{b.status || '—'}</Text>
+                </View>
               </View>
               {b.bookingNumber ? (
                 <Text style={[styles.bookingNumber, { color: theme.tertiaryText }]}>
@@ -163,54 +169,55 @@ export default function PurchaseHistoryScreen({ navigation }: any) {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 8,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-  },
-  backBtn: { padding: 8, marginRight: 8 },
-  headerTitle: { fontSize: 20, fontWeight: '700' },
   scroll: { flexGrow: 1 },
-  scrollContent: { padding: 16, paddingBottom: 32 },
-  centered: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 12 },
-  loadingText: { fontSize: 14 },
+  scrollContent: { padding: spacing.md, paddingBottom: spacing.xxl },
+  centered: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: spacing.sm },
+  loadingText: { ...typography.caption },
   errorBox: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 12,
-    borderRadius: 12,
+    padding: spacing.sm,
+    borderRadius: radius.md,
     borderWidth: 1,
-    marginBottom: 16,
-    gap: 8,
+    marginBottom: spacing.md,
+    gap: spacing.xs,
   },
-  errorText: { flex: 1, fontSize: 14 },
+  errorText: { flex: 1, ...typography.caption },
   empty: {
-    borderRadius: 16,
+    borderRadius: radius.xl,
     borderWidth: 1,
-    padding: 32,
+    padding: spacing.xxl,
     alignItems: 'center',
-    gap: 12,
+    gap: spacing.sm,
+    ...shadows.card,
   },
-  emptyTitle: { fontSize: 18, fontWeight: '600' },
-  emptyDesc: { fontSize: 14, textAlign: 'center' },
+  emptyTitle: { ...typography.h3 },
+  emptyDesc: { ...typography.caption, textAlign: 'center' },
   card: {
-    borderRadius: 12,
+    borderRadius: radius.xl,
     borderWidth: 1,
-    padding: 16,
-    marginBottom: 12,
+    padding: spacing.md,
+    marginBottom: spacing.sm,
+    ...shadows.card,
   },
-  cardRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 },
-  tourName: { flex: 1, fontSize: 16, fontWeight: '600' },
-  price: { fontSize: 16, fontWeight: '700' },
-  meta: { marginTop: 8 },
-  metaText: { fontSize: 13 },
-  status: { fontSize: 12, marginTop: 2 },
-  bookingNumber: { fontSize: 12, marginTop: 4 },
+  cardRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: spacing.xs },
+  tourName: { flex: 1, ...typography.bodyBold },
+  price: { ...typography.bodyBold },
+  meta: { marginTop: spacing.xs, gap: spacing.xs },
+  metaText: { ...typography.small },
+  statusPill: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xxs,
+    borderRadius: radius.full,
+    borderWidth: 1,
+    marginTop: spacing.xxs,
+  },
+  statusPillText: { ...typography.smallBold },
+  bookingNumber: { ...typography.small, marginTop: spacing.xxs },
   repeatBtn: {
-    marginTop: 12,
+    marginTop: spacing.sm,
     alignSelf: 'flex-start',
   },
-  repeatBtnText: { fontSize: 13, fontWeight: '600', letterSpacing: 0.2 },
+  repeatBtnText: { ...typography.buttonSmall, letterSpacing: 0.2 },
 });

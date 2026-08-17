@@ -1,0 +1,23 @@
+---
+description: Backend quality — contracts, PHP/CRM, payments, no reckless rewrites
+alwaysApply: true
+---
+
+# Backend quality
+
+## Stack policy
+- Keep working PHP site + Tourvisor + CRM + payment paths
+- Do **not** propose full rewrite (Nest/Go/etc.) unless explicitly requested
+- New endpoints: clear contract, validation, typed errors, auth checks, logging
+
+## API hygiene
+- Validate all inputs at boundary
+- Never trust client for price/total/bonus math — server is source of truth
+- Idempotent payment / booking where possible
+- No Tourvisor tokens or secrets in mobile; use backend proxy
+- Prefer explicit error codes the app can map to Russian UX copy
+
+## When changing backend
+- List affected app screens
+- Preserve guest vs authenticated behavior
+- Document breaking changes before shipping OTA/store

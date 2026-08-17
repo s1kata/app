@@ -11,13 +11,14 @@ import {
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { getCountryBySlug, CountryData } from '../data/countriesData';
-import { tourvisorApi } from '../services/TourvisorApiService';
 import { dictionaryService } from '../services/DictionaryService';
 import { Country } from '../types/tourvisor';
 import { useAppContext } from '../contexts/AppContext';
 import { logger } from '../utils/logger';
 import { getBottomSafeInset } from '../utils/safeAreaInsets';
+import PrimaryButton from '../components/ui/PrimaryButton';
 
 interface CountryInfoScreenProps {
   navigation: any;
@@ -30,7 +31,7 @@ interface CountryInfoScreenProps {
 
 export default function CountryInfoScreen({ navigation, route }: CountryInfoScreenProps) {
   const { countrySlug } = route.params;
-  const { theme, isDark } = useAppContext();
+  const { theme } = useAppContext();
   const { width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const stickyPad = getBottomSafeInset(insets, 16) + 20;
@@ -104,7 +105,10 @@ export default function CountryInfoScreen({ navigation, route }: CountryInfoScre
             style={styles.heroImage}
             resizeMode="cover"
           />
-          <View style={[styles.heroGradient, { backgroundColor: isDark ? 'rgba(0,0,0,0.46)' : 'rgba(0,0,0,0.32)' }]} />
+          <LinearGradient
+            colors={['rgba(18,18,46,0.15)', 'rgba(18,18,46,0.72)']}
+            style={styles.heroGradient}
+          />
           
           {/* Header */}
           <View style={styles.header}>
@@ -118,7 +122,7 @@ export default function CountryInfoScreen({ navigation, route }: CountryInfoScre
 
           {/* Country Title */}
           <View style={styles.heroContent}>
-            <View style={styles.countryFlagCircle}>
+            <View style={[styles.countryFlagCircle, { backgroundColor: 'rgba(93,169,164,0.35)' }]}>
               <Ionicons name="earth-outline" size={30} color="#fff" />
             </View>
             <Text style={styles.countryName}>{country.name}</Text>
@@ -155,7 +159,7 @@ export default function CountryInfoScreen({ navigation, route }: CountryInfoScre
             <View style={styles.infoGrid}>
               <View style={[styles.infoCard, { width: (width - 52) / 2 }]}>
                 <View style={[styles.infoIcon, { backgroundColor: '#EFF6FF' }]}>
-                  <Ionicons name="calendar" size={24} color="#0066CC" />
+                  <Ionicons name="calendar" size={24} color={theme.primary} />
                 </View>
                 <Text style={styles.infoLabel}>Лучшее время</Text>
                 <Text style={styles.infoValue}>{country.bestTime}</Text>
@@ -205,7 +209,7 @@ export default function CountryInfoScreen({ navigation, route }: CountryInfoScre
               {country.detailedInfo.attractions && (
                 <View style={styles.detailCard}>
                   <View style={styles.detailHeader}>
-                    <Ionicons name="location" size={20} color="#0066CC" />
+                    <Ionicons name="location" size={20} color={theme.primary} />
                     <Text style={styles.detailTitle}>Достопримечательности</Text>
                   </View>
                   <Text style={styles.detailText}>{country.detailedInfo.attractions}</Text>
@@ -235,7 +239,7 @@ export default function CountryInfoScreen({ navigation, route }: CountryInfoScre
               {country.detailedInfo.culture && (
                 <View style={styles.detailCard}>
                   <View style={styles.detailHeader}>
-                    <Ionicons name="people" size={20} color="#8B5CF6" />
+                    <Ionicons name="people" size={20} color={theme.primary} />
                     <Text style={styles.detailTitle}>Культура</Text>
                   </View>
                   <Text style={styles.detailText}>{country.detailedInfo.culture}</Text>
@@ -272,16 +276,12 @@ export default function CountryInfoScreen({ navigation, route }: CountryInfoScre
 
       {/* Book Button */}
       <View style={[styles.bookButtonContainer, { paddingBottom: stickyPad }]}>
-        <TouchableOpacity
-          style={styles.bookButton}
+        <PrimaryButton
+          title="Смотреть туры"
           onPress={handleBookTour}
-          activeOpacity={0.9}
-        >
-          <View style={[styles.bookButtonGradient, { backgroundColor: '#0066CC' }]}>
-            <Ionicons name="airplane" size={24} color="#FFFFFF" />
-            <Text style={styles.bookButtonText}>Смотреть туры</Text>
-          </View>
-        </TouchableOpacity>
+          variant="cta"
+          iconLeft={<Ionicons name="airplane" size={20} color="#FFFFFF" />}
+        />
       </View>
     </SafeAreaView>
   );
@@ -290,7 +290,7 @@ export default function CountryInfoScreen({ navigation, route }: CountryInfoScre
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FAFBFC',
+    backgroundColor: '#F6F8FB',
   },
   centerContent: {
     justifyContent: 'center',
@@ -483,7 +483,7 @@ const styles = StyleSheet.create({
   bookButton: {
     borderRadius: 16,
     overflow: 'hidden',
-    shadowColor: '#0066CC',
+    shadowColor: '#5DA9A4',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.08,
     shadowRadius: 12,

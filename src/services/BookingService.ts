@@ -29,6 +29,19 @@ import {
   canTransitionBookingStatus,
   canTransitionPaymentStatus,
 } from '../utils/bookingStatusTransitions';
+import { mergeBookingLists } from './sync/bookingMapper';
+
+/** Телефон для CRM: +7XXXXXXXXXX */
+function normalizeRuPhone(phone: string): string {
+  const digits = String(phone || '').replace(/\D+/g, '');
+  if (!digits) return '';
+  if (digits.length === 11 && (digits[0] === '8' || digits[0] === '7')) {
+    return `+7${digits.slice(1)}`;
+  }
+  if (digits.length === 10) return `+7${digits}`;
+  if (digits.length >= 11 && digits.length <= 15) return `+${digits}`;
+  return '';
+}
 
 /**
  * Бронирования: очередь → CRM (сайт) → локальный кэш (AsyncStorage) или Firestore (legacy).
@@ -188,9 +201,15 @@ class BookingService {
 
       const contactInfo = {
         name: sanitizeString(bookingData.contactInfo?.name, MAX_LENGTHS.name),
-        phone: sanitizeString(bookingData.contactInfo?.phone, MAX_LENGTHS.phone),
+        phone: normalizeRuPhone(bookingData.contactInfo?.phone || ''),
         email: sanitizeString(bookingData.contactInfo?.email, MAX_LENGTHS.email),
       };
+      if (!contactInfo.phone && !contactInfo.email) {
+        return {
+          success: false,
+          error: 'Укажите телефон или email для заявки в CRM',
+        };
+      }
       const specialRequests = bookingData.specialRequests
         ? sanitizeString(bookingData.specialRequests, MAX_LENGTHS.specialRequests)
         : null;
@@ -285,27 +304,12 @@ class BookingService {
 
   async getUserBookings(userId: string, options?: { skipSync?: boolean }): Promise<Booking[]> {
     try {
-      if (this.useFirestore()) {
-        const q = query(collection(db!, this.COLLECTION_NAME), where('userId', '==', userId));
-        const querySnapshot = await getDocs(q);
-        const bookings: Booking[] = [];
-        querySnapshot.forEach((snap) => {
-          const data = snap.data();
-          bookings.push({
-            id: snap.id,
-            ...data,
-            createdAt: data.createdAt?.toDate?.()?.toISOString() || data.createdAt,
-            updatedAt: data.updatedAt?.toDate?.()?.toISOString() || data.updatedAt,
-          } as Booking);
-        });
-        bookings.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-        return BookingService.dedupeBookingsForDisplay(bookings);
-      }
-
+      // CRM + backend meta — источник истины между устройствами.
+      // Раньше при включённом Firestore синк пропускался → Android пустой, iOS полный.
       if (!options?.skipSync && !userId.startsWith('guest_')) {
         const profile = await authSession.getStoredUser();
         const contact =
-          profile?.id === userId
+          profile && (profile.email || profile.phone)
             ? { email: profile.email, phone: profile.phone }
             : undefined;
         try {
@@ -316,6 +320,24 @@ class BookingService {
       }
 
       const local = await bookingLocalStore.getByUserId(userId);
+
+      if (this.useFirestore()) {
+        const q = query(collection(db!, this.COLLECTION_NAME), where('userId', '==', userId));
+        const querySnapshot = await getDocs(q);
+        const firestoreBookings: Booking[] = [];
+        querySnapshot.forEach((snap) => {
+          const data = snap.data();
+          firestoreBookings.push({
+            id: snap.id,
+            ...data,
+            createdAt: data.createdAt?.toDate?.()?.toISOString() || data.createdAt,
+            updatedAt: data.updatedAt?.toDate?.()?.toISOString() || data.updatedAt,
+          } as Booking);
+        });
+        const merged = mergeBookingLists([...local, ...firestoreBookings]);
+        return BookingService.dedupeBookingsForDisplay(merged);
+      }
+
       return BookingService.dedupeBookingsForDisplay(local);
     } catch (error: unknown) {
       logger.error('[BookingService] Error getting user bookings:', error);

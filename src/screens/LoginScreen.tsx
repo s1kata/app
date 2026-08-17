@@ -1,8 +1,10 @@
+/**
+ * Логин — концепт 02: бренд TravelHub, поля, коралловый CTA.
+ */
 import React, { useState, useRef, useEffect } from 'react';
 import {
   View,
   Text,
-  TextInput,
   TouchableOpacity,
   StyleSheet,
   Alert,
@@ -18,37 +20,29 @@ import { i18n } from '../config/i18n';
 import { validateEmail, validatePassword } from '../utils/validation';
 import { logger } from '../utils/logger';
 import { logIosTestStep, IosTestStep } from '../utils/iosTestFlows';
-import { runAuthDiagnostics } from '../utils/authDiagnostics';
 import PercentageLoader from '../components/PercentageLoader';
-import { adaptive } from '../utils/adaptive';
-import { radius, shadows } from '../config/designSystem';
-import { PrimaryButton } from '../components/ui';
+import { BRAND, radius, spacing, typography, touchTargets } from '../config/designSystem';
+import { PrimaryButton, TextField } from '../components/ui';
+import AppLogo from '../components/AppLogo';
+import { navigateRoot } from '../utils/navHelpers';
 
 export default function LoginScreen({ navigation, route }: any) {
-  const { login, loginAsGuest, theme, isDark } = useAppContext();
+  const { login, loginAsGuest, theme, isDark, language } = useAppContext();
+  void language;
   const [email, setEmail] = useState(route?.params?.prefilledIdentifier || '');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [showLoader, setShowLoader] = useState(false);
   const [loaderProgress, setLoaderProgress] = useState(0);
   const progressInterval = useRef<ReturnType<typeof setInterval> | null>(null);
+  const hideGuestLogin = route?.params?.hideGuestLogin || false;
 
   useEffect(() => {
     if (route?.params?.initialTab === 'register') {
-      navigation.replace('Register', {
-        returnTo: route?.params?.returnTo,
-      });
+      navigation.replace('Register', { returnTo: route?.params?.returnTo });
     }
   }, [navigation, route?.params?.initialTab, route?.params?.returnTo]);
-
-  // Диагностика входа в dev-сборке (сеть, Firebase, опционально тестовый login)
-  useEffect(() => {
-    if (!__DEV__) return;
-    void runAuthDiagnostics();
-  }, []);
-
-  // Скрываем кнопку гостевого входа, если переход из профиля
-  const hideGuestLogin = route?.params?.hideGuestLogin || false;
 
   const stopProgressSimulation = () => {
     if (progressInterval.current) {
@@ -70,9 +64,8 @@ export default function LoginScreen({ navigation, route }: any) {
     try {
       setLoading(true);
       await loginAsGuest();
-      // После гостевого входа переходим на главный экран (не на профиль)
       navigation.replace('MainTabs');
-    } catch (error) {
+    } catch {
       Alert.alert(i18n.t('common.error'), i18n.t('login.errorGuest'));
     } finally {
       setLoading(false);
@@ -84,12 +77,10 @@ export default function LoginScreen({ navigation, route }: any) {
       Alert.alert(i18n.t('common.error'), i18n.t('login.errorFillAll'));
       return;
     }
-
     if (!validateEmail(email)) {
       Alert.alert(i18n.t('common.error'), i18n.t('login.errorInvalidEmail'));
       return;
     }
-
     if (!validatePassword(password)) {
       Alert.alert(i18n.t('common.error'), i18n.t('login.errorPasswordLength'));
       return;
@@ -98,272 +89,146 @@ export default function LoginScreen({ navigation, route }: any) {
     setLoading(true);
     setShowLoader(true);
     startProgressSimulation();
-    logger.debug('LoginScreen: Starting login process');
-
     try {
       await login(email, password);
       stopProgressSimulation();
       setLoaderProgress(100);
       logIosTestStep(IosTestStep.AUTH, { method: 'email' });
-      logger.info('LoginScreen: login successful');
     } catch (error: any) {
       stopProgressSimulation();
       setShowLoader(false);
       setLoading(false);
       logger.error('LoginScreen: Login error:', error);
-
-      const errorMessage = error?.message || i18n.t('login.errorGeneric');
-
-      Alert.alert(i18n.t('login.errorTitle'), errorMessage);
+      Alert.alert(i18n.t('login.errorTitle'), error?.message || i18n.t('login.errorGeneric'));
     }
   };
 
   const handleLoaderComplete = () => {
     setShowLoader(false);
     setLoading(false);
-    const returnTo = route?.params?.returnTo as { name: string; params?: { tour?: unknown; searchParams?: unknown } } | undefined;
-    if (returnTo?.name) {
-      navigation.reset({
-        index: 0,
-        routes: [
-          {
-            name: 'MainTabs',
-            state: {
-              routes: [
-                { name: 'Home', state: { routes: [{ name: 'HomeMain' }, { name: returnTo.name, params: returnTo.params ?? {} }], index: 1 } },
-                { name: 'Bookings' },
-                { name: 'Profile' },
-              ],
-              index: 0,
-            },
-          },
-        ],
-      });
-    } else {
-      navigation.replace('MainTabs');
-    }
+    navigation.replace('MainTabs');
   };
 
+  const titleColor = theme.deep || theme.text;
+
   return (
-    <SafeAreaView
-      edges={['top', 'bottom']}
-      style={[styles.safeArea, { backgroundColor: theme.background }]}
-    >
-      <KeyboardAvoidingView
-        behavior={platform.isIOS ? 'padding' : 'height'}
-        style={[styles.container, { backgroundColor: theme.background }]}
-      >
+    <SafeAreaView edges={['top', 'bottom']} style={[styles.safe, { backgroundColor: theme.background }]}>
+      <KeyboardAvoidingView behavior={platform.isIOS ? 'padding' : 'height'} style={{ flex: 1 }}>
         <StatusBar style={isDark ? 'light' : 'dark'} />
-        <View style={[StyleSheet.absoluteFillObject, { backgroundColor: theme.background }]} />
         <ScrollView
-          contentContainerStyle={styles.scrollContent}
-          showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.scroll}
           keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="on-drag"
+          showsVerticalScrollIndicator={false}
         >
-          <View style={styles.content}>
-          {/* Form Section */}
-          <View style={[styles.form, { backgroundColor: theme.card, borderColor: theme.border }]}>
-            <Text style={[styles.title, { color: theme.text }]}>TravelHub</Text>
-            <Text style={[styles.subtitle, { color: theme.secondaryText }]}>{i18n.t('auth.welcome')}</Text>
-            <View style={[styles.inputContainer, { backgroundColor: theme.card, borderColor: theme.border }]}>
-              <Ionicons name="mail-outline" size={20} color={theme.secondaryText} style={styles.inputIcon} />
-              <TextInput
-                style={[styles.input, { color: theme.text }]}
-                placeholder={i18n.t('auth.emailOrPhone')}
-                placeholderTextColor={theme.secondaryText}
-                value={email}
-                onChangeText={setEmail}
-                autoCapitalize="none"
-                keyboardType="email-address"
-              />
-            </View>
-
-            <View style={[styles.inputContainer, { backgroundColor: theme.card, borderColor: theme.border }]}>
-              <Ionicons name="lock-closed-outline" size={20} color={theme.secondaryText} style={styles.inputIcon} />
-              <TextInput
-                style={[styles.input, { color: theme.text }]}
-                placeholder={i18n.t('auth.password')}
-                placeholderTextColor={theme.secondaryText}
-                value={password}
-                onChangeText={setPassword}
-                secureTextEntry
-                autoCapitalize="none"
-              />
-            </View>
-
-            <PrimaryButton
-              title={i18n.t('auth.login')}
-              onPress={handleLogin}
-              loading={loading}
-              variant="cta"
-              iconLeft={<Ionicons name="arrow-forward" size={20} color={theme.surface} />}
-              style={styles.primaryButton}
-            />
-
-            <TouchableOpacity
-              style={styles.forgotPasswordButton}
-              onPress={() => navigation.navigate('ForgotPassword')}
-            >
-              <Text style={[styles.forgotPasswordText, { color: theme.primary }]}>
-                {i18n.t('auth.forgotPassword')}
-              </Text>
-            </TouchableOpacity>
-
-            {!hideGuestLogin && (
-              <>
-                <View style={styles.divider}>
-                  <View style={[styles.dividerLine, { backgroundColor: theme.border }]} />
-                  <Text style={[styles.dividerText, { color: theme.secondaryText }]}>{i18n.t('login.or')}</Text>
-                  <View style={[styles.dividerLine, { backgroundColor: theme.border }]} />
-                </View>
-
-                <TouchableOpacity
-                  style={[styles.secondaryButton, { borderColor: theme.primary, backgroundColor: theme.secondaryBackground }]}
-                  onPress={handleGuestLogin}
-                  activeOpacity={0.8}
-                >
-                  <Ionicons name="person-outline" size={20} color={theme.primary} />
-                  <Text
-                    style={[styles.secondaryButtonText, { color: theme.primary }]}
-                    numberOfLines={1}
-                    ellipsizeMode="tail"
-                  >
-                    {i18n.t('login.guestLogin')}
-                  </Text>
-                </TouchableOpacity>
-              </>
-            )}
-
-            <TouchableOpacity
-              style={styles.linkButton}
-              onPress={() => navigation.navigate('Register')}
-            >
-              <Text style={[styles.linkText, { color: theme.secondaryText }]}>
-                {i18n.t('auth.noAccount')} <Text style={[styles.linkTextBold, { color: theme.primary }]}>{i18n.t('auth.register')}</Text>
-              </Text>
-            </TouchableOpacity>
+          <View style={styles.brandBlock}>
+            <AppLogo size={48} shape="rounded" />
+            <Text style={[styles.wordmark, { color: BRAND.blue }]}>TravelHub</Text>
           </View>
-        </View>
-      </ScrollView>
 
-      <PercentageLoader
-        visible={showLoader}
-        progress={loaderProgress}
-        onComplete={handleLoaderComplete}
-      />
+          <Text style={[styles.title, { color: titleColor }]}>{i18n.t('auth.login')}</Text>
+
+          <TextField
+            placeholder={i18n.t('auth.email')}
+            value={email}
+            onChangeText={setEmail}
+            autoCapitalize="none"
+            keyboardType="email-address"
+            iconLeft={<Ionicons name="mail-outline" size={20} color={theme.secondaryText} />}
+            containerStyle={styles.field}
+          />
+          <TextField
+            placeholder={i18n.t('auth.password')}
+            value={password}
+            onChangeText={setPassword}
+            secureTextEntry={!showPassword}
+            autoCapitalize="none"
+            iconLeft={<Ionicons name="lock-closed-outline" size={20} color={theme.secondaryText} />}
+            iconRight={
+              <TouchableOpacity onPress={() => setShowPassword((v) => !v)} hitSlop={8}>
+                <Ionicons
+                  name={showPassword ? 'eye-outline' : 'eye-off-outline'}
+                  size={20}
+                  color={theme.secondaryText}
+                />
+              </TouchableOpacity>
+            }
+            containerStyle={styles.field}
+          />
+
+          <PrimaryButton
+            title={i18n.t('auth.login')}
+            onPress={handleLogin}
+            loading={loading}
+            variant="cta"
+            style={styles.cta}
+          />
+
+          <TouchableOpacity
+            onPress={() => navigateRoot(navigation, 'ForgotPassword')}
+            style={styles.linkWrap}
+          >
+            <Text style={[styles.link, { color: theme.primary }]}>{i18n.t('auth.forgotPassword')}</Text>
+          </TouchableOpacity>
+
+          <View style={styles.orRow}>
+            <View style={[styles.orLine, { backgroundColor: theme.border }]} />
+            <Text style={[styles.orText, { color: theme.secondaryText }]}>{i18n.t('login.or')}</Text>
+            <View style={[styles.orLine, { backgroundColor: theme.border }]} />
+          </View>
+
+          {!hideGuestLogin ? (
+            <TouchableOpacity onPress={handleGuestLogin} style={styles.linkWrap}>
+              <Text style={[styles.link, { color: theme.primary }]}>{i18n.t('login.guestLogin')}</Text>
+            </TouchableOpacity>
+          ) : null}
+
+          <TouchableOpacity
+            onPress={() => navigateRoot(navigation, 'Register', { returnTo: route?.params?.returnTo })}
+            style={styles.linkWrap}
+          >
+            <Text style={[styles.link, { color: theme.primary }]}>{i18n.t('profile.register')}</Text>
+          </TouchableOpacity>
+        </ScrollView>
+
+        <PercentageLoader visible={showLoader} progress={loaderProgress} onComplete={handleLoaderComplete} />
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-  },
-  container: {
-    flex: 1,
-  },
-  scrollContent: {
+  safe: { flex: 1 },
+  scroll: {
     flexGrow: 1,
-    paddingBottom: 40,
-  },
-  content: {
-    flex: 1,
-    paddingHorizontal: adaptive.getHorizontalPadding(),
+    paddingHorizontal: spacing.xl,
+    paddingTop: spacing.xxxl,
+    paddingBottom: spacing.xxxl,
     justifyContent: 'center',
-    paddingTop: 60,
   },
+  brandBlock: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: spacing.xxl,
+    gap: spacing.sm,
+  },
+  wordmark: { ...typography.hero },
   title: {
-    fontSize: adaptive.fontSize.subtitle(),
-    fontWeight: '700',
-    marginBottom: 6,
+    fontSize: 32,
+    fontWeight: '800',
+    textAlign: 'center',
+    marginBottom: spacing.xl,
     letterSpacing: -0.5,
   },
-  subtitle: {
-    fontSize: adaptive.fontSize.caption(),
-    fontWeight: '400',
-    marginBottom: 16,
+  field: { marginBottom: spacing.md },
+  cta: {
+    marginTop: spacing.sm,
+    borderRadius: radius.lg,
+    minHeight: touchTargets.button,
   },
-  form: {
-    width: '100%',
-    borderRadius: radius.xl,
-    borderWidth: 1,
-    padding: 18,
-    ...shadows.cardRaised,
-  },
-  inputContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderRadius: adaptive.borderRadius.large,
-    borderWidth: 1,
-    marginBottom: 16,
-    paddingHorizontal: adaptive.spacing.medium,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.04,
-    shadowRadius: 10,
-    elevation: 2,
-  },
-  inputIcon: {
-    marginRight: adaptive.spacing.small,
-  },
-  input: {
-    flex: 1,
-    paddingVertical: 16,
-    fontSize: adaptive.fontSize.body(),
-  },
-  primaryButton: {
-    marginTop: 8,
-  },
-  forgotPasswordButton: {
-    marginTop: 20,
-    alignItems: 'center',
-    paddingVertical: 8,
-  },
-  forgotPasswordText: {
-    fontSize: adaptive.fontSize.body(),
-    fontWeight: '500',
-  },
-  divider: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginVertical: 24,
-  },
-  dividerLine: {
-    flex: 1,
-    height: 1,
-  },
-  dividerText: {
-    marginHorizontal: adaptive.spacing.medium,
-    fontSize: adaptive.fontSize.caption(),
-    fontWeight: '500',
-  },
-  secondaryButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: adaptive.borderRadius.large,
-    borderWidth: 2,
-    paddingVertical: 16,
-    gap: 8,
-    paddingHorizontal: 14,
-  },
-  secondaryButtonText: {
-    fontSize: adaptive.fontSize.body(),
-    fontWeight: '600',
-    flexShrink: 1,
-  },
-  linkButton: {
-    marginTop: 24,
-    alignItems: 'center',
-    paddingVertical: 8,
-  },
-  linkText: {
-    fontSize: adaptive.fontSize.body(),
-  },
-  linkTextBold: {
-    fontWeight: '600',
-  },
+  linkWrap: { alignItems: 'center', paddingVertical: spacing.sm },
+  link: { ...typography.captionBold },
+  orRow: { flexDirection: 'row', alignItems: 'center', marginVertical: spacing.xs },
+  orLine: { flex: 1, height: StyleSheet.hairlineWidth },
+  orText: { marginHorizontal: spacing.sm, ...typography.caption },
 });
-

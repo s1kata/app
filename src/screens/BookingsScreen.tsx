@@ -6,10 +6,10 @@ import {
   StyleSheet,
   ScrollView,
   TouchableOpacity,
-  Image,
   ActivityIndicator,
   RefreshControl,
   Alert,
+  Linking,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -23,10 +23,15 @@ import { Booking } from '../types/index';
 import { logger } from '../utils/logger';
 import { logIosTestStep, IosTestStep } from '../utils/iosTestFlows';
 import { registerBookingsReloadHandler } from '../utils/paymentBookingsReload';
-import { shadows, typography, surfaces } from '../config/designSystem';
+import { shadows, typography, surfaces, BRAND, radius, spacing } from '../config/designSystem';
+import { FilterChip, ScreenHeader } from '../components/ui';
+import CachedImage from '../components/ui/CachedImage';
+import { DEFAULT_HOTEL_IMAGE } from '../constants/images';
 import { PaymentPrepareModal } from '../components/ux/PaymentFlowModals';
 import { paymentUxBus } from '../services/PaymentUxBus';
 import GuestModeBanner from '../components/ux/GuestModeBanner';
+import { navigateRoot, navigateTab, safeGoBack } from '../utils/navHelpers';
+import { formatAdultsRu, formatChildrenRu, formatNightsRu } from '../utils/pluralRu';
 import {
   getBookingLegDisplay,
   getPaymentLegDisplay,
@@ -52,7 +57,7 @@ export default function BookingsScreen({ navigation }: any) {
   const { user, theme, fontScale } = useAppContext();
   const insets = useSafeAreaInsets();
   const { contentBottomPadding } = useTabBarMetrics(insets, fontScale);
-  const bottomPad = contentBottomPadding({ includeFab: true });
+  const bottomPad = contentBottomPadding({ includeFab: false });
   const [bookings, setBookings] = useState<Booking[]>([]);
   /* TODO: Закомментировано до получения тестовых данных от заказчика (Никита). Вернуть после настройки API.
   const [departureDocuments, setDepartureDocuments] = useState<DepartureDocument[]>([]);
@@ -63,6 +68,7 @@ export default function BookingsScreen({ navigation }: any) {
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [payingBookingId, setPayingBookingId] = useState<string | null>(null);
+  const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'confirmed'>('all');
   const [paymentPrepare, setPaymentPrepare] = useState<{
     booking: Booking;
     paymentUrl: string;
@@ -346,6 +352,72 @@ export default function BookingsScreen({ navigation }: any) {
     loadBookings();
   };
 
+  const openTourFromBooking = (booking: Booking) => {
+    if (booking.type === 'tour' && booking.tourId) {
+      navigateTab(navigation, 'Search', 'ApiTourDetails', {
+        tourId: String(booking.tourId),
+        currency: booking.currency || booking.tourSnapshot?.currency,
+      });
+      return;
+    }
+    const url = booking.tourSnapshot?.tourPackageUrl;
+    if (url) {
+      void Linking.openURL(url);
+      return;
+    }
+    Alert.alert(i18n.t('common.error'), 'Ссылка на тур недоступна');
+  };
+
+  const handleCancelBooking = (booking: Booking) => {
+    Alert.alert(
+      i18n.t('bookings.cancel'),
+      `Отменить заявку «${booking.tourSnapshot?.hotelName || i18n.t('bookings.tour')}»?`,
+      [
+        { text: i18n.t('common.cancel'), style: 'cancel' },
+        {
+          text: i18n.t('bookings.cancel'),
+          style: 'destructive',
+          onPress: async () => {
+            const result = await bookingService.cancelBooking(booking.id);
+            if (result.success) {
+              setBookings((prev) =>
+                prev.map((b) =>
+                  b.id === booking.id
+                    ? { ...b, status: 'cancelled' as const, paymentStatus: 'cancelled' as const }
+                    : b,
+                ),
+              );
+            } else {
+              Alert.alert(i18n.t('common.error'), result.error || i18n.t('common.error'));
+            }
+          },
+        },
+      ],
+    );
+  };
+
+  const handleCancelPayment = (booking: Booking) => {
+    Alert.alert(
+      'Отменить оплату',
+      'Если оплата уже прошла в банке, статус обновится автоматически.',
+      [
+        { text: i18n.t('common.cancel'), style: 'cancel' },
+        {
+          text: 'Отменить',
+          style: 'destructive',
+          onPress: async () => {
+            await bookingService.markPaymentStatus(booking.id, 'cancelled');
+            setBookings((prev) =>
+              prev.map((b) =>
+                b.id === booking.id ? { ...b, paymentStatus: 'cancelled' as const } : b,
+              ),
+            );
+          },
+        },
+      ],
+    );
+  };
+
   const handlePayBooking = async (booking: Booking) => {
     if (!canShowPayBooking(booking)) return;
     if (payingBookingId) return;
@@ -516,10 +588,21 @@ export default function BookingsScreen({ navigation }: any) {
     if (Number.isNaN(date.getTime())) return dateStr;
     return date.toLocaleDateString('ru-RU', {
       day: '2-digit',
-      month: 'long',
+      month: 'short',
       year: 'numeric',
     });
   };
+
+  const formatDateRange = (start?: string, end?: string) => {
+    if (!start) return '—';
+    if (!end) return formatDate(start);
+    return `${formatDate(start)} – ${formatDate(end)}`;
+  };
+
+  const filteredBookings =
+    statusFilter === 'all'
+      ? bookings
+      : bookings.filter((b) => b.status === statusFilter);
 
   type StatusChip = {
     text: string;
@@ -544,15 +627,11 @@ export default function BookingsScreen({ navigation }: any) {
   if (loading && bookings.length === 0) {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]} edges={['top']}>
-        <View style={[styles.header, { backgroundColor: theme.card, borderBottomColor: theme.border }]}>
-          <TouchableOpacity
-            style={styles.backButton}
-            onPress={() => navigation.goBack()}
-          >
-            <Ionicons name="arrow-back" size={24} color={theme.text} />
-          </TouchableOpacity>
-          <Text style={[styles.headerTitle, { color: theme.text }]}>{i18n.t('bookings.title')}</Text>
-        </View>
+        <ScreenHeader
+          title={i18n.t('bookings.title')}
+          onBack={navigation.canGoBack?.() ? () => safeGoBack(navigation) : undefined}
+          noSafeTop
+        />
         <View style={styles.centerContent}>
           <ActivityIndicator size="large" color={theme.primary} />
         </View>
@@ -562,24 +641,12 @@ export default function BookingsScreen({ navigation }: any) {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]} edges={['top']}>
-      <View style={[styles.header, { backgroundColor: theme.card, borderBottomColor: theme.border }]}>
-        <TouchableOpacity
-          style={styles.backButton}
-          onPress={() => navigation.goBack()}
-        >
-          <Ionicons name="arrow-back" size={24} color={theme.text} />
-        </TouchableOpacity>
-        <View style={styles.headerTextContainer}>
-          <Text style={[styles.headerTitle, { color: theme.text }]} numberOfLines={1} adjustsFontSizeToFit={true} minimumFontScale={0.8}>
-            {i18n.t('bookings.title')}
-          </Text>
-          {bookings.length > 0 && (
-            <Text style={[styles.headerSubtitle, { color: theme.secondaryText }]} numberOfLines={1}>
-              {bookings.length} {i18n.t('bookings.count')}
-            </Text>
-          )}
-        </View>
-      </View>
+      <ScreenHeader
+        title={i18n.t('bookings.title')}
+        subtitle={bookings.length > 0 ? `${bookings.length} ${i18n.t('bookings.count')}` : undefined}
+        onBack={navigation.canGoBack?.() ? () => safeGoBack(navigation) : undefined}
+        noSafeTop
+      />
 
       <ScrollView
         showsVerticalScrollIndicator={false}
@@ -594,29 +661,56 @@ export default function BookingsScreen({ navigation }: any) {
               large
               title={i18n.t('bookings.guestBannerTitle')}
               message={i18n.t('bookings.guestBannerBody')}
-              onCreateProfile={() => navigation.navigate('Register')}
+              onCreateProfile={() => navigateRoot(navigation, 'Register')}
             />
           ) : null}
-          {/* Бронирования из Tourvisor */}
-          {bookings.length > 0 && (
+
+          {!isGuest && bookings.length > 0 ? (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.filterRow}
+            >
+              {(
+                [
+                  { id: 'all' as const, label: i18n.t('bookings.filterAll') },
+                  { id: 'pending' as const, label: i18n.t('bookings.filterInProgress') },
+                  { id: 'confirmed' as const, label: i18n.t('bookings.filterConfirmed') },
+                ] as const
+              ).map((chip) => (
+                <FilterChip
+                  key={chip.id}
+                  label={chip.label}
+                  active={statusFilter === chip.id}
+                  onPress={() => setStatusFilter(chip.id)}
+                  style={
+                    statusFilter === chip.id
+                      ? { backgroundColor: theme.deep === '#12122E' ? BRAND.navy : theme.primary, borderColor: 'transparent' }
+                      : undefined
+                  }
+                />
+              ))}
+            </ScrollView>
+          ) : null}
+
+          {filteredBookings.length > 0 && (
             <View style={styles.bookingsSection}>
-              <View style={styles.sectionHeader}>
-                <Ionicons name="calendar" size={24} color={theme.primary} />
-                <Text style={[styles.sectionTitle, { color: theme.text }]}>{i18n.t('bookings.title')}</Text>
-              </View>
-              {bookings.map((booking) => {
+              {filteredBookings.map((booking) => {
                 const bookingLeg = getBookingLegStatus(booking);
                 const paymentLeg = getPaymentLegStatus(booking);
                 const snap = booking.tourSnapshot;
                 const title = snap?.hotelName || i18n.t('bookings.tour');
                 const location = [snap?.regionName, snap?.subRegionName].filter(Boolean).join(', ') || '—';
-                const nights = snap?.nights ?? 0;
+                const nights = snap?.nights ?? booking.nights ?? 0;
+                const guests = booking.party?.adults || booking.participants;
+                const childrenCount = booking.party?.childrenAges?.length || 0;
 
                 return (
                   <TouchableOpacity
                     key={booking.id}
-                    style={[styles.bookingCard, { backgroundColor: theme.card, shadowColor: theme.shadow }]}
+                    style={[styles.bookingCard, { backgroundColor: theme.card, borderColor: theme.border, shadowColor: theme.shadow }]}
                     activeOpacity={0.9}
+                    onPress={() => openTourFromBooking(booking)}
                     onLongPress={() => {
                       Alert.alert(
                         i18n.t('bookings.deleteConfirm'),
@@ -640,29 +734,26 @@ export default function BookingsScreen({ navigation }: any) {
                       );
                     }}
                   >
-                    <View style={styles.imageContainer}>
-                      {snap?.hotelImage ? (
-                        <Image
-                          source={{ uri: snap.hotelImage }}
-                          style={styles.bookingImage}
-                          resizeMode="cover"
-                        />
-                      ) : (
-                        <View style={[styles.bookingImage, styles.imagePlaceholder, { backgroundColor: theme.secondaryBackground }]}>
-                          <Ionicons name="image-outline" size={32} color={theme.inactive} />
-                        </View>
-                      )}
-                      <View style={[styles.imageGradient, { backgroundColor: 'rgba(0,0,0,0.35)' }]} />
-                    </View>
+                    <View style={styles.cardRow}>
+                      <View style={styles.thumbWrap}>
+                        {snap?.hotelImage ? (
+                          <CachedImage
+                            source={{ uri: snap.hotelImage }}
+                            style={styles.thumb}
+                            contentFit="cover"
+                            fallbackUri={DEFAULT_HOTEL_IMAGE}
+                          />
+                        ) : (
+                          <View style={[styles.thumb, styles.imagePlaceholder, { backgroundColor: theme.secondaryBackground }]}>
+                            <Ionicons name="image-outline" size={28} color={theme.inactive} />
+                          </View>
+                        )}
+                      </View>
 
-                    <View style={styles.bookingInfo}>
-                      <Text style={[styles.hotelName, { color: theme.text }]} numberOfLines={2}>
-                        {title}
-                      </Text>
-                      <View style={styles.legStatusBlock}>
-                        <View style={styles.legStatusLine}>
-                          <Text style={[styles.legStatusKey, { color: theme.secondaryText }]}>
-                            {i18n.t('bookings.legBooking')}:
+                      <View style={styles.cardBody}>
+                        <View style={styles.cardTop}>
+                          <Text style={[styles.hotelName, { color: theme.deep || theme.text }]} numberOfLines={2}>
+                            {title}
                           </Text>
                           <View
                             style={[
@@ -670,13 +761,37 @@ export default function BookingsScreen({ navigation }: any) {
                               { backgroundColor: bookingLeg.color + '22', borderColor: bookingLeg.color + '44' },
                             ]}
                           >
-                            <Ionicons name={bookingLeg.icon} size={14} color={bookingLeg.color} />
                             <Text style={[styles.statusChipText, { color: bookingLeg.color }]} numberOfLines={1}>
                               {bookingLeg.text}
                             </Text>
                           </View>
                         </View>
-                        <View style={styles.legStatusLine}>
+
+                        <View style={styles.metaLine}>
+                          <Ionicons name="location-outline" size={14} color={theme.secondaryText} />
+                          <Text style={[styles.metaText, { color: theme.secondaryText }]} numberOfLines={1}>
+                            {location}
+                          </Text>
+                        </View>
+                        <View style={styles.metaLine}>
+                          <Ionicons name="calendar-outline" size={14} color={theme.secondaryText} />
+                          <Text style={[styles.metaText, { color: theme.secondaryText }]} numberOfLines={1}>
+                            {formatDateRange(booking.startDate, booking.endDate)}
+                            {nights > 0 ? ` · ${formatNightsRu(nights)}` : ''}
+                          </Text>
+                        </View>
+                        {(guests || childrenCount) ? (
+                          <Text style={[styles.guestsText, { color: theme.tertiaryText }]} numberOfLines={1}>
+                            {[
+                              guests ? formatAdultsRu(guests) : null,
+                              childrenCount ? formatChildrenRu(childrenCount) : null,
+                            ]
+                              .filter(Boolean)
+                              .join(' · ')}
+                          </Text>
+                        ) : null}
+
+                        <View style={styles.paymentLegRow}>
                           <Text style={[styles.legStatusKey, { color: theme.secondaryText }]}>
                             {i18n.t('bookings.legPayment')}:
                           </Text>
@@ -686,132 +801,118 @@ export default function BookingsScreen({ navigation }: any) {
                               { backgroundColor: paymentLeg.color + '22', borderColor: paymentLeg.color + '44' },
                             ]}
                           >
-                            <Ionicons name={paymentLeg.icon} size={14} color={paymentLeg.color} />
+                            <Ionicons name={paymentLeg.icon} size={13} color={paymentLeg.color} />
                             <Text style={[styles.statusChipText, { color: paymentLeg.color }]} numberOfLines={1}>
                               {paymentLeg.text}
                             </Text>
                           </View>
                         </View>
-                      </View>
-                      {booking.paymentStatus === 'paid' && booking.status === 'pending' ? (
-                        <Text style={[styles.paidHint, { color: theme.secondaryText }]}>
-                          {i18n.t('bookings.paidAwaitingConfirmation')}
-                        </Text>
-                      ) : null}
-                      <View style={styles.locationRow}>
-                        <Ionicons name="location" size={14} color={theme.secondaryText} />
-                        <Text style={[styles.locationText, { color: theme.secondaryText }]}>
-                          {location}
-                        </Text>
-                      </View>
-                      <View style={styles.detailsRow}>
-                        <View style={[styles.detailItem, { backgroundColor: theme.primary + '15' }]}>
-                          <Ionicons name="calendar" size={14} color={theme.primary} />
-                          <Text style={[styles.detailText, { color: theme.primary }]}>{formatDate(booking.startDate)}</Text>
-                        </View>
-                        {nights > 0 && (
-                          <View style={[styles.detailItem, { backgroundColor: theme.primary + '15' }]}>
-                            <Ionicons name="moon" size={14} color={theme.primary} />
-                            <Text style={[styles.detailText, { color: theme.primary }]}>{nights} {i18n.t('search.nights')}</Text>
-                          </View>
-                        )}
-                      </View>
-                      <View style={[styles.priceRow, { borderTopColor: theme.border }]}>
-                        <View>
-                          <Text style={[styles.priceLabel, { color: theme.secondaryText }]}>{i18n.t('bookings.cost')}</Text>
-                          <Text style={[styles.price, { color: theme.primary }]}>
-                            {formatPrice(booking.totalPrice, booking.currency)}
+
+                        {booking.paymentStatus === 'paid' && booking.status === 'pending' ? (
+                          <Text style={[styles.paidHint, { color: theme.secondaryText }]}>
+                            {i18n.t('bookings.paidAwaitingConfirmation')}
                           </Text>
-                        </View>
-                        {snap?.operatorName && (
-                          <View style={[styles.operatorBadge, { backgroundColor: theme.primary + '15' }]}>
-                            <Text style={[styles.operatorText, { color: theme.primary }]}>{snap.operatorName}</Text>
+                        ) : null}
+
+                        <View style={styles.priceRow}>
+                          <View>
+                            <Text style={[styles.priceLabel, { color: theme.secondaryText }]}>
+                              {i18n.t('bookings.sum')}
+                            </Text>
+                            <Text style={[styles.price, { color: theme.deep || theme.text }]}>
+                              {formatPrice(booking.totalPrice, booking.currency)}
+                            </Text>
                           </View>
+                          <Ionicons name="chevron-forward" size={18} color={theme.tertiaryText} />
+                        </View>
+
+                        {canShowCheckPaymentStatus(booking) && (
+                          <TouchableOpacity
+                            style={[styles.payButton, styles.checkButton, { borderColor: theme.accent }]}
+                            onPress={() => handleCheckPaymentStatus(booking)}
+                            disabled={!!payingBookingId}
+                            activeOpacity={0.8}
+                          >
+                            {payingBookingId === booking.id ? (
+                              <ActivityIndicator size="small" color={theme.accent} />
+                            ) : (
+                              <>
+                                <Ionicons name="refresh-outline" size={20} color={theme.accent} />
+                                <Text style={[styles.payButtonText, { color: theme.accent }]}>
+                                  {i18n.t('payment.checkStatus')}
+                                </Text>
+                              </>
+                            )}
+                          </TouchableOpacity>
                         )}
+
+                        {canShowPayBooking(booking) && (
+                          <TouchableOpacity
+                            style={[styles.payButton, { backgroundColor: BRAND.orange }]}
+                            onPress={() => handlePayBooking(booking)}
+                            disabled={!!payingBookingId}
+                            activeOpacity={0.8}
+                          >
+                            {payingBookingId === booking.id ? (
+                              <ActivityIndicator size="small" color="#fff" />
+                            ) : (
+                              <>
+                                <Ionicons name="card-outline" size={20} color="#fff" />
+                                <Text style={styles.payButtonText}>{i18n.t('bookings.pay')}</Text>
+                              </>
+                            )}
+                          </TouchableOpacity>
+                        )}
+
+                        {booking.paymentStatus === 'payment_processing' ? (
+                          <TouchableOpacity
+                            style={[styles.payButton, styles.checkButton, { borderColor: theme.error }]}
+                            onPress={() => handleCancelPayment(booking)}
+                            activeOpacity={0.8}
+                          >
+                            <Ionicons name="close-circle-outline" size={20} color={theme.error} />
+                            <Text style={[styles.payButtonText, { color: theme.error }]}>
+                              Отменить оплату
+                            </Text>
+                          </TouchableOpacity>
+                        ) : null}
+
+                        {booking.status !== 'cancelled' &&
+                        booking.paymentStatus === 'pending' ? (
+                          <TouchableOpacity
+                            style={[styles.payButton, styles.checkButton, { borderColor: theme.secondaryText }]}
+                            onPress={() => handleCancelBooking(booking)}
+                            activeOpacity={0.8}
+                          >
+                            <Ionicons name="trash-outline" size={18} color={theme.secondaryText} />
+                            <Text style={[styles.payButtonText, { color: theme.secondaryText }]}>
+                              {i18n.t('bookings.cancel')}
+                            </Text>
+                          </TouchableOpacity>
+                        ) : null}
                       </View>
-
-                      {canShowCheckPaymentStatus(booking) && (
-                        <TouchableOpacity
-                          style={[styles.payButton, styles.checkButton, { borderColor: theme.accent }]}
-                          onPress={() => handleCheckPaymentStatus(booking)}
-                          disabled={!!payingBookingId}
-                          activeOpacity={0.8}
-                        >
-                          {payingBookingId === booking.id ? (
-                            <ActivityIndicator size="small" color={theme.accent} />
-                          ) : (
-                            <>
-                              <Ionicons name="refresh-outline" size={20} color={theme.accent} />
-                              <Text style={[styles.payButtonText, { color: theme.accent }]}>
-                                {i18n.t('payment.checkStatus')}
-                              </Text>
-                            </>
-                          )}
-                        </TouchableOpacity>
-                      )}
-
-                      {canShowPayBooking(booking) && (
-                        <TouchableOpacity
-                          style={[styles.payButton, { backgroundColor: theme.accent }]}
-                          onPress={() => handlePayBooking(booking)}
-                          disabled={!!payingBookingId}
-                          activeOpacity={0.8}
-                        >
-                          {payingBookingId === booking.id ? (
-                            <ActivityIndicator size="small" color="#fff" />
-                          ) : (
-                            <>
-                              <Ionicons name="card-outline" size={20} color="#fff" />
-                              <Text style={styles.payButtonText}>{i18n.t('bookings.pay')}</Text>
-                            </>
-                          )}
-                        </TouchableOpacity>
-                      )}
-
-                      {/* TODO: Закомментировано до получения тестовых данных от заказчика (Никита). Вернуть после настройки API.
-                      {(() => {
-                        const tourDocuments = getDocumentsForDate(booking.startDate);
-                        if (tourDocuments.length > 0) {
-                          return (
-                            <View style={[styles.documentsSection, { borderTopColor: theme.border }]}>
-                              <Text style={[styles.documentsTitle, { color: theme.text }]}>{i18n.t('bookings.departureDocs')}</Text>
-                              {tourDocuments.map((doc) => (
-                                <TouchableOpacity
-                                  key={doc.id}
-                                  style={[styles.documentItem, { backgroundColor: theme.secondaryBackground }]}
-                                  onPress={() => handleDocumentPress(doc, doc.bookingId)}
-                                  disabled={loadingDocuments.has(doc.id)}
-                                >
-                                  <Ionicons
-                                    name={getDocumentTypeIcon(doc.documentType)}
-                                    size={20}
-                                    color={theme.primary}
-                                  />
-                                  <View style={styles.documentInfo}>
-                                    <Text style={[styles.documentName, { color: theme.text }]}>
-                                      {doc.fileName || getDocumentTypeName(doc.documentType)}
-                                    </Text>
-                                    {doc.description && (
-                                      <Text style={[styles.documentDescription, { color: theme.secondaryText }]}>{doc.description}</Text>
-                                    )}
-                                  </View>
-                                  {loadingDocuments.has(doc.id) ? (
-                                    <ActivityIndicator size="small" color={theme.primary} />
-                                  ) : (
-                                    <Ionicons name="download-outline" size={20} color={theme.primary} />
-                                  )}
-                                </TouchableOpacity>
-                              ))}
-                            </View>
-                          );
-                        }
-                        return null;
-                      })()}
-                      */}
                     </View>
                   </TouchableOpacity>
                 );
               })}
+
+              <TouchableOpacity
+                style={[styles.supportBanner, { backgroundColor: theme.primary + '18', borderColor: theme.primary + '33' }]}
+                onPress={() => navigateTab(navigation, 'Profile', 'HelperChat')}
+                activeOpacity={0.85}
+              >
+                <View style={[styles.supportIcon, { backgroundColor: theme.primary }]}>
+                  <Ionicons name="notifications-outline" size={18} color="#fff" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.supportTitle, { color: theme.deep || theme.text }]}>
+                    {i18n.t('bookings.supportTitle')}
+                  </Text>
+                  <Text style={[styles.supportBody, { color: theme.secondaryText }]}>
+                    {i18n.t('bookings.supportBody')}
+                  </Text>
+                </View>
+              </TouchableOpacity>
             </View>
           )}
 
@@ -828,9 +929,9 @@ export default function BookingsScreen({ navigation }: any) {
               </Text>
               <TouchableOpacity
                 style={styles.emptyButton}
-                onPress={() => navigation.navigate('Home')}
+                onPress={() => navigateTab(navigation, 'Search')}
               >
-                <View style={[styles.emptyButtonGradient, { backgroundColor: theme.primary }]}>
+                <View style={[styles.emptyButtonGradient, { backgroundColor: BRAND.orange }]}>
                   <Text style={[styles.emptyButtonText, { color: theme.surface }]}>
                     {i18n.t('bookings.findTours')}
                   </Text>
@@ -838,6 +939,14 @@ export default function BookingsScreen({ navigation }: any) {
               </TouchableOpacity>
             </View>
           )}
+
+          {!isGuest && bookings.length > 0 && filteredBookings.length === 0 ? (
+            <View style={styles.emptyFilter}>
+              <Text style={[styles.emptySubtitle, { color: theme.secondaryText }]}>
+                Нет заявок в этом статусе
+              </Text>
+            </View>
+          ) : null}
 
         </View>
       </ScrollView>
@@ -857,37 +966,24 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingBottom: 24,
   },
-  header: {
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-    borderBottomWidth: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    minHeight: 60,
-  },
-  backButton: {
-    marginRight: 12,
-    flexShrink: 0,
-  },
-  headerTextContainer: {
-    flex: 1,
-    minWidth: 0,
-  },
-  headerTitle: typography.h1,
-  headerSubtitle: {
-    fontSize: 14,
-    marginTop: 4,
-  },
   centerContent: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  filterRow: {
+    paddingBottom: 8,
   },
   emptyContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 40,
+    paddingTop: 48,
+  },
+  emptyFilter: {
+    paddingVertical: 24,
+    alignItems: 'center',
   },
   emptyIconContainer: {
     width: 120,
@@ -929,114 +1025,101 @@ const styles = StyleSheet.create({
   bookingCard: {
     borderRadius: surfaces.cardRadius,
     overflow: 'hidden',
+    borderWidth: 1,
+    marginBottom: spacing.sm,
     ...shadows.cardRaised,
   },
-  imageContainer: {
-    height: 180,
-    position: 'relative',
+  cardRow: {
+    flexDirection: 'row',
+    padding: spacing.md,
+    gap: spacing.sm,
   },
-  bookingImage: {
-    width: '100%',
-    height: '100%',
+  thumbWrap: {
+    width: 92,
+    height: 92,
+    borderRadius: radius.md,
+    overflow: 'hidden',
+    flexShrink: 0,
+  },
+  thumb: {
+    width: 92,
+    height: 92,
   },
   imagePlaceholder: {
     justifyContent: 'center',
     alignItems: 'center',
   },
-  imageGradient: {
-    ...StyleSheet.absoluteFillObject,
+  cardBody: {
+    flex: 1,
+    minWidth: 0,
   },
-  bookingInfo: {
-    padding: 14,
+  cardTop: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+    marginBottom: 6,
   },
   hotelName: {
-    ...typography.h3,
-    marginBottom: 8,
+    ...typography.bodyBold,
+    flex: 1,
   },
-  legStatusBlock: {
-    marginBottom: 10,
-    gap: 4,
+  metaLine: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    marginBottom: 4,
+  },
+  metaText: {
+    fontSize: 13,
+    flex: 1,
+  },
+  guestsText: {
+    fontSize: 12,
+    marginBottom: 6,
+  },
+  paymentLegRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 6,
   },
   paidHint: {
     fontSize: 13,
     lineHeight: 18,
     marginBottom: 8,
   },
-  legStatusLine: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    alignItems: 'center',
-    gap: 8,
-  },
   legStatusKey: {
     fontSize: 13,
     fontWeight: '600',
-    minWidth: 88,
   },
   statusChip: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: 4,
     paddingHorizontal: 10,
-    paddingVertical: 5,
+    paddingVertical: 4,
     borderRadius: 20,
     borderWidth: 1,
     flexShrink: 1,
-    maxWidth: '78%',
+    maxWidth: '70%',
   },
   statusChipText: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '700',
     flexShrink: 1,
-  },
-  locationRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 10,
-  },
-  locationText: {
-    fontSize: 13,
-    marginLeft: 5,
-  },
-  detailsRow: {
-    flexDirection: 'row',
-    gap: 8,
-    marginBottom: 12,
-    flexWrap: 'wrap',
-  },
-  detailItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 20,
-  },
-  detailText: {
-    fontSize: 12,
-    fontWeight: '600',
-    marginLeft: 5,
   },
   priceRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingTop: 12,
-    borderTopWidth: 1,
+    marginTop: 4,
   },
   priceLabel: {
     fontSize: 12,
     marginBottom: 2,
   },
-  price: typography.h2,
-  operatorBadge: {
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 20,
-  },
-  operatorText: {
-    fontSize: 12,
-    fontWeight: '600',
-  },
+  price: typography.h3,
   payButton: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1058,98 +1141,32 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#fff',
   },
-  documentsSection: {
-    marginTop: 14,
-    paddingTop: 14,
-    borderTopWidth: 1,
-  },
-  documentsTitle: {
-    fontSize: 13,
-    fontWeight: '700',
-    marginBottom: 10,
-  },
-  documentItem: {
+  supportBanner: {
+    marginTop: spacing.md,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    padding: spacing.md,
     flexDirection: 'row',
+    gap: spacing.sm,
+    alignItems: 'flex-start',
+  },
+  supportIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     alignItems: 'center',
-    padding: 10,
-    borderRadius: 10,
-    marginBottom: 6,
+    justifyContent: 'center',
   },
-  documentInfo: {
-    flex: 1,
-    marginLeft: 10,
-  },
-  documentName: {
-    fontSize: 13,
-    fontWeight: '600',
+  supportTitle: {
+    ...typography.captionBold,
     marginBottom: 2,
   },
-  documentDescription: {
-    fontSize: 12,
-  },
-  documentsSectionContainer: {
-    marginBottom: 24,
-  },
-  sectionHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 12,
-    gap: 8,
-  },
-  sectionTitle: {
-    fontSize: 20,
-    fontWeight: '700',
+  supportBody: {
+    ...typography.small,
+    lineHeight: 18,
   },
   bookingsSection: {
-    marginTop: 8,
-  },
-  bookingDocumentsCard: {
-    borderRadius: 16,
-    padding: 14,
-    marginBottom: 10,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.07,
-    shadowRadius: 8,
-    elevation: 3,
-  },
-  bookingDocumentsHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: 10,
-  },
-  bookingDocumentsInfo: {
-    flex: 1,
-    marginRight: 10,
-  },
-  bookingDocumentsTourName: {
-    fontSize: 15,
-    fontWeight: '700',
-    marginBottom: 6,
-  },
-  bookingDocumentsMeta: {
-    gap: 6,
-  },
-  bookingDocumentsMetaItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-  },
-  bookingDocumentsMetaText: {
-    fontSize: 13,
-  },
-  upcomingBadge: {
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 20,
-  },
-  upcomingBadgeText: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#0066CC',
-  },
-  documentsList: {
-    gap: 6,
+    marginTop: 4,
   },
 });
+

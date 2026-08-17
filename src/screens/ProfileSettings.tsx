@@ -19,10 +19,10 @@ import { notificationService } from '../services/NotificationService';
 import { i18n } from '../config/i18n';
 import { RELEASE_HIDE_NEXT_PATCH_UI } from '../config/releaseUiFlags';
 import { logger } from '../utils/logger';
-import { cacheService } from '../services/CacheService';
-import { dictionaryService } from '../services/DictionaryService';
 import { Ionicons, MaterialIcons, FontAwesome } from '@expo/vector-icons';
-import { radius } from '../config/designSystem';
+import { BRAND, radius, shadows, spacing, typography } from '../config/designSystem';
+import { ScreenHeader } from '../components/ui';
+import { safeGoBack, getRootNavigation } from '../utils/navHelpers';
 
 const ProfileSettings: React.FC =({ navigation }: any) => {
   const {
@@ -153,11 +153,7 @@ const ProfileSettings: React.FC =({ navigation }: any) => {
             try {
               await logout();
               await loginAsGuest();
-              if (navigation.reset) {
-                navigation.reset({ index: 0, routes: [{ name: 'MainTabs' }] });
-              } else {
-                navigation.navigate('MainTabs');
-              }
+              getRootNavigation(navigation).reset({ index: 0, routes: [{ name: 'MainTabs' }] });
             } catch (e) {
               Alert.alert(i18n.t('common.error'), i18n.t('common.error'));
             }
@@ -170,11 +166,7 @@ const ProfileSettings: React.FC =({ navigation }: any) => {
   const enterGuestBrowseMode = async () => {
     await logout();
     await loginAsGuest();
-    if (navigation.reset) {
-      navigation.reset({ index: 0, routes: [{ name: 'MainTabs' }] });
-    } else {
-      navigation.navigate('MainTabs');
-    }
+    getRootNavigation(navigation).reset({ index: 0, routes: [{ name: 'MainTabs' }] });
   };
 
   const handleDeleteAccount = () => {
@@ -197,7 +189,7 @@ const ProfileSettings: React.FC =({ navigation }: any) => {
               const result = await AuthService.deleteAccount(user!.uid);
               if (result.success) {
                 await enterGuestBrowseMode();
-                Alert.alert('Аккаунт удалён', 'Ваш аккаунт успешно удалён.');
+                Alert.alert(i18n.t('settings.accountDeletedTitle'), i18n.t('settings.accountDeletedBody'));
               } else {
                 Alert.alert(i18n.t('common.error'), result.error || i18n.t('common.deleteFailed'));
               }
@@ -219,17 +211,8 @@ const ProfileSettings: React.FC =({ navigation }: any) => {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
       >
-        {/* Заголовок */}
-        <View style={[styles.header, { backgroundColor: theme.card, borderBottomColor: theme.border }]}>
-          <TouchableOpacity 
-            onPress={() => navigation.goBack()}
-            style={styles.backButton}
-          >
-            <Ionicons name="arrow-back" size={24} color={theme.text} />
-          </TouchableOpacity>
-          <Text style={[styles.title, { color: theme.text }]}>{i18n.t('settings.title')}</Text>
-          <View style={{ width: 40 }} />
-        </View>
+        <ScreenHeader title={i18n.t('settings.title')} onBack={() => safeGoBack(navigation)} noSafeTop />
+        <Text style={[styles.brandMark, { color: theme.deep || theme.text }]}>TravelHub</Text>
 
         {/* Секция: Внешний вид */}
         <View style={styles.section}>
@@ -247,8 +230,8 @@ const ProfileSettings: React.FC =({ navigation }: any) => {
             activeOpacity={0.7}
           >
             <View style={styles.settingLeft}>
-              <View style={[styles.iconGradient, { backgroundColor: theme.primary }]}>
-                <Ionicons name="language" size={20} color="#FFFFFF" />
+              <View style={[styles.iconGradient, { backgroundColor: theme.primary + '18' }]}>
+                <Ionicons name="language" size={20} color={theme.primary} />
               </View>
               <View style={styles.settingTextContainer}>
                 <Text style={[styles.settingTitle, { color: theme.text }]}>{i18n.t('settings.languageInterface')}</Text>
@@ -271,8 +254,8 @@ const ProfileSettings: React.FC =({ navigation }: any) => {
             activeOpacity={0.7}
           >
             <View style={styles.settingLeft}>
-              <View style={[styles.iconGradient, { backgroundColor: theme.success }]}>
-                <FontAwesome name="money" size={18} color="#FFFFFF" />
+              <View style={[styles.iconGradient, { backgroundColor: theme.primary + '18' }]}>
+                <FontAwesome name="money" size={18} color={theme.primary} />
               </View>
               <View style={styles.settingTextContainer}>
                 <Text style={[styles.settingTitle, { color: theme.text }]}>{i18n.t('settings.currency')}</Text>
@@ -290,8 +273,8 @@ const ProfileSettings: React.FC =({ navigation }: any) => {
 
           <View style={[styles.settingCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
             <View style={styles.settingLeft}>
-              <View style={[styles.iconGradient, { backgroundColor: theme.primary }]}>
-                <Ionicons name="notifications" size={20} color="#FFFFFF" />
+              <View style={[styles.iconGradient, { backgroundColor: theme.primary + '18' }]}>
+                <Ionicons name="notifications" size={20} color={theme.primary} />
               </View>
               <View style={styles.settingTextContainer}>
                 <Text style={[styles.settingTitle, { color: theme.text }]}>
@@ -316,8 +299,8 @@ const ProfileSettings: React.FC =({ navigation }: any) => {
           <View style={styles.section}>
             <View style={[styles.settingCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
               <View style={styles.settingLeft}>
-                <View style={[styles.iconGradient, { backgroundColor: theme.primary }]}>
-                  <Ionicons name="pricetag" size={20} color="#FFFFFF" />
+                <View style={[styles.iconGradient, { backgroundColor: theme.primary + '18' }]}>
+                  <Ionicons name="pricetag" size={20} color={theme.primary} />
                 </View>
                 <View style={styles.settingTextContainer}>
                   <Text style={[styles.settingTitle, { color: theme.text }]}>
@@ -339,8 +322,8 @@ const ProfileSettings: React.FC =({ navigation }: any) => {
 
             <View style={[styles.settingCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
               <View style={styles.settingLeft}>
-                <View style={[styles.iconGradient, { backgroundColor: theme.success }]}>
-                  <Ionicons name="calendar" size={20} color="#FFFFFF" />
+                <View style={[styles.iconGradient, { backgroundColor: theme.primary + '18' }]}>
+                  <Ionicons name="calendar" size={20} color={theme.primary} />
                 </View>
                 <View style={styles.settingTextContainer}>
                   <Text style={[styles.settingTitle, { color: theme.text }]}>{i18n.t('settings.tripReminders')}</Text>
@@ -360,8 +343,8 @@ const ProfileSettings: React.FC =({ navigation }: any) => {
 
             <View style={[styles.settingCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
               <View style={styles.settingLeft}>
-                <View style={[styles.iconGradient, { backgroundColor: theme.warning }]}>
-                  <Ionicons name="megaphone" size={20} color="#FFFFFF" />
+                <View style={[styles.iconGradient, { backgroundColor: theme.primary + '18' }]}>
+                  <Ionicons name="megaphone" size={20} color={theme.primary} />
                 </View>
                 <View style={styles.settingTextContainer}>
                   <Text style={[styles.settingTitle, { color: theme.text }]}>{i18n.t('settings.promotions')}</Text>
@@ -390,8 +373,8 @@ const ProfileSettings: React.FC =({ navigation }: any) => {
             activeOpacity={0.7}
           >
             <View style={styles.settingLeft}>
-              <View style={[styles.iconGradient, { backgroundColor: theme.primary }]}>
-                <Ionicons name="information-circle" size={20} color="#FFFFFF" />
+              <View style={[styles.iconGradient, { backgroundColor: theme.primary + '18' }]}>
+                <Ionicons name="information-circle" size={20} color={theme.primary} />
               </View>
               <View style={styles.settingTextContainer}>
                 <Text style={[styles.settingTitle, { color: theme.text }]}>{i18n.t('settings.appVersion')}</Text>
@@ -413,8 +396,8 @@ const ProfileSettings: React.FC =({ navigation }: any) => {
             activeOpacity={0.7}
           >
             <View style={styles.settingLeft}>
-              <View style={[styles.iconGradient, { backgroundColor: theme.primary }]}>
-                <Ionicons name="shield-checkmark" size={20} color="#FFFFFF" />
+              <View style={[styles.iconGradient, { backgroundColor: theme.primary + '18' }]}>
+                <Ionicons name="shield-checkmark" size={20} color={theme.primary} />
               </View>
               <View style={styles.settingTextContainer}>
                 <Text style={[styles.settingTitle, { color: theme.text }]}>{i18n.t('settings.privacyPolicy')}</Text>
@@ -434,8 +417,8 @@ const ProfileSettings: React.FC =({ navigation }: any) => {
             activeOpacity={0.7}
           >
             <View style={styles.settingLeft}>
-              <View style={[styles.iconGradient, { backgroundColor: theme.primary }]}>
-                <Ionicons name="document-text" size={20} color="#FFFFFF" />
+              <View style={[styles.iconGradient, { backgroundColor: theme.primary + '18' }]}>
+                <Ionicons name="document-text" size={20} color={theme.primary} />
               </View>
               <View style={styles.settingTextContainer}>
                 <Text style={[styles.settingTitle, { color: theme.text }]}>{i18n.t('settings.termsOfUse')}</Text>
@@ -449,49 +432,14 @@ const ProfileSettings: React.FC =({ navigation }: any) => {
         {/* Секция: Аккаунт */}
         <View style={styles.section}>
           <Text style={[styles.sectionTitle, { color: theme.text }]}>{i18n.t('settings.account')}</Text>
-
-          <TouchableOpacity
-            style={[styles.settingCard, { backgroundColor: theme.card, borderColor: theme.border }]}
-            onPress={() => {
-              Alert.alert(
-                i18n.t('settings.clearCache'),
-                i18n.t('settings.clearCacheConfirm'),
-                [
-                  { text: i18n.t('common.cancel'), style: 'cancel' },
-                  {
-                    text: i18n.t('settings.clearCache'),
-                    onPress: async () => {
-                      try {
-                        await cacheService.clearCacheAndUnblockApi();
-                        await dictionaryService.clearCache();
-                        Alert.alert(i18n.t('settings.clearCacheSuccess'));
-                      } catch (e) {
-                        logger.error('Clear cache:', e);
-                        Alert.alert(i18n.t('common.error'), String(e));
-                      }
-                    },
-                  },
-                ]
-              );
-            }}
-            activeOpacity={0.7}
-          >
-            <View style={styles.settingLeft}>
-              <View style={[styles.iconGradient, { backgroundColor: theme.secondary }]}>
-                <Ionicons name="trash-outline" size={20} color="#FFFFFF" />
-              </View>
-              <Text style={[styles.settingTitle, { color: theme.text }]}>{i18n.t('settings.clearCache')}</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={20} color={theme.secondaryText} />
-          </TouchableOpacity>
           
-          {/* Выйти — outline красный */}
+          {/* Выйти — coral как на концепте */}
           <TouchableOpacity
             style={[
               styles.settingCard,
               {
                 backgroundColor: 'transparent',
-                borderColor: theme.error,
+                borderColor: BRAND.orange,
                 borderWidth: 1.5,
               },
             ]}
@@ -499,12 +447,12 @@ const ProfileSettings: React.FC =({ navigation }: any) => {
             activeOpacity={0.7}
           >
             <View style={styles.settingLeft}>
-              <View style={[styles.iconGradient, { backgroundColor: theme.error + '18' }]}>
-                <Ionicons name="log-out" size={20} color={theme.error} />
+              <View style={[styles.iconGradient, { backgroundColor: BRAND.orange + '18' }]}>
+                <Ionicons name="log-out" size={20} color={BRAND.orange} />
               </View>
-              <Text style={[styles.settingTitle, { color: theme.error }]}>{i18n.t('settings.logout')}</Text>
+              <Text style={[styles.settingTitle, { color: BRAND.orange }]}>{i18n.t('settings.logout')}</Text>
             </View>
-            <Ionicons name="chevron-forward" size={20} color={theme.error} />
+            <Ionicons name="chevron-forward" size={20} color={BRAND.orange} />
           </TouchableOpacity>
 
           {/* Удалить аккаунт — заливка красная */}
@@ -684,6 +632,12 @@ const styles = StyleSheet.create({
   safeArea: { flex: 1 },
   container: { flex: 1 },
   scrollContent: { paddingBottom: 48 },
+  brandMark: {
+    ...typography.captionBold,
+    paddingHorizontal: spacing.lg,
+    marginTop: spacing.xs,
+    marginBottom: -spacing.sm,
+  },
 
   header: {
     flexDirection: 'row',
@@ -705,36 +659,31 @@ const styles = StyleSheet.create({
   },
 
   section: {
-    marginTop: 24,
-    paddingHorizontal: 16,
+    marginTop: spacing.xl,
+    paddingHorizontal: spacing.md,
   },
   sectionTitle: {
-    fontSize: 13,
-    fontWeight: '700',
+    ...typography.smallBold,
     textTransform: 'uppercase',
     letterSpacing: 0.5,
-    marginBottom: 10,
-    marginLeft: 4,
+    marginBottom: spacing.sm,
+    marginLeft: spacing.xxs,
   },
 
   themeSwitcherContainer: {
-    marginBottom: 12,
+    marginBottom: spacing.sm,
   },
 
   settingCard: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: 14,
-    paddingHorizontal: 14,
-    borderRadius: 14,
-    marginBottom: 8,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.md,
+    borderRadius: radius.lg,
+    marginBottom: spacing.xs,
     borderWidth: 1,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.04,
-    shadowRadius: 6,
-    elevation: 1,
+    ...shadows.card,
     minHeight: 56,
   },
   settingLeft: {
@@ -745,19 +694,18 @@ const styles = StyleSheet.create({
   iconGradient: {
     width: 40,
     height: 40,
-    borderRadius: 12,
+    borderRadius: 20,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 14,
+    marginRight: spacing.md,
   },
   settingTextContainer: { flex: 1 },
   settingTitle: {
-    fontSize: 15,
-    fontWeight: '600',
+    ...typography.bodyBold,
     marginBottom: 2,
   },
   settingValue: {
-    fontSize: 13,
+    ...typography.small,
   },
 
   dangerCard: {
@@ -767,65 +715,60 @@ const styles = StyleSheet.create({
 
   footer: {
     alignItems: 'center',
-    paddingVertical: 32,
-    marginTop: 16,
+    paddingVertical: spacing.xxl,
+    marginTop: spacing.md,
   },
   footerText: {
-    fontSize: 13,
+    ...typography.small,
     opacity: 0.5,
   },
 
   // Modal styles
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    backgroundColor: 'rgba(18, 18, 46, 0.45)',
     justifyContent: 'flex-end',
   },
   modalContent: {
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    paddingTop: 20,
-    paddingBottom: 40,
+    borderTopLeftRadius: radius.xxl,
+    borderTopRightRadius: radius.xxl,
+    paddingTop: spacing.lg,
+    paddingBottom: spacing.xxxl,
     maxHeight: '80%',
   },
   modalHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingBottom: 16,
-    borderBottomWidth: 1,
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.md,
+    borderBottomWidth: StyleSheet.hairlineWidth,
   },
   modalTitle: {
-    fontSize: 20,
-    fontWeight: '700',
+    ...typography.h3,
   },
   closeButton: {
-    width: 36,
-    height: 36,
+    width: 40,
+    height: 40,
     justifyContent: 'center',
     alignItems: 'center',
   },
   modalOptions: {
-    paddingHorizontal: 20,
-    paddingTop: 16,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.md,
   },
   modalOption: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 14,
-    borderRadius: 14,
-    marginBottom: 10,
+    padding: spacing.md,
+    borderRadius: radius.lg,
+    marginBottom: spacing.sm,
     borderWidth: 1,
     overflow: 'hidden',
     minHeight: 56,
   },
   modalOptionActive: {
-    shadowColor: '#0066CC',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.18,
-    shadowRadius: 8,
-    elevation: 3,
+    ...shadows.button,
   },
   modalIconCircle: {
     width: 44,
@@ -833,7 +776,7 @@ const styles = StyleSheet.create({
     borderRadius: 22,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 14,
+    marginRight: spacing.md,
   },
   currencySymbol: {
     fontSize: 22,
@@ -841,12 +784,11 @@ const styles = StyleSheet.create({
   },
   modalTextContainer: { flex: 1 },
   modalOptionText: {
-    fontSize: 16,
-    fontWeight: '600',
+    ...typography.bodyBold,
     marginBottom: 2,
   },
   modalOptionTextActive: { color: '#FFFFFF' },
-  modalOptionDescription: { fontSize: 13 },
+  modalOptionDescription: { ...typography.small },
   modalOptionDescriptionActive: {
     color: '#FFFFFF',
     opacity: 0.9,

@@ -5,7 +5,6 @@ import {
   StyleSheet,
   ScrollView,
   TouchableOpacity,
-  Image,
   ActivityIndicator,
   RefreshControl,
   StatusBar,
@@ -14,23 +13,33 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { TourOutput } from '../types/tourvisor';
+import type { Hotel } from '../types';
 import { useAppContext } from '../contexts/AppContext';
 import { i18n } from '../config/i18n';
-import ProfileIcon from '../components/ProfileIcon';
 import { FavoritesService, FavoriteTourAvailability } from '../services/FavoritesService';
 import { settingsService } from '../services/SettingsService';
 import type { Currency } from '../services/SettingsService';
 import AuthRequiredCard from '../components/ux/AuthRequiredCard';
 import { useTabBarMetrics } from '../utils/tabBarMetrics';
 import { priceTrackingService } from '../services/PriceTrackingService';
+import { BRAND, radius, shadows, spacing, typography } from '../config/designSystem';
+import { ScreenHeader, TourPriceLabel } from '../components/ui';
+import CachedImage from '../components/ui/CachedImage';
+import { DEFAULT_HOTEL_IMAGE } from '../constants/images';
+import { navigateRoot, navigateTab, safeGoBack } from '../utils/navHelpers';
+import { formatNightsRu } from '../utils/pluralRu';
+import { parseFlexibleDateLocal } from '../utils/dateYmd';
+
+type FavSegment = 'hotels' | 'tours';
 
 export default function FavoritesScreen({ navigation }: any) {
-  const { theme, isDark, apiReady, user, isAuthenticated, currency, fontScale } = useAppContext();
+  const { theme, isDark, apiReady, user, isAuthenticated, currency, fontScale, language } = useAppContext();
   const insets = useSafeAreaInsets();
-  // FAB скрыт на этом экране — клиренс только под таб-бар
   const { contentBottomPadding } = useTabBarMetrics(insets, fontScale);
   const bottomPad = contentBottomPadding({ includeFab: false });
+  const [segment, setSegment] = useState<FavSegment>('hotels');
   const [favoriteTours, setFavoriteTours] = useState<TourOutput[]>([]);
+  const [favoriteHotels, setFavoriteHotels] = useState<Hotel[]>([]);
   const [availability, setAvailability] = useState<Record<string, FavoriteTourAvailability>>({});
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -60,11 +69,28 @@ export default function FavoritesScreen({ navigation }: any) {
       setLoading(true);
       await priceTrackingService.initialize();
       await FavoritesService.getInstance().syncFromServer();
-      const tours = await FavoritesService.getInstance().getFavoriteTours();
+      const [tours, hotels] = await Promise.all([
+        FavoritesService.getInstance().getFavoriteTours(),
+        FavoritesService.getInstance().getFavoriteHotels(),
+      ]);
       setFavoriteTours(tours || []);
+      setFavoriteHotels(hotels || []);
+      // Не прятать отели за «Туры»: сохраняем текущий сегмент, если в нём есть записи
+      setSegment((prev) => {
+        const t = tours?.length || 0;
+        const h = hotels?.length || 0;
+        if (prev === 'hotels' && h > 0) return 'hotels';
+        if (prev === 'tours' && t > 0) return 'tours';
+        if (h > 0 && t === 0) return 'hotels';
+        if (t > 0 && h === 0) return 'tours';
+        if (h > 0) return 'hotels';
+        if (t > 0) return 'tours';
+        return prev;
+      });
       void refreshAvailability(tours || []);
-    } catch (error: any) {
+    } catch {
       setFavoriteTours([]);
+      setFavoriteHotels([]);
       setAvailability({});
     } finally {
       setLoading(false);
@@ -89,15 +115,24 @@ export default function FavoritesScreen({ navigation }: any) {
     loadFavorites();
   };
 
-  const handleRemoveFavorite = async (tourId: string) => {
-    const result = await FavoritesService.getInstance().removeTourFromFavorites(tourId);
+  const handleRemoveFavorite = async (tourId: string | number) => {
+    const id = String(tourId);
+    const result = await FavoritesService.getInstance().removeTourFromFavorites(id);
     if (result.success) {
-      setFavoriteTours((prev) => prev.filter((t) => t.id !== tourId));
+      setFavoriteTours((prev) => prev.filter((t) => String(t.id) !== id));
       setAvailability((prev) => {
         const next = { ...prev };
-        delete next[String(tourId)];
+        delete next[id];
         return next;
       });
+    }
+  };
+
+  const handleRemoveHotelFavorite = async (hotelId: string | number) => {
+    const id = String(hotelId);
+    const result = await FavoritesService.getInstance().removeHotelFromFavorites(id);
+    if (result.success) {
+      setFavoriteHotels((prev) => prev.filter((h) => String(h.id) !== id));
     }
   };
 
@@ -110,29 +145,95 @@ export default function FavoritesScreen({ navigation }: any) {
 
     navigation.navigate('ApiTourDetails', {
       tourId: tour.id,
-      searchParams: { currency: tour.currency || 'RUB' },
+      searchParams: {
+        currency: tour.currency || 'RUB',
+        adults: Math.max(1, Number(tour.adults) || 1),
+        childs:
+          Number(tour.childs) > 0
+            ? Array.from({ length: Math.min(10, Number(tour.childs)) }, () => 0)
+            : [],
+        nightsFrom: tour.nights,
+        nightsTo: tour.nights,
+        dateFrom: tour.date,
+        dateTo: tour.date,
+      },
       currency: tour.currency || 'RUB',
     });
   };
 
-  const formatPrice = (price: number, fromCurrency: string) =>
-    settingsService.formatTourPrice(price, fromCurrency as Currency, currency);
+  const handleHotelPress = (hotel: Hotel) => {
+    navigation.navigate('ApiHotelDetails', {
+      hotelId: Number(hotel.id) || hotel.id,
+      hotelPreview: {
+        id: Number(hotel.id) || hotel.id,
+        name: hotel.name,
+        picturelink: hotel.image,
+        rating: hotel.rating,
+        category: hotel.stars || hotel.category,
+        country: hotel.country ? { name: hotel.country } : undefined,
+        region: hotel.location ? { name: hotel.location } : undefined,
+        minPrice: hotel.price,
+        price: hotel.price,
+      },
+      focusTours: true,
+    });
+  };
+
+  // Для зачёркнутой базовой цены — без префикса «от»
+  const formatPrice = (price: number, fromCurrency: string) => {
+    const converted = settingsService.convertPrice(price, fromCurrency as Currency, currency);
+    const symbol = settingsService.getCurrencySymbol(currency);
+    return `${converted ? converted.toLocaleString('ru-RU') : '—'} ${symbol}`;
+  };
 
   const formatDate = (dateStr: string) => {
-    const date = new Date(dateStr);
-    return date.toLocaleDateString('ru-RU', {
+    const date = parseFlexibleDateLocal(dateStr) || new Date(dateStr);
+    if (!Number.isFinite(date.getTime())) return dateStr || '—';
+    return date.toLocaleDateString(language === 'en' ? 'en-GB' : 'ru-RU', {
       day: '2-digit',
       month: 'short',
     });
   };
 
-  if (loading && favoriteTours.length === 0) {
+  const activeCount = segment === 'tours' ? favoriteTours.length : favoriteHotels.length;
+  const pluralRu = (n: number, one: string, few: string, many: string) => {
+    const abs = Math.abs(n) % 100;
+    const dig = abs % 10;
+    if (abs > 10 && abs < 20) return many;
+    if (dig === 1) return one;
+    if (dig >= 2 && dig <= 4) return few;
+    return many;
+  };
+  const pluralEn = (n: number, one: string, many: string) => (n === 1 ? one : many);
+  const subtitleParts: string[] = [];
+  if (favoriteTours.length + favoriteHotels.length > 0) {
+    if (segment === 'tours' && favoriteTours.length > 0) {
+      const n = favoriteTours.length;
+      const unit =
+        language === 'en'
+          ? pluralEn(n, i18n.t('favorites.tourOne'), i18n.t('favorites.tourMany'))
+          : pluralRu(n, i18n.t('favorites.tourOne'), i18n.t('favorites.tourFew'), i18n.t('favorites.tourMany'));
+      subtitleParts.push(`${n} ${unit}`);
+      if (checkingAvailability) subtitleParts.push(i18n.t('favorites.checking'));
+    } else if (segment === 'hotels' && favoriteHotels.length > 0) {
+      const n = favoriteHotels.length;
+      const unit =
+        language === 'en'
+          ? pluralEn(n, i18n.t('favorites.hotelOne'), i18n.t('favorites.hotelMany'))
+          : pluralRu(n, i18n.t('favorites.hotelOne'), i18n.t('favorites.hotelFew'), i18n.t('favorites.hotelMany'));
+      subtitleParts.push(`${n} ${unit}`);
+    }
+  }
+
+  if (loading && favoriteTours.length === 0 && favoriteHotels.length === 0) {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]} edges={['top']}>
         <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={theme.background} />
-        <View style={[styles.header, { backgroundColor: theme.card, borderBottomColor: theme.border }]}>
-          <Text style={[styles.headerTitle, { color: theme.text }]}>Избранное</Text>
-        </View>
+        <ScreenHeader
+          title={i18n.t('profile.favorites')}
+          onBack={navigation.canGoBack?.() ? () => safeGoBack(navigation) : undefined}
+          noSafeTop
+        />
         <View style={styles.centerContent}>
           <ActivityIndicator size="large" color={theme.primary} />
         </View>
@@ -140,39 +241,66 @@ export default function FavoritesScreen({ navigation }: any) {
     );
   }
 
+  const renderSegment = () => (
+    <View style={[styles.segmentTrack, { backgroundColor: theme.secondaryBackground, borderColor: theme.border }]}>
+      {([
+        { key: 'hotels' as const, label: i18n.t('favorites.hotels') },
+        { key: 'tours' as const, label: i18n.t('favorites.tours') },
+      ]).map((tab) => {
+        const active = segment === tab.key;
+        return (
+          <TouchableOpacity
+            key={tab.key}
+            style={[styles.segmentBtn, active && { backgroundColor: BRAND.blue }]}
+            onPress={() => setSegment(tab.key)}
+            activeOpacity={0.85}
+          >
+            <Text style={[styles.segmentText, { color: active ? '#fff' : theme.secondaryText }]}>
+              {tab.label}
+            </Text>
+          </TouchableOpacity>
+        );
+      })}
+    </View>
+  );
+
+  const renderEmpty = (kind: FavSegment) => (
+    <View style={[styles.emptyContainer, { paddingBottom: bottomPad }]}>
+      <View style={[styles.emptyIconContainer, { backgroundColor: theme.secondaryBackground }]}>
+        <Ionicons name="heart-outline" size={64} color={theme.inactive} />
+      </View>
+      <Text style={[styles.emptyTitle, { color: theme.text }]}>
+        {kind === 'tours' ? i18n.t('favorites.noFavorites') : i18n.t('favorites.noHotels')}
+      </Text>
+      <Text style={[styles.emptySubtitle, { color: theme.secondaryText }]}>
+        {kind === 'tours' ? i18n.t('favorites.addFirst') : i18n.t('favorites.noHotelsHint')}
+      </Text>
+      <TouchableOpacity
+        style={styles.emptyButton}
+        onPress={() => navigateTab(navigation, 'Search')}
+        activeOpacity={0.8}
+      >
+        <View style={[styles.emptyButtonGradient, { backgroundColor: BRAND.orange }]}>
+          <Text style={styles.emptyButtonText}>{i18n.t('bookings.findTours')}</Text>
+        </View>
+      </TouchableOpacity>
+    </View>
+  );
+
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]} edges={['top']}>
-      <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={theme.card} />
-      <View style={[styles.header, { backgroundColor: theme.card, borderBottomColor: theme.border }]}>
-        <View style={styles.headerLeft}>
-          <Text style={[styles.headerTitle, { color: theme.text }]}>Избранное</Text>
-          {favoriteTours.length > 0 && (
-            <Text style={[styles.headerSubtitle, { color: theme.secondaryText }]}>
-              {favoriteTours.length} туров
-              {checkingAvailability ? ' · проверка…' : ''}
-            </Text>
-          )}
-        </View>
-        <View style={styles.headerRight}>
-          <ProfileIcon navigation={navigation} size={44} showName={true} />
-        </View>
-      </View>
+      <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={theme.background} />
+      <ScreenHeader
+        title={i18n.t('profile.favorites')}
+        subtitle={subtitleParts.length ? subtitleParts.join(' · ') : undefined}
+        onBack={navigation.canGoBack?.() ? () => safeGoBack(navigation) : undefined}
+        noSafeTop
+      />
 
-      {favoriteTours.length === 0 ? (
-        <View style={[styles.emptyContainer, { paddingBottom: bottomPad }]}>
-          <View style={[styles.emptyIconContainer, { backgroundColor: theme.secondaryBackground }]}>
-            <Ionicons name="heart-outline" size={64} color={theme.inactive} />
-          </View>
-          <Text style={[styles.emptyTitle, { color: theme.text }]}>Нет избранных туров</Text>
-          <Text style={[styles.emptySubtitle, { color: theme.secondaryText }]}>
-            Добавьте туры в избранное, чтобы вернуться к ним позже
-          </Text>
-          <TouchableOpacity style={styles.emptyButton} onPress={() => navigation.navigate('Home')} activeOpacity={0.8}>
-            <View style={[styles.emptyButtonGradient, { backgroundColor: theme.primary }]}>
-              <Text style={styles.emptyButtonText}>{i18n.t('bookings.findTours')}</Text>
-            </View>
-          </TouchableOpacity>
-        </View>
+      {renderSegment()}
+
+      {activeCount === 0 ? (
+        renderEmpty(segment)
       ) : (
         <ScrollView
           showsVerticalScrollIndicator={false}
@@ -180,142 +308,231 @@ export default function FavoritesScreen({ navigation }: any) {
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[theme.primary]} />}
         >
           <View style={styles.toursContainer}>
-            {favoriteTours.map((tour, index) => {
-              const imageUrl = tour.picture || (tour.hotel as { picturelink?: string }).picturelink;
-              const isUnavailable = availability[String(tour.id)] === 'unavailable';
-              const tracked = priceTrackingService.isTracked(String(tour.id))
-                ? priceTrackingService.getTrackedTours().find((t) => t.tourId === String(tour.id))
-                : undefined;
-              const baseline = tracked?.originalPrice ?? tracked?.currentPrice;
-              const dropPct =
-                baseline && tour.price > 0 && tour.price < baseline
-                  ? Math.round((1 - tour.price / baseline) * 100)
-                  : 0;
-              const showDrop = dropPct >= 5;
+            {segment === 'tours'
+              ? favoriteTours.map((tour, index) => {
+                  const imageUrl = tour.picture || (tour.hotel as { picturelink?: string }).picturelink;
+                  const isUnavailable = availability[String(tour.id)] === 'unavailable';
+                  const tracked = priceTrackingService.isTracked(String(tour.id))
+                    ? priceTrackingService.getTrackedTours().find((t) => t.tourId === String(tour.id))
+                    : undefined;
+                  const baseline = tracked?.originalPrice ?? tracked?.currentPrice;
+                  const dropPct =
+                    baseline && tour.price > 0 && tour.price < baseline
+                      ? Math.round((1 - tour.price / baseline) * 100)
+                      : 0;
+                  const showDrop = dropPct >= 5;
+                  const displayAmount = settingsService.convertPrice(
+                    tour.price,
+                    (tour.currency || 'RUB') as Currency,
+                    currency,
+                  );
+                  const currencySymbol = settingsService.getCurrencySymbol(currency);
 
-              return (
-                <TouchableOpacity
-                  key={`${tour.id}-${index}`}
-                  style={[
-                    styles.tourCard,
-                    { backgroundColor: theme.card, borderColor: theme.border },
-                    isUnavailable && styles.tourCardUnavailable,
-                  ]}
-                  onPress={() => handleTourPress(tour)}
-                  activeOpacity={isUnavailable ? 1 : 0.9}
-                  disabled={false}
-                  accessibilityState={{ disabled: isUnavailable }}
-                >
-                  <View style={styles.imageContainer}>
-                    {imageUrl ? (
-                      <Image
-                        source={{ uri: imageUrl }}
-                        style={[styles.tourImage, isUnavailable && styles.imageDimmed]}
-                        resizeMode="cover"
-                      />
-                    ) : (
-                      <View style={[styles.tourImage, styles.imagePlaceholder, { backgroundColor: theme.secondaryBackground }]}>
-                        <Ionicons name="image-outline" size={32} color={theme.inactive} />
-                      </View>
-                    )}
-                    <View style={[styles.imageGradient, { backgroundColor: 'rgba(0,0,0,0.35)' }]} />
-                    {isUnavailable && (
-                      <View style={styles.unavailableOverlay}>
-                        <View style={styles.unavailableBadge}>
-                          <Ionicons name="close-circle" size={18} color="#fff" />
-                          <Text style={styles.unavailableBadgeText}>{i18n.t('favorites.tourUnavailable')}</Text>
-                        </View>
-                      </View>
-                    )}
+                  return (
                     <TouchableOpacity
-                      style={[styles.favoriteButton, { backgroundColor: 'rgba(0,0,0,0.4)' }]}
-                      onPress={() => handleRemoveFavorite(tour.id)}
-                      activeOpacity={0.7}
+                      key={`${tour.id}-${index}`}
+                      style={[
+                        styles.tourCard,
+                        { backgroundColor: theme.card, borderColor: theme.border },
+                        isUnavailable && styles.tourCardUnavailable,
+                      ]}
+                      onPress={() => handleTourPress(tour)}
+                      activeOpacity={isUnavailable ? 1 : 0.9}
+                      accessibilityState={{ disabled: isUnavailable }}
                     >
-                      <Ionicons name="heart" size={20} color="#fff" />
-                    </TouchableOpacity>
-                    {showDrop && !isUnavailable ? (
-                      <View style={[styles.discountBadge, { backgroundColor: theme.success }]}>
-                        <Text style={styles.discountText}>−{dropPct}%</Text>
-                      </View>
-                    ) : tracked && !isUnavailable ? (
-                      <View style={[styles.discountBadge, { backgroundColor: 'rgba(0,0,0,0.55)' }]}>
-                        <Text style={styles.discountText}>{i18n.t('favorites.watching')}</Text>
-                      </View>
-                    ) : null}
-                  </View>
-
-                  <View style={styles.tourInfo}>
-                    <Text
-                      style={[styles.hotelName, { color: isUnavailable ? theme.secondaryText : theme.text }]}
-                      numberOfLines={2}
-                    >
-                      {tour.hotel?.name ?? tour.name}
-                    </Text>
-                    {isUnavailable ? (
-                      <Text style={[styles.unavailableHint, { color: theme.secondaryText }]}>
-                        {i18n.t('favorites.tourUnavailableHint')}
-                      </Text>
-                    ) : (
-                      <>
-                        <View style={styles.locationRow}>
-                          <Ionicons name="location" size={14} color={theme.secondaryText} />
-                          <Text style={[styles.locationText, { color: theme.secondaryText }]}>
-                            {tour.hotel?.region?.name ?? ''}
-                            {tour.hotel?.subRegion ? `, ${tour.hotel.subRegion.name}` : ''}
-                          </Text>
-                        </View>
-                        <View style={styles.metaRow}>
-                          <View style={styles.metaItem}>
-                            <Ionicons name="calendar-outline" size={14} color={theme.secondaryText} />
-                            <Text style={[styles.metaText, { color: theme.secondaryText }]}>
-                              {formatDate(tour.date)} • {tour.nights}{' '}
-                              {tour.nights === 1
-                                ? i18n.t('search.night')
-                                : tour.nights < 5
-                                  ? i18n.t('search.nights2')
-                                  : i18n.t('search.nights')}
-                            </Text>
+                      <View style={styles.imageContainer}>
+                        {imageUrl ? (
+                          <CachedImage
+                            source={{ uri: imageUrl }}
+                            style={[styles.tourImage, isUnavailable && styles.imageDimmed]}
+                            contentFit="cover"
+                            fallbackUri={DEFAULT_HOTEL_IMAGE}
+                          />
+                        ) : (
+                          <View
+                            style={[
+                              styles.tourImage,
+                              styles.imagePlaceholder,
+                              { backgroundColor: theme.secondaryBackground },
+                            ]}
+                          >
+                            <Ionicons name="image-outline" size={32} color={theme.inactive} />
                           </View>
-                          {(tour.hotel?.rating ?? 0) > 0 && (
-                            <View style={styles.rating}>
-                              <Ionicons name="star" size={14} color="#FFD700" />
-                              <Text style={[styles.ratingText, { color: theme.text }]}>{tour.hotel?.rating}</Text>
+                        )}
+                        <View style={[styles.imageGradient, { backgroundColor: 'rgba(0,0,0,0.28)' }]} />
+                        {isUnavailable && (
+                          <View style={styles.unavailableOverlay}>
+                            <View style={[styles.unavailableBadge, { backgroundColor: theme.accent }]}>
+                              <Ionicons name="close-circle" size={18} color="#fff" />
+                              <Text style={styles.unavailableBadgeText}>{i18n.t('favorites.tourUnavailable')}</Text>
                             </View>
-                          )}
-                        </View>
-                        <View style={[styles.priceRow, { borderTopColor: theme.border }]}>
-                          <View>
-                            {showDrop && baseline ? (
-                              <Text style={[styles.oldPrice, { color: theme.secondaryText }]}>
-                                {formatPrice(baseline, tour.currency)}
+                          </View>
+                        )}
+                        <TouchableOpacity
+                          style={[styles.favoriteButton, { backgroundColor: 'rgba(255,255,255,0.94)' }]}
+                          onPress={() => handleRemoveFavorite(tour.id)}
+                          activeOpacity={0.7}
+                        >
+                          <Ionicons name="heart" size={20} color={BRAND.orange} />
+                        </TouchableOpacity>
+                        {showDrop && !isUnavailable ? (
+                          <View style={[styles.discountBadge, { backgroundColor: theme.success }]}>
+                            <Text style={styles.discountText}>−{dropPct}%</Text>
+                          </View>
+                        ) : tracked && !isUnavailable ? (
+                          <View style={[styles.discountBadge, { backgroundColor: 'rgba(0,0,0,0.55)' }]}>
+                            <Text style={styles.discountText}>{i18n.t('favorites.watching')}</Text>
+                          </View>
+                        ) : null}
+                      </View>
+
+                      <View style={styles.tourInfo}>
+                        <Text
+                          style={[styles.hotelName, { color: isUnavailable ? theme.secondaryText : theme.text }]}
+                          numberOfLines={2}
+                        >
+                          {tour.hotel?.name ?? tour.name}
+                        </Text>
+                        {isUnavailable ? (
+                          <Text style={[styles.unavailableHint, { color: theme.secondaryText }]}>
+                            {i18n.t('favorites.tourUnavailableHint')}
+                          </Text>
+                        ) : (
+                          <>
+                            <View style={styles.locationRow}>
+                              <Ionicons name="location" size={14} color={theme.secondaryText} />
+                              <Text style={[styles.locationText, { color: theme.secondaryText }]} numberOfLines={1}>
+                                {tour.hotel?.region?.name ?? ''}
+                                {tour.hotel?.subRegion ? `, ${tour.hotel.subRegion.name}` : ''}
                               </Text>
-                            ) : tour.fuelCharge > 0 ? (
-                              <Text style={[styles.oldPrice, { color: theme.secondaryText }]}>
-                                + топливный сбор {formatPrice(tour.fuelCharge, tour.currency)}
-                              </Text>
-                            ) : null}
-                            <Text style={[styles.price, { color: showDrop ? theme.success : theme.text }]}>
-                              {formatPrice(tour.price, tour.currency)}
-                            </Text>
-                            {showDrop ? (
-                              <Text style={{ fontSize: 12, color: theme.success, fontWeight: '600', marginTop: 2 }}>
-                                {i18n.t('favorites.priceDrop')} −{dropPct}%
+                            </View>
+                            <View style={styles.metaRow}>
+                              <View style={styles.metaItem}>
+                                <Ionicons name="calendar-outline" size={14} color={theme.secondaryText} />
+                                <Text style={[styles.metaText, { color: theme.secondaryText }]}>
+                                  {formatDate(tour.date)} • {formatNightsRu(tour.nights)}
+                                </Text>
+                              </View>
+                              {(tour.hotel?.rating ?? 0) > 0 && (
+                                <View style={styles.rating}>
+                                  <Ionicons name="star" size={14} color={BRAND.blue} />
+                                  <Text style={[styles.ratingText, { color: BRAND.blue }]}>{tour.hotel?.rating}</Text>
+                                </View>
+                              )}
+                            </View>
+                            <View style={[styles.priceRow, { borderTopColor: theme.border }]}>
+                              <View style={{ flex: 1, minWidth: 0, paddingRight: spacing.sm }}>
+                                {showDrop && baseline ? (
+                                  <Text style={[styles.oldPrice, { color: theme.secondaryText }]}>
+                                    {formatPrice(baseline, tour.currency)}
+                                  </Text>
+                                ) : null}
+                                <TourPriceLabel
+                                  amount={displayAmount}
+                                  currencySymbol={currencySymbol}
+                                  fromPrefix={!showDrop}
+                                  caption="за тур"
+                                  accent={showDrop}
+                                />
+                                {showDrop ? (
+                                  <Text style={{ fontSize: 12, color: theme.success, fontWeight: '600', marginTop: 2 }}>
+                                    {i18n.t('favorites.priceDrop')} −{dropPct}%
+                                  </Text>
+                                ) : null}
+                              </View>
+                              {tour.hotel?.country?.name ? (
+                                <View style={[styles.countryBadge, { backgroundColor: BRAND.blueSubtle }]}>
+                                  <Text style={[styles.countryText, { color: BRAND.blue }]}>
+                                    {tour.hotel.country.name}
+                                  </Text>
+                                </View>
+                              ) : null}
+                            </View>
+                          </>
+                        )}
+                      </View>
+                    </TouchableOpacity>
+                  );
+                })
+              : favoriteHotels.map((hotel) => {
+                  const stars = Number(hotel.stars) || Math.round(Number(hotel.rating) || 0);
+                  const place = [hotel.country, hotel.location].filter(Boolean).join(', ');
+                  return (
+                    <TouchableOpacity
+                      key={String(hotel.id)}
+                      style={[styles.tourCard, { backgroundColor: theme.card, borderColor: theme.border }]}
+                      onPress={() => handleHotelPress(hotel)}
+                      activeOpacity={0.9}
+                    >
+                      <View style={styles.imageContainer}>
+                        {hotel.image ? (
+                          <CachedImage
+                            source={{ uri: hotel.image }}
+                            style={styles.tourImage}
+                            contentFit="cover"
+                            fallbackUri={DEFAULT_HOTEL_IMAGE}
+                          />
+                        ) : (
+                          <View
+                            style={[
+                              styles.tourImage,
+                              styles.imagePlaceholder,
+                              { backgroundColor: theme.secondaryBackground },
+                            ]}
+                          >
+                            <Ionicons name="image-outline" size={32} color={theme.inactive} />
+                          </View>
+                        )}
+                        <View style={[styles.imageGradient, { backgroundColor: 'rgba(0,0,0,0.22)' }]} />
+                        <TouchableOpacity
+                          style={[styles.favoriteButton, { backgroundColor: 'rgba(255,255,255,0.94)' }]}
+                          onPress={() => handleRemoveHotelFavorite(String(hotel.id))}
+                          activeOpacity={0.7}
+                        >
+                          <Ionicons name="heart" size={20} color={BRAND.orange} />
+                        </TouchableOpacity>
+                      </View>
+                      <View style={styles.tourInfo}>
+                        <Text style={[styles.hotelName, { color: theme.text }]} numberOfLines={2}>
+                          {hotel.name}
+                        </Text>
+                        {stars > 0 ? (
+                          <View style={styles.starsRow}>
+                            {Array.from({ length: 5 }).map((_, i) => (
+                              <Ionicons
+                                key={i}
+                                name="star"
+                                size={12}
+                                color={i < stars ? BRAND.blue : theme.border}
+                              />
+                            ))}
+                            {hotel.rating > 0 ? (
+                              <Text style={[styles.ratingText, { color: BRAND.blue, marginLeft: 6 }]}>
+                                {Number(hotel.rating).toFixed(1)}
                               </Text>
                             ) : null}
                           </View>
-                          <View style={[styles.countryBadge, { backgroundColor: theme.primary + '20' }]}>
-                            <Text style={[styles.countryText, { color: theme.primary }]}>
-                              {tour.hotel?.country?.name ?? ''}
-                            </Text>
-                          </View>
+                        ) : null}
+                        {place ? (
+                          <Text style={[styles.locationText, { color: theme.secondaryText, marginTop: 4 }]} numberOfLines={1}>
+                            {place}
+                          </Text>
+                        ) : null}
+                        <View style={[styles.priceRow, { borderTopColor: theme.border, marginTop: spacing.sm }]}>
+                          <TourPriceLabel
+                            amount={settingsService.convertPrice(
+                              Number(hotel.price) || 0,
+                              ((hotel.currency || 'RUB') as Currency),
+                              currency,
+                            )}
+                            currencySymbol={settingsService.getCurrencySymbol(currency)}
+                            caption="за тур"
+                          />
                         </View>
-                      </>
-                    )}
-                  </View>
-                </TouchableOpacity>
-              );
-            })}
+                      </View>
+                    </TouchableOpacity>
+                  );
+                })}
           </View>
         </ScrollView>
       )}
@@ -329,11 +546,11 @@ export default function FavoritesScreen({ navigation }: any) {
         }}
         onLogin={() => {
           setShowAuthCard(false);
-          navigation.navigate('Login');
+          navigateRoot(navigation, 'Login');
         }}
         onRegister={() => {
           setShowAuthCard(false);
-          navigation.navigate('Register');
+          navigateRoot(navigation, 'Register');
         }}
       />
     </SafeAreaView>
@@ -342,48 +559,51 @@ export default function FavoritesScreen({ navigation }: any) {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-    borderBottomWidth: 1,
-  },
-  headerLeft: { flex: 1 },
-  headerRight: { marginLeft: 16 },
-  headerTitle: { fontSize: 28, fontWeight: '800', letterSpacing: -0.5 },
-  headerSubtitle: { fontSize: 14, marginTop: 4 },
   centerContent: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  emptyContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 40 },
+  segmentTrack: {
+    flexDirection: 'row',
+    marginHorizontal: spacing.lg,
+    marginBottom: spacing.md,
+    padding: 4,
+    borderRadius: radius.full,
+    borderWidth: StyleSheet.hairlineWidth,
+    gap: 4,
+  },
+  segmentBtn: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: spacing.sm,
+    borderRadius: radius.full,
+  },
+  segmentText: {
+    ...typography.captionBold,
+  },
+  emptyContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: spacing.xxxl },
   emptyIconContainer: {
     width: 120,
     height: 120,
     borderRadius: 60,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 24,
+    marginBottom: spacing.xl,
   },
-  emptyTitle: { fontSize: 24, fontWeight: '700', marginBottom: 8, textAlign: 'center' },
-  emptySubtitle: { fontSize: 16, textAlign: 'center', marginBottom: 32, lineHeight: 24 },
-  emptyButton: { borderRadius: 16, overflow: 'hidden' },
-  emptyButtonGradient: { paddingHorizontal: 32, paddingVertical: 16 },
-  emptyButtonText: { color: '#FFFFFF', fontSize: 16, fontWeight: '700' },
-  toursContainer: { padding: 20, gap: 16 },
+  emptyTitle: { ...typography.h2, marginBottom: spacing.xs, textAlign: 'center' },
+  emptySubtitle: { ...typography.body, textAlign: 'center', marginBottom: spacing.xxl, lineHeight: 24 },
+  emptyButton: { borderRadius: radius.lg, overflow: 'hidden' },
+  emptyButtonGradient: { paddingHorizontal: spacing.xxl, paddingVertical: spacing.md },
+  emptyButtonText: { color: '#FFFFFF', ...typography.button },
+  toursContainer: { paddingHorizontal: spacing.lg, gap: spacing.md },
   tourCard: {
-    borderRadius: 20,
+    borderRadius: radius.xl,
     overflow: 'hidden',
     borderWidth: 1,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 12,
-    elevation: 4,
+    ...shadows.cardRaised,
   },
   tourCardUnavailable: {
     opacity: 0.85,
   },
-  imageContainer: { height: 200, position: 'relative' },
+  imageContainer: { height: 188, position: 'relative' },
   tourImage: { width: '100%', height: '100%' },
   imageDimmed: { opacity: 0.55 },
   imagePlaceholder: { justifyContent: 'center', alignItems: 'center' },
@@ -397,52 +617,58 @@ const styles = StyleSheet.create({
   unavailableBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    backgroundColor: 'rgba(180,40,40,0.92)',
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 20,
+    gap: spacing.xs,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+    borderRadius: radius.full,
   },
-  unavailableBadgeText: { color: '#FFFFFF', fontSize: 14, fontWeight: '700' },
-  unavailableHint: { fontSize: 13, lineHeight: 18, marginTop: 4 },
+  unavailableBadgeText: { color: '#FFFFFF', ...typography.captionBold },
+  unavailableHint: { ...typography.caption, lineHeight: 18, marginTop: spacing.xxs },
   discountBadge: {
     position: 'absolute',
-    top: 12,
-    right: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 20,
+    top: spacing.sm,
+    left: spacing.sm,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xxs,
+    borderRadius: radius.full,
+    backgroundColor: BRAND.orange,
+    zIndex: 2,
   },
-  discountText: { color: '#FFFFFF', fontSize: 14, fontWeight: '700' },
+  discountText: { color: '#FFFFFF', ...typography.captionBold },
   favoriteButton: {
     position: 'absolute',
-    top: 12,
-    left: 12,
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    top: spacing.sm,
+    right: spacing.sm,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     justifyContent: 'center',
     alignItems: 'center',
     zIndex: 2,
   },
-  tourInfo: { padding: 16 },
-  hotelName: { fontSize: 18, fontWeight: '700', marginBottom: 8 },
-  locationRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
-  locationText: { fontSize: 14, marginLeft: 6 },
-  metaRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
+  tourInfo: { padding: spacing.md },
+  hotelName: { ...typography.h3, marginBottom: spacing.xs, color: BRAND.navy },
+  locationRow: { flexDirection: 'row', alignItems: 'center', marginBottom: spacing.sm },
+  locationText: { ...typography.caption, marginLeft: spacing.xxs, flex: 1 },
+  metaRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: spacing.sm,
+  },
   metaItem: { flexDirection: 'row', alignItems: 'center' },
-  metaText: { fontSize: 13, marginLeft: 6 },
+  metaText: { ...typography.small, marginLeft: spacing.xxs },
   rating: { flexDirection: 'row', alignItems: 'center' },
-  ratingText: { fontSize: 13, fontWeight: '600', marginLeft: 4 },
+  ratingText: { ...typography.smallBold, marginLeft: spacing.xxs, color: BRAND.blue },
+  starsRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 2 },
   priceRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'baseline',
-    paddingTop: 12,
-    borderTopWidth: 1,
+    alignItems: 'flex-end',
+    paddingTop: spacing.sm,
+    borderTopWidth: StyleSheet.hairlineWidth,
   },
-  oldPrice: { fontSize: 12, marginBottom: 2 },
-  price: { fontSize: 22, fontWeight: '700' },
-  countryBadge: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 12 },
-  countryText: { fontSize: 12, fontWeight: '600' },
+  oldPrice: { ...typography.small, marginBottom: 2, textDecorationLine: 'line-through' },
+  countryBadge: { paddingHorizontal: spacing.sm, paddingVertical: spacing.xxs, borderRadius: radius.full },
+  countryText: { ...typography.smallBold },
 });

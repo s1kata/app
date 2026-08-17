@@ -10,6 +10,7 @@ import type { CrmBookingQueuePayload } from '../../types/crmQueue';
 import type { BonusBalance } from '../../types';
 import type { BonusQuote } from '../../config/bonusRules';
 import { logger } from '../../utils/logger';
+import { getJwtSub } from '../../utils/jwtDiagnostics';
 
 /** Порядок важен: сначала прямой .php (работает на travelhub63.ru), затем rewrite без .php */
 const CRM_SUBMIT_PATHS = [
@@ -102,17 +103,32 @@ export async function submitBookingToBackend(
     return { success: false, error: 'Требуется авторизация' };
   }
 
+  // На проде старый PHP режет 403 при userId !== JWT.sub — всегда шлём sub из токена
+  const jwtSub = getJwtSub(bearer);
+  const alignedPayload: CrmBookingQueuePayload = jwtSub
+    ? { ...payload, userId: jwtSub }
+    : payload;
+  if (jwtSub && payload.userId && payload.userId !== jwtSub) {
+    logger.warn(
+      `[CrmBackendClient] userId mismatch local=${payload.userId} jwt.sub=${jwtSub} — sending JWT sub`,
+    );
+  }
+
   try {
     let lastError = 'CRM error';
 
     for (const path of CRM_SUBMIT_PATHS) {
-      let attempt = await postCrmSubmit(base, path, bearer, idempotencyKey, payload);
+      let attempt = await postCrmSubmit(base, path, bearer, idempotencyKey, alignedPayload);
 
       if (attempt.status === 401) {
         const outcome = await authApiClient.refreshWithOutcome();
         if (outcome === 'ok') {
           bearer = (await getBearer()) || bearer;
-          attempt = await postCrmSubmit(base, path, bearer, idempotencyKey, payload);
+          const refreshedSub = getJwtSub(bearer);
+          const retryPayload: CrmBookingQueuePayload = refreshedSub
+            ? { ...alignedPayload, userId: refreshedSub }
+            : alignedPayload;
+          attempt = await postCrmSubmit(base, path, bearer, idempotencyKey, retryPayload);
           if (attempt.status === 401) {
             return handleCrmSessionExpired();
           }

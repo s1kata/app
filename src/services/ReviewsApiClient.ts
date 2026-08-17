@@ -81,9 +81,11 @@ export async function listReviews(params: {
   const qs = new URLSearchParams();
   if (params.tourId) {
     qs.set('tourId', params.tourId);
-  } else if (params.hotelId) {
+  }
+  if (params.hotelId) {
     qs.set('hotelId', params.hotelId);
-  } else if (params.scope === 'general') {
+  }
+  if (!params.tourId && !params.hotelId && params.scope === 'general') {
     qs.set('scope', 'general');
   }
 

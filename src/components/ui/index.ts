@@ -3,3 +3,7 @@ export { default as Card } from './Card';
 export { default as TourCard } from './TourCard';
 export { default as TextField } from './TextField';
 export { default as CachedImage } from './CachedImage';
+export { default as ScreenHeader } from './ScreenHeader';
+export { default as FilterChip } from './FilterChip';
+export { default as TourPriceLabel } from './TourPriceLabel';
+export { default as StickyTourBar } from './StickyTourBar';

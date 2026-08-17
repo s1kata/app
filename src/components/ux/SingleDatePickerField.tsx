@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Modal } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAppContext } from '../../contexts/AppContext';
@@ -24,6 +24,11 @@ export default function SingleDatePickerField({
 }: SingleDatePickerFieldProps) {
   const { theme } = useAppContext();
   const [open, setOpen] = useState(false);
+  const calendarMinDate = useMemo(() => {
+    const d = new Date();
+    d.setHours(12, 0, 0, 0);
+    return d;
+  }, []);
 
   const display = formatDateRuLong(value) || i18n.t('ux.pickDate');
 
@@ -52,10 +57,11 @@ export default function SingleDatePickerField({
 
       <Modal visible={open} animationType="slide" onRequestClose={() => setOpen(false)}>
         <DateRangeCalendar
+          variant="sheet"
           singleDateMode
           initialDateFrom={value || undefined}
           initialDateTo={value || undefined}
-          minDate={new Date()}
+          minDate={calendarMinDate}
           onDateRangeSelect={(from) => {
             onChange(from);
             setOpen(false);

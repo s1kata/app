@@ -6,8 +6,6 @@ import {
   ScrollView,
   RefreshControl,
   ActivityIndicator,
-  TouchableOpacity,
-  TextInput,
   Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -18,6 +16,8 @@ import { bonusService } from '../services/BonusService';
 import { BonusTransaction } from '../types';
 import { BonusRulesCard } from '../components/BonusRulesCard';
 import { logger } from '../utils/logger';
+import { PrimaryButton, ScreenHeader, TextField } from '../components/ui';
+import { radius, shadows, spacing, typography } from '../config/designSystem';
 
 function formatDate(s: string): string {
   if (!s) return '—';
@@ -122,7 +122,8 @@ export default function BonusScreen({ navigation }: any) {
 
   if (loading && !refreshing) {
     return (
-      <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]} edges={['top', 'bottom']}>
+      <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]} edges={['bottom']}>
+        <ScreenHeader title={i18n.t('bonus.title')} onBack={() => navigation.goBack()} />
         <View style={styles.centered}>
           <ActivityIndicator size="large" color={theme.primary} />
           <Text style={[styles.loadingText, { color: theme.secondaryText }]}>{i18n.t('bonus.history')}</Text>
@@ -132,13 +133,8 @@ export default function BonusScreen({ navigation }: any) {
   }
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]} edges={['top', 'bottom']}>
-      <View style={[styles.header, { borderBottomColor: theme.border }]}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
-          <Ionicons name="chevron-back" size={28} color={theme.primary} />
-        </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: theme.text }]}>{i18n.t('bonus.title')}</Text>
-      </View>
+    <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]} edges={['bottom']}>
+      <ScreenHeader title={i18n.t('bonus.title')} onBack={() => navigation.goBack()} />
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={styles.scrollContent}
@@ -179,29 +175,21 @@ export default function BonusScreen({ navigation }: any) {
             <Text style={[styles.sectionTitle, { color: theme.text, marginBottom: 10 }]}>
               {i18n.t('bonus.activateTitle')}
             </Text>
-            <TextInput
-              style={[
-                styles.input,
-                { color: theme.text, borderColor: theme.border, backgroundColor: theme.secondaryBackground },
-              ]}
+            <TextField
+              label={i18n.t('bonus.cardNumber')}
               placeholder={i18n.t('bonus.cardNumber')}
-              placeholderTextColor={theme.tertiaryText}
               value={cardNumber}
               onChangeText={setCardNumber}
               autoCapitalize="characters"
               editable={!activating}
+              iconLeft={<Ionicons name="card-outline" size={20} color={theme.secondaryText} />}
             />
-            <TouchableOpacity
-              style={[styles.activateBtn, { backgroundColor: theme.primary, opacity: activating ? 0.7 : 1 }]}
+            <PrimaryButton
+              title={i18n.t('bonus.activate')}
               onPress={handleActivate}
-              disabled={activating}
-            >
-              {activating ? (
-                <ActivityIndicator size="small" color={theme.surface} />
-              ) : (
-                <Text style={[styles.activateBtnText, { color: theme.surface }]}>{i18n.t('bonus.activate')}</Text>
-              )}
-            </TouchableOpacity>
+              loading={activating}
+              variant="cta"
+            />
           </View>
         )}
 
@@ -257,80 +245,69 @@ export default function BonusScreen({ navigation }: any) {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 8,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-  },
-  backBtn: { padding: 8, marginRight: 8 },
-  headerTitle: { fontSize: 20, fontWeight: '700' },
   scroll: { flexGrow: 1 },
-  scrollContent: { padding: 16, paddingBottom: 32 },
-  centered: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 12 },
-  loadingText: { fontSize: 14 },
+  scrollContent: { padding: spacing.md, paddingBottom: spacing.xxl },
+  centered: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: spacing.sm },
+  loadingText: { ...typography.caption },
   card: {
-    borderRadius: 16,
+    borderRadius: radius.xl,
     borderWidth: 1,
-    padding: 20,
-    marginBottom: 20,
+    padding: spacing.lg,
+    marginBottom: spacing.lg,
     alignItems: 'center',
+    ...shadows.card,
   },
-  cardLabel: { fontSize: 14, marginBottom: 4 },
-  balance: { fontSize: 32, fontWeight: '700' },
-  hint: { fontSize: 12, marginTop: 8, textAlign: 'center' },
+  cardLabel: { ...typography.caption, marginBottom: spacing.xxs },
+  balance: { ...typography.hero, fontSize: 32 },
+  hint: { ...typography.small, marginTop: spacing.xs, textAlign: 'center' },
   errorBox: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 12,
-    borderRadius: 12,
+    padding: spacing.sm,
+    borderRadius: radius.md,
     borderWidth: 1,
-    marginBottom: 16,
-    gap: 8,
+    marginBottom: spacing.md,
+    gap: spacing.xs,
   },
-  errorText: { flex: 1, fontSize: 14 },
+  errorText: { flex: 1, ...typography.caption },
   activateCard: {
-    borderRadius: 16,
+    borderRadius: radius.xl,
     borderWidth: 1,
-    padding: 16,
-    marginBottom: 20,
+    padding: spacing.md,
+    marginBottom: spacing.lg,
+    ...shadows.card,
   },
-  input: {
-    borderWidth: 1,
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    fontSize: 16,
-    marginBottom: 12,
-  },
-  activateBtn: {
-    borderRadius: 12,
-    paddingVertical: 14,
-    alignItems: 'center',
-  },
-  activateBtnText: { fontSize: 16, fontWeight: '600' },
-  sectionTitle: { fontSize: 18, fontWeight: '600', marginBottom: 12 },
+  sectionTitle: { ...typography.h3, marginBottom: spacing.sm },
   empty: {
-    borderRadius: 12,
+    borderRadius: radius.lg,
     borderWidth: 1,
-    padding: 32,
+    padding: spacing.xxl,
     alignItems: 'center',
-    gap: 12,
+    gap: spacing.sm,
+    ...shadows.card,
   },
-  emptyText: { fontSize: 14 },
+  emptyText: { ...typography.caption },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 14,
-    borderRadius: 12,
+    padding: spacing.md,
+    borderRadius: radius.lg,
     borderWidth: 1,
-    marginBottom: 8,
+    marginBottom: spacing.xs,
+    minHeight: 64,
+    ...shadows.card,
   },
-  rowIcon: { width: 40, height: 40, borderRadius: 20, justifyContent: 'center', alignItems: 'center', marginRight: 12 },
+  rowIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: spacing.sm,
+  },
   rowBody: { flex: 1 },
-  rowType: { fontSize: 15, fontWeight: '600' },
-  rowDate: { fontSize: 12, marginTop: 2 },
-  rowReason: { fontSize: 12, marginTop: 4 },
-  rowAmount: { fontSize: 16, fontWeight: '700' },
+  rowType: { ...typography.bodyBold },
+  rowDate: { ...typography.small, marginTop: 2 },
+  rowReason: { ...typography.small, marginTop: spacing.xxs },
+  rowAmount: { ...typography.bodyBold },
 });

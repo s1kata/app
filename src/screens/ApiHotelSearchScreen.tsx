@@ -41,8 +41,10 @@ import CachedImage from '../components/ui/CachedImage';
 import { useHotelListDetailImages } from '../hooks/useHotelListDetailImages';
 import { logger } from '../utils/logger';
 import { i18n } from '../config/i18n';
-import { radius, shadows } from '../config/designSystem';
+import { radius, shadows, spacing } from '../config/designSystem';
 import { hotelListPrice } from '../utils/hotelTourSearch';
+import ScreenHeader from '../components/ui/ScreenHeader';
+import PrimaryButton from '../components/ui/PrimaryButton';
 
 interface ApiHotelSearchScreenProps {
   navigation: any;
@@ -272,16 +274,26 @@ export default function ApiHotelSearchScreen({ navigation, route }: ApiHotelSear
     }
   }, [route?.params?.searchParams, apiReady]);
 
-  // Автозагрузка при смене страны/фильтров (в т.ч. после перехода с главной)
+  // Автозагрузка при смене страны/фильтров (не во время открытой модалки — Apply сам грузит)
   useEffect(() => {
     if (!apiReady || isInitialLoad) return;
     if (!searchParams.countryId) return;
+    if (showFiltersModal) return;
     const key = getCacheKeyFromParams(searchParams);
     if (key === lastSearchParams) return;
     setLastSearchParams(key);
     void loadHotels(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- loadHotels замыкается на актуальные params
-  }, [apiReady, isInitialLoad, searchParams.countryId, searchParams.regionId, searchParams.category, searchParams.rating]);
+  }, [
+    apiReady,
+    isInitialLoad,
+    showFiltersModal,
+    searchParams.countryId,
+    searchParams.regionId,
+    searchParams.category,
+    searchParams.rating,
+    searchParams.types,
+  ]);
 
   // Загружаем регионы при выборе страны (отмена устаревших ответов при смене countryId)
   useEffect(() => {
@@ -1089,7 +1101,7 @@ export default function ApiHotelSearchScreen({ navigation, route }: ApiHotelSear
                 <Text
                   style={[
                     styles.hotelPriceHint,
-                    { color: price > 0 ? theme.primary : theme.secondaryText },
+                    { color: price > 0 ? (theme.accent || theme.primary) : theme.secondaryText },
                   ]}
                   numberOfLines={1}
                 >
@@ -1110,14 +1122,14 @@ export default function ApiHotelSearchScreen({ navigation, route }: ApiHotelSear
           >
             <Text style={[styles.hotelSecondaryBtnText, { color: theme.text }]}>Об отеле</Text>
           </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.hotelPrimaryBtn, { backgroundColor: theme.primary }]}
+          <PrimaryButton
+            title="Смотреть туры"
             onPress={() => handleOpenTours(item)}
-            activeOpacity={0.85}
-          >
-            <Ionicons name="airplane-outline" size={16} color="#fff" />
-            <Text style={styles.hotelPrimaryBtnText}>Смотреть туры</Text>
-          </TouchableOpacity>
+            variant="cta"
+            small
+            style={{ flex: 1.3 }}
+            iconLeft={<Ionicons name="airplane-outline" size={16} color="#fff" />}
+          />
         </View>
       </View>
     );
@@ -1205,19 +1217,20 @@ export default function ApiHotelSearchScreen({ navigation, route }: ApiHotelSear
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]} edges={['top']}>
       <StatusBar style={isDark ? 'light' : 'dark'} />
-      <View style={[styles.header, { backgroundColor: theme.card, borderBottomColor: theme.border }]}>
-        <TouchableOpacity style={styles.headerButton} onPress={() => navigation.goBack()} activeOpacity={0.7}>
-          <Ionicons name="arrow-back" size={24} color={theme.text} />
-        </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: theme.text }]}>Отели</Text>
-        <TouchableOpacity
-          style={styles.headerButton}
-          onPress={() => setShowFiltersModal(true)}
-          activeOpacity={0.7}
-        >
-          <Ionicons name="options-outline" size={22} color={theme.text} />
-        </TouchableOpacity>
-      </View>
+      <ScreenHeader
+        title="Отели"
+        onBack={() => navigation.goBack()}
+        noSafeTop
+        right={
+          <TouchableOpacity
+            style={styles.headerButton}
+            onPress={() => setShowFiltersModal(true)}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="options-outline" size={22} color={theme.deep || theme.text} />
+          </TouchableOpacity>
+        }
+      />
 
       <FlatList
         data={filteredHotels}
@@ -1481,33 +1494,23 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   hotelCard: {
-    borderRadius: 16,
+    borderRadius: radius.xl,
     marginBottom: 14,
     overflow: 'hidden',
     width: '100%',
-    borderWidth: StyleSheet.hairlineWidth,
-    ...platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.08,
-        shadowRadius: 8,
-      },
-      android: {
-        elevation: 3,
-      },
-    }),
+    borderWidth: 1,
+    ...shadows.card,
   },
   hotelImageContainer: {
     width: '100%',
-    height: 168,
+    aspectRatio: 16 / 10,
     position: 'relative',
-    backgroundColor: '#E5E5E5',
+    backgroundColor: '#E8EEF5',
   },
   hotelImage: {
     width: '100%',
     height: '100%',
-    backgroundColor: '#E5E5E5',
+    backgroundColor: '#E8EEF5',
   },
   hotelImagePlaceholder: {
     width: '100%',

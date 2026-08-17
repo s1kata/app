@@ -31,11 +31,8 @@ function mapAuthError(error: unknown, fallback: string): string {
 
 function profileToUserProfile(p: AuthUserProfile): UserProfile {
   const passport = p.passport ?? undefined;
-  const hasPassportCore =
-    !!passport?.series &&
-    !!passport?.number &&
-    !!passport?.issuedBy &&
-    !!passport?.issueDate;
+  // Не отбрасываем частично заполненный паспорт — иначе в форме «пустые» поля при живых данных в БД
+  const hasPassportCore = !!passport?.series && !!passport?.number;
 
   return {
     id: p.id,
@@ -46,12 +43,12 @@ function profileToUserProfile(p: AuthUserProfile): UserProfile {
     isActive: p.isActive,
     passport: hasPassportCore
       ? {
-          series: passport!.series!,
-          number: passport!.number!,
-          issuedBy: passport!.issuedBy!,
-          issueDate: passport!.issueDate!,
-          birthDate: passport!.birthDate,
-          birthPlace: passport!.birthPlace,
+          series: String(passport!.series || ''),
+          number: String(passport!.number || ''),
+          issuedBy: String(passport!.issuedBy || ''),
+          issueDate: String(passport!.issueDate || ''),
+          birthDate: passport!.birthDate ? String(passport!.birthDate) : undefined,
+          birthPlace: passport!.birthPlace ? String(passport!.birthPlace) : undefined,
         }
       : undefined,
     createdAt: p.createdAt || new Date().toISOString(),

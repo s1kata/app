@@ -22,31 +22,21 @@ import { UserProfile } from '../types/firestore';
 import { useAppContext } from '../contexts/AppContext';
 import { i18n } from '../config/i18n';
 import { logger } from '../utils/logger';
-import { normalizeDigits, validatePassportData } from '../utils/validation';
+import {
+  formatPhoneRu,
+  normalizeDigits,
+  validatePersonalDataForm,
+  type PersonalFormErrors,
+} from '../utils/validation';
 import { platform } from '../utils/platform';
-
-function parseDDMMYYYY(value: string): Date | null {
-  const raw = String(value || '').trim();
-  if (!/^\d{2}\.\d{2}\.\d{4}$/.test(raw)) return null;
-  const [dd, mm, yyyy] = raw.split('.').map(Number);
-  const date = new Date(yyyy, mm - 1, dd);
-  if (
-    !Number.isFinite(date.getTime()) ||
-    date.getFullYear() !== yyyy ||
-    date.getMonth() !== mm - 1 ||
-    date.getDate() !== dd
-  ) {
-    return null;
-  }
-  return date;
-}
-
-function formatDDMMYYYY(date: Date): string {
-  const dd = String(date.getDate()).padStart(2, '0');
-  const mm = String(date.getMonth() + 1).padStart(2, '0');
-  const yyyy = String(date.getFullYear());
-  return `${dd}.${mm}.${yyyy}`;
-}
+import { ScreenHeader } from '../components/ui';
+import { radius, shadows, spacing, typography, touchTargets } from '../config/designSystem';
+import { navigateRoot } from '../utils/navHelpers';
+import {
+  formatPickerLocalDay,
+  parseFlexibleDateLocal,
+  toDDMMYYYY,
+} from '../utils/dateYmd';
 
 // Локальный тип для формы (все поля обязательные)
 interface FormData {
@@ -68,63 +58,39 @@ const styles = StyleSheet.create({
   scrollView: {
     flexGrow: 1,
   },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-    borderBottomWidth: 1,
-  },
-  backButton: {
-    padding: 4,
-  },
-  title: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    flex: 1,
-    textAlign: 'center',
-    marginHorizontal: 16,
-  },
-  editButton: {
-    padding: 4,
-  },
   content: {
-    padding: 20,
+    padding: spacing.lg,
   },
   section: {
-    borderRadius: 16,
-    padding: 20,
-    marginBottom: 20,
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
+    borderRadius: radius.xl,
+    padding: spacing.lg,
+    marginBottom: spacing.lg,
+    borderWidth: 1,
+    borderColor: 'rgba(18, 18, 46, 0.08)',
+    ...shadows.card,
   },
   sectionTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    marginBottom: 20,
+    ...typography.h3,
+    marginBottom: spacing.lg,
   },
   sectionSubtitle: {
-    fontSize: 14,
-    fontWeight: 'normal',
+    ...typography.caption,
+    fontWeight: '400',
   },
   inputContainer: {
-    marginBottom: 16,
+    marginBottom: spacing.md,
   },
   inputLabel: {
-    fontSize: 14,
-    fontWeight: '500',
-    marginBottom: 6,
+    ...typography.captionBold,
+    marginBottom: spacing.xxs,
   },
   input: {
     borderWidth: 1,
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.md,
     fontSize: 16,
+    minHeight: touchTargets.input,
   },
   passportRow: {
     flexDirection: 'row',
@@ -136,76 +102,84 @@ const styles = StyleSheet.create({
   actions: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 20,
-    gap: 12,
+    marginBottom: spacing.lg,
+    gap: spacing.sm,
   },
   cancelButton: {
     flex: 1,
-    borderWidth: 1,
-    borderRadius: 12,
-    paddingVertical: 16,
+    borderWidth: 1.5,
+    borderRadius: radius.lg,
+    minHeight: touchTargets.button,
     alignItems: 'center',
+    justifyContent: 'center',
   },
   cancelButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
+    ...typography.button,
   },
   saveButton: {
     flex: 1,
-    borderRadius: 12,
-    paddingVertical: 16,
+    borderRadius: radius.lg,
+    minHeight: touchTargets.button,
     alignItems: 'center',
+    justifyContent: 'center',
   },
   saveButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
+    ...typography.button,
   },
   note: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    borderRadius: 12,
-    padding: 16,
-    gap: 12,
+    borderRadius: radius.lg,
+    padding: spacing.md,
+    gap: spacing.sm,
   },
   noteText: {
     flex: 1,
-    fontSize: 14,
+    ...typography.caption,
     lineHeight: 20,
   },
   dateFieldRow: {
     borderWidth: 1,
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.md,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    minHeight: touchTargets.input,
   },
   dateFieldValue: {
     fontSize: 16,
     flex: 1,
-    marginRight: 8,
+    marginRight: spacing.xs,
+  },
+  fieldError: {
+    ...typography.small,
+    color: '#E74C3C',
+    marginTop: 4,
+  },
+  inputError: {
+    borderColor: '#E74C3C',
   },
   iosPickerSheet: {
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
-    paddingBottom: 12,
+    borderTopLeftRadius: radius.xl,
+    borderTopRightRadius: radius.xl,
+    paddingBottom: spacing.sm,
   },
   iosPickerToolbar: {
     flexDirection: 'row',
     justifyContent: 'flex-end',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   iosPickerDone: {
-    fontSize: 16,
-    fontWeight: '600',
+    ...typography.bodyBold,
   },
   iosPickerBackdrop: {
     flex: 1,
     justifyContent: 'flex-end',
-    backgroundColor: 'rgba(0,0,0,0.35)',
+    backgroundColor: 'rgba(18,18,46,0.35)',
   },
 });
 
@@ -218,6 +192,9 @@ function PersonalDataInputField({
   keyboardType = 'default',
   editable = true,
   theme,
+  error,
+  maxLength,
+  autoCapitalize = 'sentences',
 }: {
   label: string;
   value: string;
@@ -226,6 +203,9 @@ function PersonalDataInputField({
   keyboardType?: KeyboardTypeOptions;
   editable?: boolean;
   theme: Theme;
+  error?: string;
+  maxLength?: number;
+  autoCapitalize?: 'none' | 'sentences' | 'words' | 'characters';
 }) {
   return (
     <View style={styles.inputContainer}>
@@ -236,8 +216,9 @@ function PersonalDataInputField({
           {
             backgroundColor: theme.secondaryBackground,
             color: theme.text,
-            borderColor: theme.border,
+            borderColor: error ? '#E74C3C' : theme.border,
           },
+          error ? styles.inputError : null,
         ]}
         value={value}
         onChangeText={onChangeText}
@@ -246,7 +227,11 @@ function PersonalDataInputField({
         keyboardType={keyboardType}
         editable={editable}
         blurOnSubmit={false}
+        maxLength={maxLength}
+        autoCapitalize={autoCapitalize}
+        autoCorrect={false}
       />
+      {error ? <Text style={styles.fieldError}>{error}</Text> : null}
     </View>
   );
 }
@@ -261,6 +246,7 @@ function PersonalDataDateField({
   isDark = false,
   maximumDate,
   minimumDate,
+  error,
 }: {
   label: string;
   value: string;
@@ -271,19 +257,21 @@ function PersonalDataDateField({
   isDark?: boolean;
   maximumDate?: Date;
   minimumDate?: Date;
+  error?: string;
 }) {
   const [open, setOpen] = useState(false);
-  const parsed = parseDDMMYYYY(value);
-  const [draft, setDraft] = useState<Date>(() => parsed || new Date(1990, 0, 1));
+  const parsed = parseFlexibleDateLocal(value);
+  const [draft, setDraft] = useState<Date>(() => parsed || new Date(1990, 0, 1, 12, 0, 0, 0));
 
   useEffect(() => {
     if (open) {
-      setDraft(parseDDMMYYYY(value) || new Date(1990, 0, 1));
+      setDraft(parseFlexibleDateLocal(value) || new Date(1990, 0, 1, 12, 0, 0, 0));
     }
   }, [open, value]);
 
   const commit = (date: Date) => {
-    onChange(formatDDMMYYYY(date));
+    // Только календарный день в локальной TZ — иначе iOS даёт ±1 день
+    onChange(formatPickerLocalDay(date));
   };
 
   const onAndroidChange = (event: DateTimePickerEvent, selected?: Date) => {
@@ -294,7 +282,19 @@ function PersonalDataDateField({
   };
 
   const onIosChange = (_event: DateTimePickerEvent, selected?: Date) => {
-    if (selected) setDraft(selected);
+    if (selected) {
+      setDraft(
+        new Date(
+          selected.getFullYear(),
+          selected.getMonth(),
+          selected.getDate(),
+          12,
+          0,
+          0,
+          0,
+        ),
+      );
+    }
   };
 
   return (
@@ -305,7 +305,7 @@ function PersonalDataDateField({
           styles.dateFieldRow,
           {
             backgroundColor: theme.secondaryBackground,
-            borderColor: theme.border,
+            borderColor: error ? '#E74C3C' : theme.border,
             opacity: editable ? 1 : 0.85,
           },
         ]}
@@ -319,10 +319,11 @@ function PersonalDataDateField({
             { color: value ? theme.text : theme.tertiaryText },
           ]}
         >
-          {value || placeholder}
+          {toDDMMYYYY(value) || placeholder}
         </Text>
         <Ionicons name="calendar-outline" size={20} color={theme.primary} />
       </TouchableOpacity>
+      {error ? <Text style={styles.fieldError}>{error}</Text> : null}
 
       {open && platform.isAndroid ? (
         <DateTimePicker
@@ -361,6 +362,7 @@ function PersonalDataDateField({
                 maximumDate={maximumDate}
                 minimumDate={minimumDate}
                 themeVariant={isDark ? 'dark' : 'light'}
+                locale="ru_RU"
                 style={{ height: 216 }}
               />
             </View>
@@ -379,6 +381,7 @@ export default function PersonalDataScreen({ navigation }: any) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [editing, setEditing] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState<PersonalFormErrors>({});
 
   // Форма - используем локальный тип FormData
   const [formData, setFormData] = useState<FormData>({
@@ -392,6 +395,16 @@ export default function PersonalDataScreen({ navigation }: any) {
     birthDate: '',
     birthPlace: '',
   });
+
+  const clearFieldError = (key: keyof PersonalFormErrors) => {
+    setFieldErrors((prev) => {
+      if (!prev[key] && !prev.form) return prev;
+      const next = { ...prev };
+      delete next[key];
+      delete next.form;
+      return next;
+    });
+  };
 
   const personalDataMounted = useRef(true);
 
@@ -414,7 +427,7 @@ export default function PersonalDataScreen({ navigation }: any) {
               if (navigation.canGoBack?.()) {
                 navigation.goBack();
               } else {
-                navigation.navigate('Login');
+                navigateRoot(navigation, 'Login');
               }
             },
           },
@@ -430,12 +443,12 @@ export default function PersonalDataScreen({ navigation }: any) {
         setFormData({
           name: userData.fullName || '',
           email: userData.email || '',
-          phone: userData.phone || '',
+          phone: userData.phone ? formatPhoneRu(userData.phone) : '',
           passportSeries: userData.passport?.series || '',
           passportNumber: userData.passport?.number || '',
           passportIssuedBy: userData.passport?.issuedBy || '',
-          passportIssuedDate: userData.passport?.issueDate || '',
-          birthDate: userData.passport?.birthDate || '',
+          passportIssuedDate: toDDMMYYYY(userData.passport?.issueDate || ''),
+          birthDate: toDDMMYYYY(userData.passport?.birthDate || ''),
           birthPlace: userData.passport?.birthPlace || '',
         });
       }
@@ -456,45 +469,51 @@ export default function PersonalDataScreen({ navigation }: any) {
         return;
       }
 
-      if (!formData.name.trim()) {
-        Alert.alert('Ошибка', 'Имя обязательно для заполнения');
-        return;
-      }
-
-      const passportValidationError = validatePassportData({
-        series: formData.passportSeries,
-        number: formData.passportNumber,
-        issuedBy: formData.passportIssuedBy,
-        issueDate: formData.passportIssuedDate,
+      const errors = validatePersonalDataForm({
+        name: formData.name,
+        email: formData.email,
+        phone: formData.phone,
+        passportSeries: formData.passportSeries,
+        passportNumber: formData.passportNumber,
+        passportIssuedBy: formData.passportIssuedBy,
+        passportIssuedDate: formData.passportIssuedDate,
         birthDate: formData.birthDate,
+        birthPlace: formData.birthPlace,
+        // Для бронирований паспорт нужен целиком — требуем при любом сохранении профиля
+        requirePassport: true,
       });
-      if (passportValidationError) {
-        Alert.alert('Ошибка', passportValidationError);
+
+      if (Object.keys(errors).length > 0) {
+        setFieldErrors(errors);
+        Alert.alert(
+          'Проверьте данные',
+          errors.form ||
+            Object.values(errors)[0] ||
+            'Заполните поля по требованиям (как в паспорте РФ).'
+        );
         return;
       }
+      setFieldErrors({});
 
-      const passportData =
-        formData.passportSeries.trim() ||
-        formData.passportNumber.trim() ||
-        formData.passportIssuedBy.trim()
-          ? {
-              series: normalizeDigits(formData.passportSeries.trim()),
-              number: normalizeDigits(formData.passportNumber.trim()),
-              issuedBy: formData.passportIssuedBy.trim(),
-              issueDate: formData.passportIssuedDate.trim(),
-              birthDate: formData.birthDate.trim() || undefined,
-              birthPlace: formData.birthPlace.trim() || undefined,
-            }
-          : null;
+      const series = normalizeDigits(formData.passportSeries.trim());
+      const number = normalizeDigits(formData.passportNumber.trim());
+      const passportData = {
+        series,
+        number,
+        issuedBy: formData.passportIssuedBy.trim().replace(/\s+/g, ' '),
+        issueDate: toDDMMYYYY(formData.passportIssuedDate.trim()),
+        birthDate: toDDMMYYYY(formData.birthDate.trim()),
+        birthPlace: formData.birthPlace.trim().replace(/\s+/g, ' '),
+      };
 
       const ok = await AuthService.updateProfile(user.uid, {
-        fullName: formData.name.trim(),
-        phone: formData.phone.trim() || undefined,
+        fullName: formData.name.trim().replace(/\s+/g, ' '),
+        phone: formatPhoneRu(formData.phone),
         email:
           formData.email.trim() && formData.email.trim() !== (profile?.email ?? '')
             ? formData.email.trim()
             : undefined,
-        passport: passportData || undefined,
+        passport: passportData,
       });
 
       if (!ok) {
@@ -518,15 +537,16 @@ export default function PersonalDataScreen({ navigation }: any) {
       setFormData({
         name: profile.fullName || '',
         email: profile.email || '',
-        phone: profile.phone || '',
+        phone: profile.phone ? formatPhoneRu(profile.phone) : '',
         passportSeries: profile.passport?.series || '',
         passportNumber: profile.passport?.number || '',
         passportIssuedBy: profile.passport?.issuedBy || '',
-        passportIssuedDate: profile.passport?.issueDate || '',
-        birthDate: profile.passport?.birthDate || '',
+        passportIssuedDate: toDDMMYYYY(profile.passport?.issueDate || ''),
+        birthDate: toDDMMYYYY(profile.passport?.birthDate || ''),
         birthPlace: profile.passport?.birthPlace || '',
       });
     }
+    setFieldErrors({});
     setEditing(false);
   };
 
@@ -547,10 +567,22 @@ export default function PersonalDataScreen({ navigation }: any) {
   }
 
   return (
-    <SafeAreaView edges={['top', 'bottom']} style={[styles.container, { backgroundColor: theme.background }]}>
+    <SafeAreaView edges={['bottom']} style={[styles.container, { backgroundColor: theme.background }]}>
       <StatusBar
         style={isDark ? 'light' : 'dark'}
         backgroundColor={theme.background}
+      />
+
+      <ScreenHeader
+        title={i18n.t('personal.title')}
+        onBack={() => navigation.goBack()}
+        right={
+          !editing ? (
+            <TouchableOpacity onPress={handleEdit} hitSlop={10} style={{ minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' }}>
+              <Ionicons name="create-outline" size={22} color={theme.primary} />
+            </TouchableOpacity>
+          ) : undefined
+        }
       />
       
       <ScrollView
@@ -559,55 +591,61 @@ export default function PersonalDataScreen({ navigation }: any) {
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
       >
-        <View style={[styles.header, { backgroundColor: theme.card, borderBottomColor: theme.border }]}>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-            <Ionicons name="arrow-back" size={24} color={theme.text} />
-          </TouchableOpacity>
-          <Text style={[styles.title, { color: theme.text }]}>{i18n.t('personal.title')}</Text>
-          {!editing ? (
-            <TouchableOpacity onPress={handleEdit} style={styles.editButton}>
-              <Ionicons name="create-outline" size={24} color={theme.primary} />
-            </TouchableOpacity>
-          ) : (
-            <View style={{ width: 24 }} />
-          )}
-        </View>
-
         <View style={[styles.content, { backgroundColor: theme.background }]}>
-          <View style={[styles.section, { backgroundColor: theme.card }]}>
+          <View style={[styles.section, { backgroundColor: theme.card, borderColor: theme.border }]}>
             <Text style={[styles.sectionTitle, { color: theme.text }]}>{i18n.t('personal.basicInfo')}</Text>
             
             <PersonalDataInputField
               label={i18n.t('personal.nameRequired')}
               value={formData.name}
-              onChangeText={(text) => setFormData((prev) => ({ ...prev, name: text }))}
+              onChangeText={(text) => {
+                clearFieldError('name');
+                // Только буквы/пробел/дефис/апостроф
+                const cleaned = text.replace(/[^A-Za-zА-Яа-яЁёІіЇїЄєҐґ'’\- ]+/gu, '');
+                setFormData((prev) => ({ ...prev, name: cleaned }));
+              }}
               placeholder={i18n.t('personal.placeholderName')}
               editable={editing}
               theme={theme}
+              error={fieldErrors.name}
+              maxLength={100}
+              autoCapitalize="words"
             />
 
             <PersonalDataInputField
               label="Email"
               value={formData.email}
-              onChangeText={(text) => setFormData((prev) => ({ ...prev, email: text }))}
+              onChangeText={(text) => {
+                clearFieldError('email');
+                setFormData((prev) => ({ ...prev, email: text.replace(/\s+/g, '') }));
+              }}
               placeholder="email@example.com"
               keyboardType="email-address"
               editable={editing}
               theme={theme}
+              error={fieldErrors.email}
+              maxLength={254}
+              autoCapitalize="none"
             />
 
             <PersonalDataInputField
               label={i18n.t('personal.phone')}
               value={formData.phone}
-              onChangeText={(text) => setFormData((prev) => ({ ...prev, phone: text }))}
+              onChangeText={(text) => {
+                clearFieldError('phone');
+                setFormData((prev) => ({ ...prev, phone: formatPhoneRu(text) }));
+              }}
               placeholder="+7 (999) 123-45-67"
               keyboardType="phone-pad"
               editable={editing}
               theme={theme}
+              error={fieldErrors.phone}
+              maxLength={18}
+              autoCapitalize="none"
             />
           </View>
 
-          <View style={[styles.section, { backgroundColor: theme.card }]}>
+          <View style={[styles.section, { backgroundColor: theme.card, borderColor: theme.border }]}>
             <Text style={[styles.sectionTitle, { color: theme.text }]}>
               {i18n.t('personal.passportData')}
               <Text style={[styles.sectionSubtitle, { color: theme.secondaryText }]}>
@@ -620,22 +658,40 @@ export default function PersonalDataScreen({ navigation }: any) {
                 <PersonalDataInputField
                   label={i18n.t('personal.series')}
                   value={formData.passportSeries}
-                  onChangeText={(text) => setFormData((prev) => ({ ...prev, passportSeries: text }))}
+                  onChangeText={(text) => {
+                    clearFieldError('passportSeries');
+                    setFormData((prev) => ({
+                      ...prev,
+                      passportSeries: normalizeDigits(text).slice(0, 4),
+                    }));
+                  }}
                   placeholder="1234"
                   keyboardType="numeric"
                   editable={editing}
                   theme={theme}
+                  error={fieldErrors.passportSeries}
+                  maxLength={4}
+                  autoCapitalize="none"
                 />
               </View>
               <View style={styles.halfInput}>
                 <PersonalDataInputField
                   label={i18n.t('personal.number')}
                   value={formData.passportNumber}
-                  onChangeText={(text) => setFormData((prev) => ({ ...prev, passportNumber: text }))}
+                  onChangeText={(text) => {
+                    clearFieldError('passportNumber');
+                    setFormData((prev) => ({
+                      ...prev,
+                      passportNumber: normalizeDigits(text).slice(0, 7),
+                    }));
+                  }}
                   placeholder="567890"
                   keyboardType="numeric"
                   editable={editing}
                   theme={theme}
+                  error={fieldErrors.passportNumber}
+                  maxLength={7}
+                  autoCapitalize="none"
                 />
               </View>
             </View>
@@ -643,44 +699,65 @@ export default function PersonalDataScreen({ navigation }: any) {
             <PersonalDataInputField
               label={i18n.t('personal.issuedBy')}
               value={formData.passportIssuedBy}
-              onChangeText={(text) => setFormData((prev) => ({ ...prev, passportIssuedBy: text }))}
+              onChangeText={(text) => {
+                clearFieldError('passportIssuedBy');
+                setFormData((prev) => ({ ...prev, passportIssuedBy: text }));
+              }}
               placeholder={i18n.t('personal.placeholderIssuedBy')}
               editable={editing}
               theme={theme}
+              error={fieldErrors.passportIssuedBy}
+              maxLength={200}
             />
 
             <PersonalDataDateField
               label={i18n.t('personal.issuedDate')}
               value={formData.passportIssuedDate}
-              onChange={(text) => setFormData((prev) => ({ ...prev, passportIssuedDate: text }))}
+              onChange={(text) => {
+                clearFieldError('passportIssuedDate');
+                setFormData((prev) => ({ ...prev, passportIssuedDate: text }));
+              }}
               placeholder={i18n.t('personal.placeholderDate')}
               editable={editing}
               theme={theme}
               isDark={isDark}
               maximumDate={new Date()}
-              minimumDate={parseDDMMYYYY(formData.birthDate) || new Date(1950, 0, 1)}
+              minimumDate={parseFlexibleDateLocal(formData.birthDate) || new Date(1950, 0, 1, 12)}
+              error={fieldErrors.passportIssuedDate}
             />
 
             <PersonalDataDateField
               label={i18n.t('personal.birthDate')}
               value={formData.birthDate}
-              onChange={(text) => setFormData((prev) => ({ ...prev, birthDate: text }))}
+              onChange={(text) => {
+                clearFieldError('birthDate');
+                setFormData((prev) => ({ ...prev, birthDate: text }));
+              }}
               placeholder={i18n.t('personal.placeholderDate')}
               editable={editing}
               theme={theme}
               isDark={isDark}
               maximumDate={new Date()}
-              minimumDate={new Date(1920, 0, 1)}
+              minimumDate={new Date(1920, 0, 1, 12)}
+              error={fieldErrors.birthDate}
             />
 
             <PersonalDataInputField
               label={i18n.t('personal.birthPlace')}
               value={formData.birthPlace}
-              onChangeText={(text) => setFormData((prev) => ({ ...prev, birthPlace: text }))}
+              onChangeText={(text) => {
+                clearFieldError('birthPlace');
+                setFormData((prev) => ({ ...prev, birthPlace: text }));
+              }}
               placeholder={i18n.t('personal.placeholderBirthPlace')}
               editable={editing}
               theme={theme}
+              error={fieldErrors.birthPlace}
+              maxLength={120}
             />
+            {fieldErrors.form ? (
+              <Text style={[styles.fieldError, { marginBottom: spacing.sm }]}>{fieldErrors.form}</Text>
+            ) : null}
           </View>
 
           {editing && (

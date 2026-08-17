@@ -21,6 +21,7 @@
       "environment": "preview",
       "distribution": "internal",
       "channel": "preview",
+      "autoIncrement": true,
       "ios": {
         "image": "latest",
         "simulator": false,
@@ -48,9 +49,9 @@
     }
   },
   "submit": {
-    
     "production": {
       "ios": {
+        "ascAppId": "6786282632",
         "language": "ru-RU",
         "appName": "TravelHub"
       },

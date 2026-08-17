@@ -26,13 +26,16 @@ export const ThemeSwitcher: React.FC = () => {
     if (isAnimating) return;
     const modeIndex = ['light', 'dark', 'auto'].indexOf(newMode);
     animateSwitch(modeIndex);
+    // Короткая пауза — индикатор успевает доехать, тема меняется плавно для глаза
+    await new Promise((r) => setTimeout(r, 120));
     await setThemeMode(newMode);
   };
 
   useEffect(() => {
+    if (isAnimating) return;
     const currentIndex = ['light', 'dark', 'auto'].indexOf(themeMode);
     animation.setValue(currentIndex);
-  }, [themeMode]);
+  }, [themeMode, isAnimating]);
 
   const getIndicatorWidth = () =>
     containerWidth === 0 ? 0 : (containerWidth - SWITCHER_PADDING * 2) / 3;

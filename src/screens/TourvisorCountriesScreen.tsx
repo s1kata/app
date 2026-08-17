@@ -5,27 +5,33 @@ import {
   StyleSheet,
   TouchableOpacity,
   ActivityIndicator,
-  Alert,
   FlatList,
-  Image,
   TextInput,
-  Modal,
+  useWindowDimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
-import { tourvisorApi } from '../services/TourvisorApiService';
+import { LinearGradient } from 'expo-linear-gradient';
 import { dictionaryService } from '../services/DictionaryService';
 import { Country, Departure } from '../types/tourvisor';
 import { platform } from '../utils/platform';
 import { useAppContext } from '../contexts/AppContext';
 import { i18n } from '../config/i18n';
 import { logger } from '../utils/logger';
-import { getCountryBySlug, COUNTRIES_LIST } from '../data/countriesData';
-import { radius } from '../config/designSystem';
+import { BRAND, radius, shadows, spacing } from '../config/designSystem';
+import { getCountryCoverImage, COUNTRY_IMAGE_FALLBACK } from '../config/countryImages';
+import CachedImage from '../components/ui/CachedImage';
+import ScreenHeader from '../components/ui/ScreenHeader';
+import { safeGoBack } from '../utils/navHelpers';
+import {
+  resolvePreferredDepartureId,
+  savePreferredDepartureId,
+} from '../services/IdeaCollectionService';
+import { filterExcludedDestinationCountries } from '../config/homeDestinations';
 
-/** Высота карточки страны (image 180 + content + marginBottom 12) для getItemLayout */
-const COUNTRY_ITEM_HEIGHT = 352;
+const GRID_GAP = 12;
+const GRID_PAD = 16;
 
 interface TourvisorCountriesScreenProps {
   navigation: any;
@@ -34,6 +40,8 @@ interface TourvisorCountriesScreenProps {
 
 export default function TourvisorCountriesScreen({ navigation, route }: TourvisorCountriesScreenProps) {
   const { apiReady, theme, isDark } = useAppContext();
+  const { width: screenWidth } = useWindowDimensions();
+  const cardWidth = (screenWidth - GRID_PAD * 2 - GRID_GAP) / 2;
   const [loading, setLoading] = useState(true);
   const [countries, setCountries] = useState<Country[]>([]);
   const [filteredCountries, setFilteredCountries] = useState<Country[]>([]);
@@ -44,8 +52,6 @@ export default function TourvisorCountriesScreen({ navigation, route }: Tourviso
   );
   const [onlyCharter, setOnlyCharter] = useState<boolean>(false);
   const [showDeparturePicker, setShowDeparturePicker] = useState(false);
-  const [showSettingsModal, setShowSettingsModal] = useState(false);
-  const [selectedCountry, setSelectedCountry] = useState<Country | null>(null);
 
   // Загрузка данных при монтировании компонента
   useEffect(() => {
@@ -77,23 +83,14 @@ export default function TourvisorCountriesScreen({ navigation, route }: Tourviso
     try {
       const departuresData = await dictionaryService.getDepartures();
       setDepartures(departuresData);
-      // По умолчанию — первый город вылета; страны подгрузятся в useEffect по departureId (только с турами)
-      if (departureId === undefined && departuresData.length > 0) {
-        setDepartureId(departuresData[0].id);
+      if (departureId === undefined) {
+        const preferred = await resolvePreferredDepartureId();
+        setDepartureId(preferred);
       }
       setLoading(false);
     } catch (error: any) {
       logger.error('[TourvisorCountries] Error loading dictionary data:', error);
       setLoading(false);
-    }
-  };
-
-  const loadDepartures = async () => {
-    try {
-      const departuresData = await dictionaryService.getDepartures();
-      setDepartures(departuresData);
-    } catch (error: any) {
-      logger.error('[TourvisorCountries] Error loading departures:', error);
     }
   };
 
@@ -108,8 +105,9 @@ export default function TourvisorCountriesScreen({ navigation, route }: Tourviso
         return;
       }
       const countriesData = await dictionaryService.getCountries(departureId, onlyCharter);
-      setCountries(countriesData);
-      setFilteredCountries(countriesData);
+      const reachable = filterExcludedDestinationCountries(countriesData || []);
+      setCountries(reachable);
+      setFilteredCountries(reachable);
     } catch (error: any) {
       logger.error('[TourvisorCountries] Error loading countries:', error);
       setCountries([]);
@@ -138,72 +136,7 @@ export default function TourvisorCountriesScreen({ navigation, route }: Tourviso
   };
 
   // Получение реального изображения для страны из базы данных стран
-  const getCountryImage = (countryName: string) => {
-    // Ищем страну в базе данных по точному совпадению имени
-    let countryData = COUNTRIES_LIST.find(c => c.name === countryName);
-    
-    // Если не найдено, пробуем найти по частичному совпадению
-    if (!countryData) {
-      countryData = COUNTRIES_LIST.find(c => 
-        c.name.toLowerCase().includes(countryName.toLowerCase()) ||
-        countryName.toLowerCase().includes(c.name.toLowerCase())
-      );
-    }
-    
-    // Если нашли страну в базе данных, используем первое фото из массива
-    if (countryData && countryData.images && countryData.images.length > 0) {
-      return countryData.images[0];
-    }
-    
-    // Если не нашли, используем резервные фото для популярных стран
-    const fallbackImages: { [key: string]: string } = {
-      'Турция': 'https://images.unsplash.com/photo-1524231757912-21f4fe3a7200?w=1200&h=800&fit=crop&q=85',
-      'Египет': 'https://images.unsplash.com/photo-1539768942893-daf53e448371?w=1200&h=800&fit=crop&q=85',
-      'ОАЭ': 'https://images.unsplash.com/photo-1512453979798-5ea266f8880c?w=1200&h=800&fit=crop&q=85',
-      'Таиланд': 'https://images.unsplash.com/photo-1552465011-b4e21bf6e79a?w=1200&h=800&fit=crop&q=85',
-      'Мальдивы': 'https://images.unsplash.com/photo-1514282401047-d79a71a590e8?w=1200&h=800&fit=crop&q=85',
-      'Россия': 'https://images.unsplash.com/photo-1513326738677-b964603b136d?w=1200&h=800&fit=crop&q=85',
-      'Греция': 'https://images.unsplash.com/photo-1531572753322-ad063cecc140?w=1200&h=800&fit=crop&q=85',
-      'Испания': 'https://images.unsplash.com/photo-1539037116277-4db20889f2d2?w=1200&h=800&fit=crop&q=85',
-      'Италия': 'https://images.unsplash.com/photo-1523906834658-6e24ef2386f9?w=1200&h=800&fit=crop&q=85',
-      'Франция': 'https://images.unsplash.com/photo-1502602898536-47ad22581b52?w=1200&h=800&fit=crop&q=85',
-    };
-    
-    return fallbackImages[countryName] || `https://images.unsplash.com/photo-1488646953014-85cb44e25828?w=1200&h=800&fit=crop&q=85`;
-  };
-
-  // Получение описания для страны
-  const getCountryDescription = (countryName: string) => {
-    const descriptions: { [key: string]: string } = {
-      'Турция': 'Солнечные пляжи, богатая история и уникальная культура. Идеальное место для пляжного отдыха и экскурсий.',
-      'Египет': 'Древние пирамиды, Красное море и незабываемые экскурсии. Погрузитесь в историю древней цивилизации.',
-      'ОАЭ': 'Роскошь, современная архитектура и безупречный сервис. Дубай и Абу-Даби ждут вас.',
-      'Таиланд': 'Тропические пляжи, экзотическая кухня и буддийские храмы. Рай для любителей пляжного отдыха.',
-      'Мальдивы': 'Райские острова с кристально чистой водой и белоснежными пляжами. Идеально для романтического отдыха.',
-      'Россия': 'Богатое культурное наследие, красивые города и разнообразная природа. Откройте для себя Россию.',
-      'Греция': 'Античные руины, живописные острова и средиземноморская кухня. Колыбель европейской цивилизации.',
-      'Испания': 'Страстная культура, архитектура Гауди и прекрасные пляжи. Отдых на любой вкус.',
-      'Италия': 'Искусство, архитектура, кухня и романтика. Венеция, Рим, Флоренция - города мечты.',
-      'Франция': 'Элегантность, изысканная кухня и романтическая атмосфера. Париж, Лазурный берег и многое другое.',
-      'Кипр': 'Средиземноморский климат, древние достопримечательности и прекрасные пляжи.',
-      'Тунис': 'Арабская культура, пустыня Сахара и курорты Средиземноморья.',
-      'Болгария': 'Черноморское побережье, горнолыжные курорты и доступные цены.',
-      'Черногория': 'Живописное побережье Адриатики, горы и чистая природа.',
-      'Хорватия': 'Красивое побережье, средневековые города и национальные парки.',
-      'Вьетнам': 'Экзотическая культура, красивая природа и доступные цены.',
-      'Индия': 'Древняя культура, храмы, пляжи Гоа и незабываемые впечатления.',
-      'Шри-Ланка': 'Тропические пляжи, чайные плантации и богатая культура.',
-      'Доминикана': 'Карибское море, белоснежные пляжи и тропическая природа.',
-      'Куба': 'Карибская атмосфера, колониальная архитектура и ритмы сальсы.',
-      'Мексика': 'Древние пирамиды майя, пляжи Карибского моря и яркая культура.',
-      'Оман': 'Арабская экзотика, пустыни и современные курорты.',
-      'Бахрейн': 'Современный Ближний Восток, роскошь и традиции.',
-      'Катар': 'Современная архитектура, роскошь и арабское гостеприимство.',
-      'Иордания': 'Петра, Мертвое море и пустыня Вади-Рам.',
-      'Марокко': 'Арабская культура, Атласские горы и побережье Атлантики.',
-    };
-    return descriptions[countryName] || i18n.t('countries.defaultDescription');
-  };
+  const getCountryImage = (countryName: string) => getCountryCoverImage(countryName);
 
   const getCountryIcon = (countryName: string): keyof typeof Ionicons.glyphMap => {
     if (countryName === 'Турция' || countryName === 'Египет' || countryName === 'ОАЭ') {
@@ -218,41 +151,37 @@ export default function TourvisorCountriesScreen({ navigation, route }: Tourviso
     return 'earth-outline';
   };
 
-  // Рендер одной страны
+  // Крупные фото-карточки в сетке 2×N (концепт OTA)
   const renderCountry = ({ item }: { item: Country }) => (
     <TouchableOpacity
-      style={[styles.countryCard, { backgroundColor: theme.card, shadowColor: theme.shadow }]}
-      activeOpacity={0.7}
+      style={[styles.countryCard, shadows.card, { width: cardWidth }]}
+      activeOpacity={0.9}
       onPress={() => handleViewTours(item)}
     >
-      <Image
-        source={{ uri: getCountryImage(item.name) }}
-        style={styles.countryImage}
-        resizeMode="cover"
-      />
-      
-      <View style={styles.countryContent}>
-        <View style={styles.countryHeader}>
-          <View style={[styles.countryFlagCircle, { backgroundColor: theme.primary + '12' }]}>
-            <Ionicons name={getCountryIcon(item.name)} size={18} color={theme.primary} />
+      <View style={styles.countryImage}>
+        <CachedImage
+          source={{ uri: getCountryImage(item.name) }}
+          fallbackUri={COUNTRY_IMAGE_FALLBACK}
+          style={StyleSheet.absoluteFillObject}
+          contentFit="cover"
+        />
+        <LinearGradient
+          colors={['rgba(18,18,46,0.05)', 'rgba(18,18,46,0.78)']}
+          style={styles.countryGrad}
+        >
+          <View style={styles.countryBadge}>
+            <Ionicons name={getCountryIcon(item.name)} size={14} color="#fff" />
           </View>
-          <View style={styles.countryInfo}>
-            <Text style={[styles.countryName, { color: theme.text }]} numberOfLines={1}>
+          <View style={styles.countryFooter}>
+            <Text style={styles.countryName} numberOfLines={2}>
               {item.name}
             </Text>
+            <View style={styles.countryCta}>
+              <Text style={styles.countryCtaText}>{i18n.t('favorites.tours')}</Text>
+              <Ionicons name="arrow-forward" size={12} color="#fff" />
+            </View>
           </View>
-        </View>
-
-        {/* Описание страны */}
-        <Text style={[styles.countryDescription, { color: theme.secondaryText }]} numberOfLines={2}>
-          {getCountryDescription(item.name)}
-        </Text>
-
-        {/* Индикатор кликабельности */}
-        <View style={styles.viewToursIndicator}>
-          <Text style={[styles.viewToursIndicatorText, { color: theme.secondaryText }]}>Нажмите для просмотра туров</Text>
-          <Ionicons name="arrow-forward" size={16} color={theme.primary} />
-        </View>
+        </LinearGradient>
       </View>
     </TouchableOpacity>
   );
@@ -290,7 +219,7 @@ export default function TourvisorCountriesScreen({ navigation, route }: Tourviso
         <Text style={[styles.departureText, { color: theme.text }]}>
           {departureId
             ? departures.find(d => d.id === departureId)?.name || i18n.t('countries.selectCity')
-            : i18n.t('countries.allCities')}
+            : i18n.t('countries.selectCity')}
         </Text>
         <Ionicons
           name={showDeparturePicker ? "chevron-up" : "chevron-down"}
@@ -298,28 +227,21 @@ export default function TourvisorCountriesScreen({ navigation, route }: Tourviso
           color={theme.secondaryText}
         />
       </TouchableOpacity>
+      <Text style={[styles.fromHint, { color: theme.secondaryText }]}>
+        {i18n.t('countries.fromCityHint')}
+      </Text>
 
       {/* Dropdown для городов */}
       {showDeparturePicker && (
         <View style={styles.departureDropdown}>
-          <TouchableOpacity
-            style={styles.departureOption}
-            onPress={() => {
-              setDepartureId(undefined);
-              setShowDeparturePicker(false);
-              setTimeout(() => loadCountries(), 100);
-            }}
-          >
-            <Text style={styles.departureOptionText}>Все города</Text>
-          </TouchableOpacity>
           {departures.map((departure) => (
             <TouchableOpacity
               key={departure.id}
               style={styles.departureOption}
               onPress={() => {
                 setDepartureId(departure.id);
+                void savePreferredDepartureId(departure.id);
                 setShowDeparturePicker(false);
-                setTimeout(() => loadCountries(), 100);
               }}
             >
               <Text style={styles.departureOptionText}>{departure.name}</Text>
@@ -337,7 +259,6 @@ export default function TourvisorCountriesScreen({ navigation, route }: Tourviso
         ]}
         onPress={() => {
           setOnlyCharter(!onlyCharter);
-          setTimeout(() => loadCountries(), 100);
         }}
         activeOpacity={0.7}
       >
@@ -358,12 +279,15 @@ export default function TourvisorCountriesScreen({ navigation, route }: Tourviso
   );
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
+    <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]} edges={['top']}>
       <StatusBar style={isDark ? 'light' : 'dark'} />
-      
-      {/* Фиксированный Header - скрыт, так как используется в SearchMainScreen */}
+      <ScreenHeader
+        title={i18n.t('countries.title')}
+        subtitle={departures.find((d) => d.id === departureId)?.name}
+        onBack={() => safeGoBack(navigation, 'Home')}
+        noSafeTop
+      />
 
-      {/* Content */}
       {!apiReady ? (
         <View style={styles.emptyState}>
           <Ionicons name="cloud-offline" size={48} color="#8E8E93" />
@@ -374,7 +298,7 @@ export default function TourvisorCountriesScreen({ navigation, route }: Tourviso
         </View>
       ) : loading && countries.length === 0 ? (
         <View style={styles.emptyState}>
-          <ActivityIndicator size="large" color="#0066CC" />
+          <ActivityIndicator size="large" color={theme.primary} />
           <Text style={styles.emptyStateText}>Загрузка направлений...</Text>
         </View>
       ) : (
@@ -384,20 +308,17 @@ export default function TourvisorCountriesScreen({ navigation, route }: Tourviso
             {renderFilters()}
           </View>
 
-          {/* Скроллируемый список стран */}
+          {/* Скроллируемый список стран — сетка фото-карточек */}
           <FlatList
             data={filteredCountries}
             renderItem={renderCountry}
             keyExtractor={(item) => item.id.toString()}
+            numColumns={2}
+            columnWrapperStyle={styles.gridRow}
             contentContainerStyle={styles.listContent}
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode="on-drag"
-            getItemLayout={(_, index) => ({
-              length: COUNTRY_ITEM_HEIGHT,
-              offset: COUNTRY_ITEM_HEIGHT * index,
-              index,
-            })}
             ListEmptyComponent={
               <View style={styles.emptyState}>
                 <Ionicons name="search-outline" size={48} color={theme.inactive} />
@@ -419,48 +340,6 @@ export default function TourvisorCountriesScreen({ navigation, route }: Tourviso
           />
         </>
       )}
-
-      {/* Settings Modal */}
-      <Modal
-        animationType="slide"
-        transparent={true}
-        visible={showSettingsModal}
-        onRequestClose={() => setShowSettingsModal(false)}
-      >
-        <View style={styles.modalOverlay}>
-            <View style={[styles.modalContent, { backgroundColor: theme.card }]}>
-              <View style={[styles.modalHeader, { borderBottomColor: theme.border }]}>
-                <Text style={[styles.modalTitle, { color: theme.text }]}>Настройки</Text>
-                <TouchableOpacity onPress={() => setShowSettingsModal(false)}>
-                  <Ionicons name="close" size={24} color={theme.text} />
-                </TouchableOpacity>
-              </View>
-
-            <View style={styles.settingsSection}>
-              <Text style={[styles.settingsSectionTitle, { color: theme.text }]}>API настройки</Text>
-              
-              <View style={styles.settingItem}>
-                <View style={styles.settingItemContent}>
-                  <Ionicons name="server" size={20} color={theme.primary} />
-                  <Text style={[styles.settingItemText, { color: theme.text }]}>Статус API</Text>
-                </View>
-                <View style={styles.statusIndicator}>
-                  <View style={[
-                    styles.statusDot,
-                    { backgroundColor: apiReady ? theme.success : theme.error }
-                  ]} />
-                  <Text style={[
-                    styles.statusText,
-                    { color: apiReady ? theme.success : theme.error }
-                  ]}>
-                    {apiReady ? i18n.t('countries.apiConnected') : i18n.t('countries.apiError')}
-                  </Text>
-                </View>
-              </View>
-            </View>
-          </View>
-        </View>
-      </Modal>
     </SafeAreaView>
   );
 }
@@ -557,6 +436,12 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '500',
   },
+  fromHint: {
+    fontSize: 12,
+    marginTop: 6,
+    marginBottom: 4,
+    lineHeight: 16,
+  },
   departureDropdown: {
     backgroundColor: '#FFFFFF',
     borderRadius: 12,
@@ -605,8 +490,13 @@ const styles = StyleSheet.create({
     // color применяется динамически
   },
   listContent: {
-    padding: 16,
+    padding: GRID_PAD,
     paddingTop: 8,
+    paddingBottom: 32,
+  },
+  gridRow: {
+    gap: GRID_GAP,
+    marginBottom: GRID_GAP,
   },
   resultsHeader: {
     marginBottom: 12,
@@ -617,65 +507,55 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   countryCard: {
-    borderRadius: 16,
-    marginBottom: 12,
+    borderRadius: radius.xl,
     overflow: 'hidden',
-    ...platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.08,
-        shadowRadius: 8,
-      },
-      android: {
-        elevation: 3,
-      },
-    }),
+    backgroundColor: BRAND.navy,
   },
   countryImage: {
     width: '100%',
-    height: 180,
-    backgroundColor: '#E5E5E5',
+    aspectRatio: 0.78,
+    minHeight: 168,
   },
-  countryContent: {
-    padding: 16,
+  countryImageInner: {
+    borderRadius: radius.xl,
   },
-  countryHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 12,
+  countryGrad: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'space-between',
+    padding: spacing.sm,
   },
-  countryFlagCircle: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    marginRight: 12,
+  countryBadge: {
+    alignSelf: 'flex-start',
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: 'rgba(255,255,255,0.22)',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  countryInfo: {
-    flex: 1,
+  countryFooter: {
+    gap: 8,
   },
   countryName: {
-    fontSize: 18,
-    fontWeight: '700',
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#fff',
+    letterSpacing: -0.2,
   },
-  countryDescription: {
-    fontSize: 14,
-    lineHeight: 20,
-    marginBottom: 16,
-  },
-  viewToursIndicator: {
+  countryCta: {
+    alignSelf: 'flex-start',
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 12,
-    gap: 8,
-    marginTop: 8,
+    gap: 4,
+    backgroundColor: BRAND.orange,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: radius.md,
   },
-  viewToursIndicatorText: {
-    fontSize: 14,
-    fontWeight: '500',
+  countryCtaText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '800',
   },
   emptyState: {
     flex: 1,

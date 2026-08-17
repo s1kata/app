@@ -69,7 +69,8 @@ function getSearchTokensForAllowedName(name: string): string[] {
   return [normalized, ...extra];
 }
 
-function getOperatorNameCandidates(operator: Operator): string[] {
+function getOperatorNameCandidates(operator: Operator | null | undefined): string[] {
+  if (!operator) return [];
   return [operator.name, operator.russianName, operator.fullName]
     .map(normalizeOperatorName)
     .filter(Boolean);
@@ -115,7 +116,14 @@ function operatorMatchesAllowed(operator: Operator, allowedNormalized: string[])
 }
 
 /** Проверяет, допустим ли оператор тура для выбранной страны. */
-export function isTourOperatorAllowed(operator: Operator, countryName: string | null | undefined): boolean {
+export function isTourOperatorAllowed(
+  operator: Operator | null | undefined,
+  countryName: string | null | undefined,
+): boolean {
+  if (!operator) {
+    // Без оператора не режем жёстко — иначе пустая выдача и падения на null
+    return true;
+  }
   const allowedNormalized = getAllowedOperatorNames(countryName).flatMap(getSearchTokensForAllowedName);
   return getOperatorNameCandidates(operator).some((cand) =>
     allowedNormalized.some((allowed) => cand.includes(allowed) || allowed.includes(cand)),

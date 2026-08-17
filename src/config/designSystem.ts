@@ -1,30 +1,21 @@
 /**
- * Единая дизайн-система TravelHub.
- * Travel-стандарт: синий #0066CC + голубой фон + белые карточки.
- * Оранжевый #FF6B00 — только для CTA-кнопок и бейджей скидок.
+ * Дизайн-система TravelHub — OTA-концепт.
+ * Navy + teal + coral, крупные карточки, дружелюбный mobile-first UI.
  */
 
 import { Platform, PixelRatio } from 'react-native';
 
-/** Базовые цвета бренда */
 export const BRAND = {
-  /** Основной синий — навигация, иконки, ссылки */
-  blue: '#0066CC',
-  /** Светлый синий — hover, активные состояния */
-  blueLight: '#3399FF',
-  /** Очень светлый голубой — фон инпутов, чипсов */
-  blueSubtle: '#F0F7FF',
-  /** CTA-оранжевый — главные кнопки действия, бейджи скидок */
-  orange: '#FF6B00',
-  /** Светло-оранжевый — pressed-состояние CTA */
-  orangeLight: '#FF8C33',
-  /** Белый */
+  blue: '#5DA9A4',
+  blueLight: '#7BC4BF',
+  blueSubtle: '#EEF6F5',
+  orange: '#FF6B6B',
+  orangeLight: '#FF8A80',
+  navy: '#12122E',
   white: '#FFFFFF',
-  /** Тёмный текст */
-  dark: '#1A1A1A',
+  dark: '#12122E',
 } as const;
 
-/** Шкала отступов (базис 4px) */
 export const spacing = {
   xxs: 4,
   xs: 8,
@@ -36,60 +27,57 @@ export const spacing = {
   xxxl: 40,
 } as const;
 
-/** Скругления */
 export const radius = {
-  xs: 6,
-  sm: 10,
-  md: 12,
-  lg: 16,
-  xl: 20,
-  xxl: 24,
+  xs: 8,
+  sm: 12,
+  md: 14,
+  lg: 18,
+  xl: 22,
+  xxl: 28,
   full: 9999,
 } as const;
 
-/** Типографическая иерархия. Учитывает fontScale для доступности. */
 const getFontScale = () => Math.min(PixelRatio.getFontScale(), 1.3);
 
 export const typography = {
   get hero() {
-    return { fontSize: Math.round(28 * getFontScale()), fontWeight: '700' as const, letterSpacing: -0.5 };
+    return { fontSize: Math.round(28 * getFontScale()), fontWeight: '800' as const, letterSpacing: -0.6 };
   },
   get h1() {
-    return { fontSize: Math.round(24 * getFontScale()), fontWeight: '700' as const, lineHeight: Math.round(30 * getFontScale()) };
+    return { fontSize: Math.round(24 * getFontScale()), fontWeight: '800' as const, lineHeight: Math.round(30 * getFontScale()) };
   },
   get h2() {
     return { fontSize: Math.round(20 * getFontScale()), fontWeight: '700' as const, lineHeight: Math.round(26 * getFontScale()) };
   },
   get h3() {
-    return { fontSize: Math.round(18 * getFontScale()), fontWeight: '600' as const, lineHeight: Math.round(24 * getFontScale()) };
+    return { fontSize: Math.round(17 * getFontScale()), fontWeight: '700' as const, lineHeight: Math.round(23 * getFontScale()) };
   },
   get body() {
     return { fontSize: Math.round(16 * getFontScale()), fontWeight: '400' as const, lineHeight: Math.round(22 * getFontScale()) };
   },
   get bodyBold() {
-    return { fontSize: Math.round(16 * getFontScale()), fontWeight: '600' as const };
+    return { fontSize: Math.round(16 * getFontScale()), fontWeight: '700' as const };
   },
   get caption() {
     return { fontSize: Math.round(14 * getFontScale()), fontWeight: '400' as const, lineHeight: Math.round(19 * getFontScale()) };
   },
   get captionBold() {
-    return { fontSize: Math.round(14 * getFontScale()), fontWeight: '600' as const };
+    return { fontSize: Math.round(14 * getFontScale()), fontWeight: '700' as const };
   },
   get small() {
-    return { fontSize: Math.round(12 * getFontScale()), fontWeight: '400' as const };
+    return { fontSize: Math.round(12 * getFontScale()), fontWeight: '500' as const };
   },
   get smallBold() {
-    return { fontSize: Math.round(12 * getFontScale()), fontWeight: '600' as const };
+    return { fontSize: Math.round(12 * getFontScale()), fontWeight: '700' as const };
   },
   get button() {
-    return { fontSize: Math.round(16 * getFontScale()), fontWeight: '700' as const };
+    return { fontSize: Math.round(16 * getFontScale()), fontWeight: '800' as const };
   },
   get buttonSmall() {
-    return { fontSize: Math.round(14 * getFontScale()), fontWeight: '600' as const };
+    return { fontSize: Math.round(14 * getFontScale()), fontWeight: '700' as const };
   },
 } as const;
 
-/** Единый "дорогой" стиль поверхностей. */
 export const surfaces = {
   cardBorderWidth: 1,
   cardPadding: spacing.lg,
@@ -97,61 +85,57 @@ export const surfaces = {
   sectionRadius: radius.xxl,
 } as const;
 
-/** Тени для карточек (iOS + Android) */
 export const shadows = {
   card: Platform.select({
     ios: {
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 2 },
+      shadowColor: '#12122E',
+      shadowOffset: { width: 0, height: 4 },
       shadowOpacity: 0.07,
-      shadowRadius: 10,
+      shadowRadius: 14,
     },
     android: { elevation: 3 },
   }),
   cardRaised: Platform.select({
     ios: {
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 4 },
-      shadowOpacity: 0.1,
-      shadowRadius: 16,
+      shadowColor: '#12122E',
+      shadowOffset: { width: 0, height: 8 },
+      shadowOpacity: 0.12,
+      shadowRadius: 20,
     },
-    android: { elevation: 6 },
+    android: { elevation: 7 },
   }),
-  /** Тень синей кнопки */
   button: Platform.select({
     ios: {
-      shadowColor: '#0066CC',
+      shadowColor: '#5DA9A4',
       shadowOffset: { width: 0, height: 4 },
-      shadowOpacity: 0.25,
-      shadowRadius: 8,
+      shadowOpacity: 0.28,
+      shadowRadius: 10,
     },
     android: { elevation: 4 },
   }),
-  /** Тень CTA-кнопки (оранжевая) */
   buttonCta: Platform.select({
     ios: {
-      shadowColor: '#FF6B00',
-      shadowOffset: { width: 0, height: 4 },
-      shadowOpacity: 0.28,
-      shadowRadius: 8,
+      shadowColor: '#FF6B6B',
+      shadowOffset: { width: 0, height: 6 },
+      shadowOpacity: 0.32,
+      shadowRadius: 12,
     },
     android: { elevation: 5 },
   }),
   topBar: Platform.select({
     ios: {
-      shadowColor: '#000',
+      shadowColor: '#12122E',
       shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: 0.06,
+      shadowOpacity: 0.05,
       shadowRadius: 8,
     },
-    android: { elevation: 4 },
+    android: { elevation: 3 },
   }),
 } as const;
 
-/** Высота интерактивных элементов (минимум 44px для пальца) */
 export const touchTargets = {
-  button: 52,
-  buttonSmall: 44,
-  input: 52,
+  button: 54,
+  buttonSmall: 46,
+  input: 54,
   iconButton: 44,
 } as const;

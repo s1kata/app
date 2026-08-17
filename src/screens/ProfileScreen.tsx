@@ -7,7 +7,6 @@ import {
   ScrollView,
   Alert,
   Modal,
-  Linking,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
@@ -20,25 +19,26 @@ import { UserProfile } from '../types/firestore';
 import { useAppContext } from '../contexts/AppContext';
 import { i18n } from '../config/i18n';
 import { logger } from '../utils/logger';
-import { radius, shadows, spacing, typography, surfaces } from '../config/designSystem';
+import { radius, shadows, spacing, typography, surfaces, BRAND } from '../config/designSystem';
 import { RELEASE_HIDE_PURCHASE_HISTORY } from '../config/releaseUiFlags';
-import { PrimaryButton } from '../components/ui';
+import { PrimaryButton, ScreenHeader } from '../components/ui';
 import AppLogo from '../components/AppLogo';
-import { openSupportChat } from '../config/support';
 import { useTabBarMetrics } from '../utils/tabBarMetrics';
+import { navigateRoot, navigateTab, getRootNavigation } from '../utils/navHelpers';
 
 export default function ProfileScreen({ navigation }: any) {
-  const { logout, loginAsGuest, user, theme, isDark, fontScale } = useAppContext();
+  const { logout, loginAsGuest, user, theme, isDark, fontScale, language } = useAppContext();
+  void language;
   const insets = useSafeAreaInsets();
   const { contentBottomPadding } = useTabBarMetrics(insets, fontScale);
-  const bottomPad = contentBottomPadding({ includeFab: true });
+  const bottomPad = contentBottomPadding({ includeFab: false });
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [bonusBalance, setBonusBalance] = useState(0);
   const [purchaseCount, setPurchaseCount] = useState(0);
   const [showLoginModal, setShowLoginModal] = useState(false);
-  
-  // Проверяем, является ли пользователь гостем
+
   const isGuest = user?.uid?.startsWith('guest_') || user?.isAnonymous === true;
+  const titleColor = theme.deep || theme.text;
 
   useEffect(() => {
     loadProfile();
@@ -51,9 +51,8 @@ export default function ProfileScreen({ navigation }: any) {
   const loadProfile = async () => {
     try {
       if (user && user.uid) {
-        // Проверяем, не является ли пользователь гостем
-        const isGuest = user.uid.startsWith('guest_') || user.isAnonymous === true;
-        if (isGuest) {
+        const isGuestUser = user.uid.startsWith('guest_') || user.isAnonymous === true;
+        if (isGuestUser) {
           const guestProfile: UserProfile = {
             id: user.uid,
             email: '',
@@ -104,8 +103,6 @@ export default function ProfileScreen({ navigation }: any) {
           setBonusBalance(0);
         }
         try {
-          // Считаем так же, как «История покупок»: все заявки пользователя,
-          // а не только paymentStatus === 'paid' (CRM/локальные часто pending).
           const bookings = await bookingService.getUserBookings(user.uid);
           setPurchaseCount(bookings.length);
         } catch {
@@ -114,13 +111,12 @@ export default function ProfileScreen({ navigation }: any) {
       }
     } catch (error) {
       logger.error('Error loading profile:', error);
-      // Не показываем Alert для ошибок permissions, просто используем базовый профиль
       if (user && user.uid) {
-        const isGuest = user.uid.startsWith('guest_') || user.isAnonymous === true;
+        const isGuestUser = user.uid.startsWith('guest_') || user.isAnonymous === true;
         const basicProfile: UserProfile = {
           id: user.uid,
           email: user.email || '',
-          fullName: isGuest ? i18n.t('profile.guest') : (user.displayName || user.email?.split('@')[0] || i18n.t('profile.user')),
+          fullName: isGuestUser ? i18n.t('profile.guest') : (user.displayName || user.email?.split('@')[0] || i18n.t('profile.user')),
           phone: '',
           passwordHash: '',
           createdAt: new Date().toISOString(),
@@ -134,7 +130,6 @@ export default function ProfileScreen({ navigation }: any) {
     }
   };
 
-
   const handleLogout = () => {
     Alert.alert(
       i18n.t('auth.logout'),
@@ -147,7 +142,7 @@ export default function ProfileScreen({ navigation }: any) {
           onPress: async () => {
             await logout();
             await loginAsGuest();
-            navigation.reset({
+            getRootNavigation(navigation).reset({
               index: 0,
               routes: [{ name: 'MainTabs' }],
             });
@@ -157,42 +152,50 @@ export default function ProfileScreen({ navigation }: any) {
     );
   };
 
-  const menuItems = [
+  const accountItems = [
+    {
+      id: 'bookings',
+      title: i18n.t('profile.myBookings'),
+      icon: 'clipboard-outline',
+      onPress: () => navigateTab(navigation, 'Bookings'),
+    },
     ...(!isGuest
       ? [{
           id: 'personal',
           title: i18n.t('profile.personalData'),
-          icon: 'id-card-outline',
+          icon: 'person-outline',
           onPress: () => navigation.navigate('PersonalData'),
+        }]
+      : []),
+    {
+      id: 'bonus',
+      title: i18n.t('profile.bonuses'),
+      icon: 'gift-outline',
+      onPress: () => navigation.navigate('Bonus'),
+    },
+    ...(!RELEASE_HIDE_PURCHASE_HISTORY && !isGuest
+      ? [{
+          id: 'purchases',
+          title: i18n.t('profile.purchaseHistory'),
+          icon: 'bag-handle-outline',
+          onPress: () => navigation.navigate('PurchaseHistory'),
         }]
       : []),
     {
       id: 'favorites',
       title: i18n.t('profile.favorites'),
       icon: 'heart-outline',
-      onPress: () => navigation.navigate('Home', { screen: 'Favorites' }),
+      onPress: () => navigateTab(navigation, 'Favorites'),
     },
-    {
-      id: 'bookings',
-      title: i18n.t('profile.myBookings'),
-      icon: 'calendar-outline',
-      onPress: () => navigation.navigate('MainTabs', { screen: 'Bookings' }),
-    },
-    ...(!RELEASE_HIDE_PURCHASE_HISTORY && !isGuest
-      ? [{
-          id: 'purchases',
-          title: i18n.t('profile.purchaseHistory'),
-          icon: 'receipt-outline',
-          onPress: () => navigation.navigate('PurchaseHistory'),
-        }]
-      : []),
     { id: 'settings', title: i18n.t('settings.title'), icon: 'settings-outline', onPress: () => navigation.navigate('Settings') },
-    { id: 'help', title: i18n.t('profile.help'), icon: 'help-circle-outline', onPress: () => navigation.navigate('HelperChat') },
+  ];
+
+  const supportItems = [
     {
       id: 'supportChat',
       title: i18n.t('profile.supportChat'),
-      icon: 'chatbubble-ellipses-outline',
-      onPress: () => openSupportChat(Linking.openURL),
+      icon: 'headset-outline',
+      onPress: () => navigation.navigate('HelperChat'),
     },
     {
       id: 'about',
@@ -214,7 +217,55 @@ export default function ProfileScreen({ navigation }: any) {
     },
   ];
 
+  const renderMenuGroup = (
+    title: string,
+    items: Array<{ id: string; title: string; icon: string; onPress: () => void }>,
+  ) => (
+    <View style={styles.menuGroup}>
+      <Text style={[styles.groupLabel, { color: theme.tertiaryText }]}>{title}</Text>
+      <View style={[styles.section, { backgroundColor: theme.card, borderColor: theme.border }]}>
+        {items.map((item, index) => (
+          <TouchableOpacity
+            key={item.id}
+            style={[
+              styles.menuItem,
+              {
+                borderBottomColor: theme.border,
+                borderBottomWidth: index === items.length - 1 ? 0 : StyleSheet.hairlineWidth,
+              },
+            ]}
+            onPress={item.onPress}
+            activeOpacity={0.7}
+          >
+            <View style={styles.menuItemLeft}>
+              <View style={[styles.iconSquare, { backgroundColor: theme.primary }]}>
+                <Ionicons name={item.icon as any} size={18} color="#FFFFFF" />
+              </View>
+              <Text style={[styles.menuItemText, { color: theme.text }]}>{item.title}</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={theme.tertiaryText} />
+          </TouchableOpacity>
+        ))}
+      </View>
+    </View>
+  );
+
   const appVersion = Constants.expoConfig?.version || '1.0.3';
+
+  const displayName = isGuest
+    ? i18n.t('profile.guestModeLabel')
+    : profile?.fullName || i18n.t('profile.user');
+  const contactLine = isGuest
+    ? i18n.t('ux.guestBannerBody')
+    : (profile?.phone || profile?.email || '');
+  const initials = !isGuest
+    ? displayName
+        .split(/\s+/)
+        .filter(Boolean)
+        .slice(0, 2)
+        .map((p) => p[0]?.toUpperCase() || '')
+        .join('') || 'TH'
+    : '';
 
   return (
     <SafeAreaView
@@ -222,104 +273,93 @@ export default function ProfileScreen({ navigation }: any) {
       style={[styles.safeArea, { backgroundColor: theme.background }]}
     >
       <StatusBar style={isDark ? 'light' : 'dark'} />
-      <ScrollView style={[styles.scrollView, { backgroundColor: theme.background }]} showsVerticalScrollIndicator={false} contentContainerStyle={[styles.scrollContent, { paddingBottom: bottomPad }]}>
-        <View style={[styles.header, { backgroundColor: theme.card, borderColor: theme.border }]}>
-        <View style={styles.avatarContainer}>
-          <View style={[styles.avatar, { backgroundColor: theme.secondaryBackground, borderColor: theme.primary }]}>
-            <AppLogo size={86} bordered borderColor={theme.primary} backgroundColor={theme.surface} />
+      <ScreenHeader title={i18n.t('nav.profile')} noSafeTop />
+      <ScrollView
+        style={[styles.scrollView, { backgroundColor: theme.background }]}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: bottomPad }]}
+      >
+        <TouchableOpacity
+          style={[styles.avatarCard, { backgroundColor: theme.card, borderColor: theme.border }]}
+          activeOpacity={0.85}
+          onPress={() => {
+            if (isGuest) setShowLoginModal(true);
+            else navigation.navigate('PersonalData');
+          }}
+        >
+          {isGuest ? (
+            <View style={[styles.avatar, { backgroundColor: theme.secondaryBackground, borderColor: theme.primary }]}>
+              <AppLogo size={54} bordered borderColor={theme.primary} backgroundColor={theme.surface} />
+            </View>
+          ) : (
+            <View style={[styles.avatarInitials, { backgroundColor: theme.primary }]}>
+              <Text style={styles.initialsText}>{initials}</Text>
+            </View>
+          )}
+
+          <View style={styles.avatarMeta}>
+            <Text style={[styles.name, { color: titleColor }]} numberOfLines={1}>
+              {displayName}
+            </Text>
+            {!!contactLine && (
+              <Text style={[styles.email, { color: theme.secondaryText }]} numberOfLines={2}>
+                {contactLine}
+              </Text>
+            )}
+            {!isGuest ? (
+              <View style={[styles.bonusBadge, { backgroundColor: theme.secondaryBackground }]}>
+                <Ionicons name="star" size={12} color={BRAND.orange} />
+                <Text style={[styles.bonusBadgeText, { color: theme.secondaryText }]}>
+                  {bonusBalance} {i18n.t('profile.bonusCount')}
+                  {purchaseCount > 0 ? ` · ${purchaseCount} ${i18n.t('profile.purchases').toLowerCase()}` : ''}
+                </Text>
+              </View>
+            ) : null}
           </View>
+          <Ionicons name="chevron-forward" size={20} color={theme.tertiaryText} />
+        </TouchableOpacity>
+
+        {renderMenuGroup(i18n.t('profile.sectionAccount'), accountItems)}
+        {renderMenuGroup(i18n.t('profile.sectionSupport'), supportItems)}
+
+        <TouchableOpacity
+          style={styles.promoBanner}
+          activeOpacity={0.9}
+          onPress={() => navigateTab(navigation, 'Search')}
+        >
+          <View style={styles.promoCopy}>
+            <Text style={styles.promoTitle}>{i18n.t('profile.promoTitle')}</Text>
+            <Text style={styles.promoSubtitle}>{i18n.t('profile.promoSubtitle')}</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={20} color="#FFFFFF" />
+        </TouchableOpacity>
+
+        <View style={styles.actions}>
+          {isGuest ? (
+            <PrimaryButton
+              title={i18n.t('auth.login')}
+              onPress={() => setShowLoginModal(true)}
+              variant="cta"
+              iconLeft={<Ionicons name="log-in-outline" size={20} color={theme.surface} />}
+              style={styles.actionButton}
+            />
+          ) : (
+            <PrimaryButton
+              title={i18n.t('auth.logout')}
+              onPress={handleLogout}
+              outline
+              danger
+              iconLeft={<Ionicons name="log-out-outline" size={20} color={theme.error} />}
+              style={styles.actionButton}
+            />
+          )}
         </View>
 
-        <Text style={[styles.name, { color: theme.text }]}>
-          {isGuest
-            ? i18n.t('profile.guestModeLabel')
-            : profile?.fullName || i18n.t('profile.user')}
-        </Text>
-        {isGuest ? (
-          <Text style={[styles.email, { color: theme.secondaryText }]}>{i18n.t('ux.guestBannerBody')}</Text>
-        ) : (
-          <Text style={[styles.email, { color: theme.secondaryText }]}>{profile?.email || profile?.phone}</Text>
-        )}
-
-        {profile && (
-          <View style={[styles.statsContainer, { backgroundColor: theme.secondaryBackground }]}>
-            {!RELEASE_HIDE_PURCHASE_HISTORY ? (
-              <TouchableOpacity
-                style={styles.statItem}
-                onPress={() => navigation.navigate('PurchaseHistory')}
-                activeOpacity={0.7}
-              >
-                <Text style={[styles.statValue, { color: theme.primary }]}>{purchaseCount}</Text>
-                <Text style={[styles.statLabel, { color: theme.secondaryText }]}>{i18n.t('profile.purchases')}</Text>
-              </TouchableOpacity>
-            ) : (
-              <View style={styles.statItem}>
-                <Text style={[styles.statValue, { color: theme.primary }]}>{purchaseCount}</Text>
-                <Text style={[styles.statLabel, { color: theme.secondaryText }]}>{i18n.t('profile.purchases')}</Text>
-              </View>
-            )}
-
-            <View style={[styles.statDivider, { backgroundColor: theme.border }]} />
-
-            <TouchableOpacity
-              style={styles.statItem}
-              onPress={() => navigation.navigate('Bonus')}
-              activeOpacity={0.7}
-            >
-              <Text style={[styles.statValue, { color: theme.primary }]}>{bonusBalance}</Text>
-              <Text style={[styles.statLabel, { color: theme.secondaryText }]}>{i18n.t('profile.bonuses')}</Text>
-            </TouchableOpacity>
-          </View>
-        )}
-      </View>
-
-      <View style={[styles.section, { backgroundColor: theme.card, borderRadius: surfaces.sectionRadius, overflow: 'hidden', borderColor: theme.border }]}>
-        <Text style={[styles.sectionTitle, { color: theme.text }]}>{i18n.t('nav.profile')}</Text>
-
-        {menuItems.map((item) => (
-          <TouchableOpacity
-            key={item.id}
-            style={[styles.menuItem, { borderBottomColor: theme.border }]}
-            onPress={item.onPress}
-          >
-            <View style={styles.menuItemLeft}>
-              <View style={styles.iconContainer}>
-                <Ionicons name={item.icon as any} size={24} color={theme.text} />
-              </View>
-              <Text style={[styles.menuItemText, { color: theme.text }]}>{item.title}</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={20} color={theme.secondaryText} />
-          </TouchableOpacity>
-        ))}
-      </View>
-
-      <View style={[styles.section, { backgroundColor: theme.card, borderRadius: surfaces.sectionRadius, borderColor: theme.border }]}>
-        {isGuest ? (
-          <PrimaryButton
-            title={i18n.t('auth.login')}
-            onPress={() => setShowLoginModal(true)}
-            iconLeft={<Ionicons name="log-in-outline" size={20} color={theme.surface} />}
-            style={styles.actionButton}
-          />
-        ) : (
-          <PrimaryButton
-            title={i18n.t('auth.logout')}
-            onPress={handleLogout}
-            outline
-            danger
-            iconLeft={<Ionicons name="log-out-outline" size={20} color={theme.error} />}
-            style={styles.actionButton}
-          />
-        )}
-      </View>
-
-        <View style={[styles.footer, { backgroundColor: theme.background }]}>
+        <View style={styles.footer}>
           <Text style={[styles.footerText, { color: theme.tertiaryText }]}>TravelHub v{appVersion}</Text>
         </View>
       </ScrollView>
 
-
-      {/* Модальное окно выбора входа/регистрации */}
       <Modal
         visible={showLoginModal}
         transparent={true}
@@ -330,20 +370,20 @@ export default function ProfileScreen({ navigation }: any) {
           <View style={[styles.modalContent, { backgroundColor: theme.card }]}>
             <View style={[styles.modalHeader, { borderBottomColor: theme.border }]}>
               <Text style={[styles.modalTitle, { color: theme.text }]}>{i18n.t('profile.loginToAccount')}</Text>
-              <TouchableOpacity 
+              <TouchableOpacity
                 onPress={() => setShowLoginModal(false)}
                 activeOpacity={0.7}
               >
                 <Ionicons name="close" size={24} color={theme.text} />
               </TouchableOpacity>
             </View>
-            
+
             <View style={styles.modalButtons}>
               <PrimaryButton
                 title={i18n.t('auth.login')}
                 onPress={() => {
                   setShowLoginModal(false);
-                  navigation.navigate('Login', { hideGuestLogin: true });
+                  navigateRoot(navigation, 'Login', { hideGuestLogin: true });
                 }}
                 iconLeft={<Ionicons name="log-in-outline" size={20} color={theme.surface} />}
               />
@@ -352,7 +392,7 @@ export default function ProfileScreen({ navigation }: any) {
                 title={i18n.t('profile.register')}
                 onPress={() => {
                   setShowLoginModal(false);
-                  navigation.navigate('Register');
+                  navigateRoot(navigation, 'Register');
                 }}
                 outline
                 iconLeft={<Ionicons name="person-add-outline" size={20} color={theme.primary} />}
@@ -369,115 +409,148 @@ const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
   },
-  container: {
-    flex: 1,
-  },
   scrollView: {
     flex: 1,
   },
   scrollContent: {
     paddingBottom: 24,
   },
-  header: {
-    alignItems: 'center',
-    paddingVertical: 32,
-    marginHorizontal: 20,
-    marginTop: 12,
+  brandMark: {
+    ...typography.h3,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.sm,
+    marginBottom: spacing.md,
+  },
+  avatarCard: {
+    marginHorizontal: spacing.lg,
     borderRadius: surfaces.sectionRadius,
     borderWidth: 1,
+    padding: spacing.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
     ...shadows.cardRaised,
   },
-  avatarContainer: {
-    marginBottom: 16,
-  },
   avatar: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
+    width: 64,
+    height: 64,
+    borderRadius: 32,
     justifyContent: 'center',
     alignItems: 'center',
-    borderWidth: 3,
+    borderWidth: 2,
     overflow: 'hidden',
   },
+  avatarInitials: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  initialsText: {
+    color: '#fff',
+    fontSize: 22,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+  avatarMeta: {
+    flex: 1,
+    minWidth: 0,
+  },
   name: {
-    ...typography.h1,
-    marginBottom: 4,
+    ...typography.h3,
+    marginBottom: 2,
   },
   email: {
     ...typography.caption,
-    marginBottom: 24,
+    marginBottom: 8,
   },
-  statsContainer: {
+  bonusBadge: {
+    alignSelf: 'flex-start',
     flexDirection: 'row',
     alignItems: 'center',
-    borderRadius: surfaces.cardRadius,
-    padding: surfaces.cardPadding,
-    marginHorizontal: 24,
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: radius.full,
   },
-  statItem: {
-    flex: 1,
-    alignItems: 'center',
-  },
-  statValue: {
-    ...typography.h2,
-    marginBottom: 4,
-  },
-  statLabel: {
+  bonusBadgeText: {
     ...typography.small,
   },
-  statDivider: {
-    width: 1,
-    height: 40,
+  menuGroup: {
+    marginTop: spacing.lg,
+  },
+  groupLabel: {
+    ...typography.smallBold,
+    letterSpacing: 1.1,
+    paddingHorizontal: spacing.lg + spacing.xs,
+    marginBottom: spacing.xs,
   },
   section: {
-    marginTop: spacing.lg,
     marginHorizontal: spacing.lg,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.md,
+    borderRadius: surfaces.sectionRadius,
     borderWidth: 1,
-  },
-  sectionTitle: {
-    ...typography.h3,
-    marginBottom: 16,
+    overflow: 'hidden',
   },
   menuItem: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: 16,
-    borderBottomWidth: 1,
+    paddingVertical: spacing.md,
+    minHeight: 56,
   },
   menuItemLeft: {
     flexDirection: 'row',
     alignItems: 'center',
     flex: 1,
   },
-  menuItemText: {
-    fontSize: 16,
-    marginLeft: 16,
+  iconSquare: {
+    width: 36,
+    height: 36,
+    borderRadius: radius.sm,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  menuButton: {
+  menuItemText: {
+    ...typography.body,
+    marginLeft: spacing.md,
+    flexShrink: 1,
+  },
+  promoBanner: {
+    marginTop: spacing.lg,
+    marginHorizontal: spacing.lg,
+    borderRadius: surfaces.sectionRadius,
+    backgroundColor: BRAND.orange,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.lg,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: 16,
-    borderRadius: 12,
-    borderWidth: 1,
-    marginBottom: 12,
+    gap: spacing.sm,
+    overflow: 'hidden',
   },
-  menuButtonText: {
-    fontSize: 16,
-    fontWeight: '500',
-    marginLeft: 12,
+  promoCopy: {
     flex: 1,
   },
+  promoTitle: {
+    color: '#FFFFFF',
+    ...typography.h3,
+    marginBottom: 4,
+  },
+  promoSubtitle: {
+    color: 'rgba(255,255,255,0.9)',
+    ...typography.caption,
+  },
+  actions: {
+    marginTop: spacing.lg,
+    marginHorizontal: spacing.lg,
+  },
   actionButton: {
-    marginBottom: 8,
     width: '100%',
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    backgroundColor: 'rgba(18, 18, 46, 0.45)',
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -492,25 +565,21 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 20,
-    borderBottomWidth: 1,
+    padding: spacing.lg,
+    borderBottomWidth: StyleSheet.hairlineWidth,
   },
   modalTitle: {
-    fontSize: 20,
-    fontWeight: '700',
+    ...typography.h3,
   },
   modalButtons: {
-    padding: 20,
-    gap: 12,
+    padding: spacing.lg,
+    gap: spacing.sm,
   },
   footer: {
     alignItems: 'center',
-    paddingVertical: 32,
+    paddingVertical: spacing.xxl,
   },
   footerText: {
-    fontSize: 12,
-  },
-  iconContainer: {
-    position: 'relative',
+    ...typography.small,
   },
 });

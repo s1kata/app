@@ -1,92 +1,90 @@
-import React, { useEffect, useMemo, useRef } from 'react';
-import { Animated, Easing, StyleSheet } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import React, { useEffect, useRef } from 'react';
+import { Animated, Easing, ImageBackground, StyleSheet, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import * as NativeSplash from 'expo-splash-screen';
-import { LinearGradient } from 'expo-linear-gradient';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAppContext } from '../contexts/AppContext';
 import { logger } from '../utils/logger';
 import { useLifecycleLog } from '../hooks/useLifecycleLog';
 import { logIosTestStep, IosTestStep } from '../utils/iosTestFlows';
-import AppLogo from '../components/AppLogo';
 import { i18n } from '../config/i18n';
 import { isPaymentRelinkInProgress } from '../services/PaymentRelinkState';
+import { BRAND, spacing, typography } from '../config/designSystem';
+
+/** Full-bleed sunset resort (концепт 01) — Unsplash, без локального ассета */
+const SPLASH_BG =
+  'https://images.unsplash.com/photo-1571896349842-33c89424de2d?auto=format&fit=crop&w=1400&q=80';
 
 export default function SplashScreen({ navigation }: { navigation: any }) {
-  const { isAuthenticated, authReady, loginAsGuest, user, theme, isDark } = useAppContext();
-  useLifecycleLog('SplashScreen', { label: 'auth', deps: [isAuthenticated, authReady] });
+  const { authReady, loginAsGuest, user } = useAppContext();
+  const insets = useSafeAreaInsets();
+  useLifecycleLog('SplashScreen', { label: 'auth', deps: [authReady] });
 
   const mountTime = useRef(Date.now()).current;
   const hasNavigated = useRef(false);
   const userRef = useRef(user);
   userRef.current = user;
-  const logoScale = useRef(new Animated.Value(0.7)).current;
+  const logoScale = useRef(new Animated.Value(0.86)).current;
   const logoOpacity = useRef(new Animated.Value(0)).current;
   const titleOpacity = useRef(new Animated.Value(0)).current;
   const subtitleOpacity = useRef(new Animated.Value(0)).current;
-  const glowOpacity = useRef(new Animated.Value(0.25)).current;
-
-  const gradientColors = useMemo<readonly [string, string]>(() => {
-    const [g1, g2] = theme.gradient.primary;
-    return isDark ? [theme.background, g1] : [theme.background, g2];
-  }, [isDark, theme]);
+  const lineScale = useRef(new Animated.Value(0.2)).current;
+  const yearOpacity = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     let alive = true;
     let hideSplashTimer: ReturnType<typeof setTimeout> | undefined;
     let navTimer: ReturnType<typeof setTimeout> | undefined;
+
     Animated.parallel([
       Animated.timing(logoOpacity, {
         toValue: 1,
-        duration: 450,
+        duration: 480,
         easing: Easing.out(Easing.cubic),
         useNativeDriver: true,
       }),
       Animated.spring(logoScale, {
         toValue: 1,
-        tension: 50,
-        friction: 7,
+        tension: 48,
+        friction: 8,
         useNativeDriver: true,
       }),
     ]).start();
 
     Animated.timing(titleOpacity, {
       toValue: 1,
-      duration: 300,
-      delay: 280,
+      duration: 320,
+      delay: 220,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+
+    Animated.timing(lineScale, {
+      toValue: 1,
+      duration: 420,
+      delay: 360,
       easing: Easing.out(Easing.cubic),
       useNativeDriver: true,
     }).start();
 
     Animated.timing(subtitleOpacity, {
       toValue: 1,
-      duration: 280,
-      delay: 520,
+      duration: 300,
+      delay: 480,
       easing: Easing.out(Easing.cubic),
       useNativeDriver: true,
     }).start();
 
-    const glowLoop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(glowOpacity, {
-          toValue: 0.55,
-          duration: 1200,
-          easing: Easing.inOut(Easing.ease),
-          useNativeDriver: true,
-        }),
-        Animated.timing(glowOpacity, {
-          toValue: 0.2,
-          duration: 1200,
-          easing: Easing.inOut(Easing.ease),
-          useNativeDriver: true,
-        }),
-      ]),
-    );
-    glowLoop.start();
+    Animated.timing(yearOpacity, {
+      toValue: 1,
+      duration: 360,
+      delay: 640,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
 
     const doNavigate = async () => {
       if (!alive || hasNavigated.current) return;
-      // Ждём восстановления сессии, чтобы не создать guest поверх реального user.
       if (!authReady) {
         navTimer = setTimeout(() => {
           void doNavigate();
@@ -101,8 +99,6 @@ export default function SplashScreen({ navigation }: { navigation: any }) {
         return;
       }
       hasNavigated.current = true;
-      // App Store 5.1.1(v): каталог доступен без обязательного Login.
-      // Нет сессии → silent guest → сразу Home.
       const currentUser = userRef.current;
       const startedAsGuest = !currentUser;
       try {
@@ -112,7 +108,6 @@ export default function SplashScreen({ navigation }: { navigation: any }) {
       } catch (e) {
         logger.warn('[Splash] auto guest failed, continuing to MainTabs:', e);
       }
-      // Не прерываем по alive: loginAsGuest меняет user и может cleanup'нуть effect.
       const target = 'MainTabs';
       logIosTestStep(IosTestStep.LAUNCH, {
         isAuthenticated: true,
@@ -134,15 +129,12 @@ export default function SplashScreen({ navigation }: { navigation: any }) {
 
     return () => {
       alive = false;
-      glowLoop.stop();
       if (navTimer) clearTimeout(navTimer);
       if (hideSplashTimer) clearTimeout(hideSplashTimer);
       if (hardHideTimer) clearTimeout(hardHideTimer);
     };
   }, [
     authReady,
-    // user / isAuthenticated не в deps: loginAsGuest иначе перезапускал бы effect
-    // в середине перехода на MainTabs. Актуальный user берём из userRef.
     loginAsGuest,
     navigation,
     mountTime,
@@ -150,62 +142,86 @@ export default function SplashScreen({ navigation }: { navigation: any }) {
     logoScale,
     titleOpacity,
     subtitleOpacity,
-    glowOpacity,
+    lineScale,
+    yearOpacity,
   ]);
 
   return (
-    <SafeAreaView edges={['top', 'bottom']} style={styles.safeArea}>
-      <StatusBar style={isDark ? 'light' : 'dark'} />
-      <LinearGradient
-        colors={gradientColors}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={StyleSheet.absoluteFill}
-      />
-      <Animated.View style={[styles.glow, { opacity: glowOpacity, backgroundColor: theme.primary }]} />
-      <Animated.View style={[styles.logoWrap, { opacity: logoOpacity, transform: [{ scale: logoScale }] }]}>
-        <AppLogo size={100} shape="rounded" bordered borderColor={theme.primary} backgroundColor={theme.surface} />
+    <View style={styles.root}>
+      <StatusBar style="light" />
+      <ImageBackground source={{ uri: SPLASH_BG }} style={StyleSheet.absoluteFill} resizeMode="cover" />
+      <View style={styles.scrim} />
+      <Animated.View
+        style={[
+          styles.brandWrap,
+          { opacity: logoOpacity, transform: [{ scale: logoScale }] },
+        ]}
+      >
+        <Animated.Text style={[styles.title, { opacity: titleOpacity }]}>TravelHub</Animated.Text>
+        <Animated.View
+          style={[
+            styles.accentLine,
+            { transform: [{ scaleX: lineScale }] },
+          ]}
+        />
+        <Animated.Text style={[styles.subtitle, { opacity: subtitleOpacity }]}>
+          {i18n.t('splash.subtitle')}
+        </Animated.Text>
       </Animated.View>
-      <Animated.Text style={[styles.title, { color: theme.text, opacity: titleOpacity }]}>
-        TravelHub
+      <Animated.Text
+        style={[
+          styles.year,
+          { opacity: yearOpacity, bottom: Math.max(insets.bottom, spacing.lg) + spacing.sm },
+        ]}
+      >
+        Туры и отели
       </Animated.Text>
-      <Animated.Text style={[styles.subtitle, { color: theme.secondaryText, opacity: subtitleOpacity }]}>
-        {i18n.t('splash.subtitle')}
-      </Animated.Text>
-    </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  safeArea: {
+  root: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: BRAND.navy,
   },
-  glow: {
-    position: 'absolute',
-    width: 160,
-    height: 160,
-    borderRadius: 80,
-    top: '38%',
-    shadowColor: '#0066CC',
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.3,
-    shadowRadius: 24,
-    elevation: 14,
+  scrim: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(18, 18, 46, 0.52)',
   },
-  logoWrap: {
-    marginBottom: 24,
+  brandWrap: {
+    alignItems: 'center',
+    paddingHorizontal: spacing.xl,
+    zIndex: 2,
   },
   title: {
-    fontSize: 32,
+    color: BRAND.white,
+    fontSize: 44,
     fontWeight: '700',
-    letterSpacing: 0.4,
+    letterSpacing: -0.9,
+  },
+  accentLine: {
+    marginTop: spacing.sm,
+    width: 56,
+    height: 3,
+    borderRadius: 2,
+    backgroundColor: BRAND.blue,
   },
   subtitle: {
-    marginTop: 10,
-    fontSize: 14,
-    letterSpacing: 0.8,
-    textTransform: 'uppercase',
+    marginTop: spacing.md,
+    color: 'rgba(255,255,255,0.92)',
+    ...typography.caption,
+    letterSpacing: 0.4,
+    textAlign: 'center',
+  },
+  year: {
+    position: 'absolute',
+    alignSelf: 'center',
+    color: BRAND.orange,
+    ...typography.captionBold,
+    letterSpacing: 1.2,
+    zIndex: 2,
   },
 });

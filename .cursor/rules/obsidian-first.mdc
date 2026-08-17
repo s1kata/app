@@ -1,0 +1,31 @@
+---
+description: Obsidian vault is source of truth — read before any TravelHub/Go work
+alwaysApply: true
+---
+
+# Obsidian First
+
+Vault path: `C:\Users\Ильяс\Documents\Obsidian Vault`
+
+## Before coding
+
+1. Read: `06-AI/00 - START HERE (AI).md`
+2. Branch docs:
+   - TravelHub → `03-Work/TravelHub/App — Status.md`, `Decisions.md`, `Tasks.md`, `CRM & Auth.md`, `Support & Contacts.md`
+   - Go → `04-Learn/Go — Progress.md`, `04-Learn/Go — Task Queue.md`
+   - Reference → `05-Library/Library — Index.md`
+3. `HOME.md` for daily context
+
+## After significant work
+
+Update Obsidian: `03-Work/TravelHub/Changes.md`, status notes, `04-Learn/Go — Progress.md` if Go.
+
+## Hard rules (also in vault)
+
+- Go: condition only — user writes code, no copy-paste solutions
+- OTA 1.1.0 → preview + TestFlight iOS only; never OTA to App Store 1.0.3
+- Commits/push only when user asks
+
+## DeepSeek
+
+Personal stream archived in vault `04 - Resources/DeepSeek 123/`. Structured truth lives in PARA notes, not raw archive.

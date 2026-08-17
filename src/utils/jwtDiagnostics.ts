@@ -17,6 +17,16 @@ function decodePayload(token: string): Record<string, unknown> | null {
   }
 }
 
+/** sub из access JWT (без проверки подписи) — для payload.userId = claims.sub на CRM. */
+export function getJwtSub(token: string | null | undefined): string | null {
+  if (!token?.trim()) return null;
+  const payload = decodePayload(token);
+  const sub = payload?.sub;
+  if (sub === null || sub === undefined) return null;
+  const s = String(sub).trim();
+  return s || null;
+}
+
 export type JwtDiagnostics = {
   /** Unix ms истечения из claim exp, если есть */
   expiresAtMs: number | null;

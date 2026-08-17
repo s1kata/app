@@ -1,5 +1,5 @@
 /**
- * Блок туров на хабе отеля: 25 + «Показать ещё».
+ * Блок «Готовые предложения» на карточке отеля — как на концепте 14.
  */
 import React from 'react';
 import {
@@ -13,65 +13,107 @@ import { Ionicons } from '@expo/vector-icons';
 import type { TourSearchParams } from '../types/tourvisor';
 import { useHotelTours, type HotelTourOffer } from '../hooks/useHotelTours';
 import { i18n } from '../config/i18n';
-import { radius } from '../config/designSystem';
+import { radius, spacing, shadows } from '../config/designSystem';
+import PrimaryButton from './ui/PrimaryButton';
+import TourPriceLabel from './ui/TourPriceLabel';
+import CachedImage from './ui/CachedImage';
+import { DEFAULT_HOTEL_IMAGE } from '../constants/images';
+import { formatAdultsRu, formatNightsRu } from '../utils/pluralRu';
 
 type Theme = {
   text: string;
   secondaryText: string;
   primary: string;
+  accent?: string;
+  deep?: string;
   card: string;
   border: string;
   secondaryBackground: string;
 };
 
 type Props = {
-  hotel: { id: number; country?: { id: number }; category?: number; region?: { id: number }; name?: string } | null;
+  hotel: {
+    id: number;
+    country?: { id: number };
+    category?: number;
+    region?: { id: number };
+    name?: string;
+    picturelink?: string;
+  } | null;
   tourContext?: Partial<TourSearchParams>;
   theme: Theme;
   navigation: { navigate: (s: string, p?: object) => void };
   enabled?: boolean;
+  hotelImage?: string;
 };
 
 function formatDate(dateStr: string): string {
   if (!dateStr) return '';
   const d = new Date(dateStr);
   if (Number.isNaN(d.getTime())) return dateStr;
-  return d.toLocaleDateString('ru-RU', { day: '2-digit', month: 'short' });
+  return d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' });
+}
+
+function endDate(dateStr: string, nights: number): string {
+  if (!dateStr || !nights) return '';
+  const d = new Date(dateStr);
+  if (Number.isNaN(d.getTime())) return '';
+  d.setDate(d.getDate() + nights);
+  return formatDate(d.toISOString().slice(0, 10));
 }
 
 function OfferRow({
   offer,
   theme,
+  thumb,
+  adults,
   onPress,
 }: {
   offer: HotelTourOffer;
   theme: Theme;
+  thumb: string;
+  adults: number;
   onPress: () => void;
 }) {
   const t = offer.tour;
+  const meal = t.meal?.russianName || t.meal?.name || '';
+  const from = formatDate(t.date);
+  const to = endDate(t.date, Number(t.nights) || 0);
+  const range = from && to ? `${from} — ${to}` : from;
+
   return (
     <TouchableOpacity
-      style={[styles.row, { backgroundColor: theme.card, borderColor: theme.border }]}
+      style={[styles.row, shadows.card, { backgroundColor: theme.card, borderColor: theme.border }]}
       onPress={onPress}
       activeOpacity={0.85}
     >
-      <View style={{ flex: 1, gap: 4 }}>
-        <Text style={[styles.rowTitle, { color: theme.text }]} numberOfLines={1}>
-          {formatDate(t.date)}
-          {t.nights ? ` · ${t.nights} н.` : ''}
-          {t.meal?.russianName || t.meal?.name
-            ? ` · ${t.meal.russianName || t.meal.name}`
-            : ''}
+      <CachedImage source={{ uri: thumb }} style={styles.thumb} contentFit="cover" />
+      <View style={styles.rowMid}>
+        <Text style={[styles.rowTitle, { color: theme.deep || theme.text }]} numberOfLines={1}>
+          {range}
         </Text>
         <Text style={[styles.rowSub, { color: theme.secondaryText }]} numberOfLines={1}>
-          {t.operator?.russianName || t.operator?.name || 'Туроператор'}
+          {[t.nights ? formatNightsRu(t.nights) : '', adults > 0 ? formatAdultsRu(adults) : '']
+            .filter(Boolean)
+            .join(' · ')}
         </Text>
+        {meal ? (
+          <Text style={[styles.rowSub, { color: theme.secondaryText }]} numberOfLines={1}>
+            {meal}
+          </Text>
+        ) : null}
+        <View style={styles.confirmRow}>
+          <Ionicons name="checkmark-circle" size={14} color={theme.primary} />
+          <Text style={[styles.confirmText, { color: theme.primary }]} numberOfLines={1}>
+            Моментальное подтверждение
+          </Text>
+        </View>
       </View>
       <View style={styles.priceCol}>
-        <Text style={[styles.price, { color: theme.primary }]}>
-          {(Number(t.price) || 0).toLocaleString('ru-RU')} ₽
-        </Text>
-        <Ionicons name="chevron-forward" size={16} color={theme.secondaryText} />
+        <TourPriceLabel amount={Number(t.price) || 0} caption="за тур" />
+        <View style={[styles.selectPill, { backgroundColor: theme.accent || theme.primary }]}>
+          <Text style={styles.selectPillText}>Смотреть тур</Text>
+        </View>
       </View>
     </TouchableOpacity>
   );
@@ -83,6 +125,7 @@ export default function HotelToursSection({
   theme,
   navigation,
   enabled = true,
+  hotelImage,
 }: Props) {
   const {
     loading,
@@ -95,31 +138,51 @@ export default function HotelToursSection({
     reload,
     loadMore,
     openOffer,
+    params,
   } = useHotelTours(hotel, tourContext, enabled && !!hotel?.id);
 
+  const thumb =
+    hotelImage ||
+    hotel?.picturelink ||
+    (offers[0]?.hotel as { picturelink?: string } | undefined)?.picturelink ||
+    DEFAULT_HOTEL_IMAGE;
+  const adults = Number(params?.adults || tourContext?.adults || 2);
+
+  const openAll = () => {
+    if (!params) return;
+    navigation.navigate('ApiTourResults', {
+      searchParams: params,
+      useCache: false,
+      runSearch: true,
+    });
+  };
+
   return (
-    <View style={[styles.wrap, { backgroundColor: theme.card, borderColor: theme.border }]}>
-        <View style={styles.header}>
-        <View style={{ flex: 1 }}>
-          <Text style={[styles.eyebrow, { color: theme.primary }]}>ТУРЫ В ЭТОТ ОТЕЛЬ</Text>
-          <Text style={[styles.title, { color: theme.text }]}>
-            {minPrice > 0
-              ? `от ${minPrice.toLocaleString('ru-RU')} ₽`
-              : 'Готовые предложения'}
-          </Text>
-          {totalFound > 0 ? (
+    <View style={[styles.wrap, shadows.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
+      <View style={styles.header}>
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Text style={[styles.title, { color: theme.deep || theme.text }]}>Готовые предложения</Text>
+          {minPrice > 0 ? (
+            <TourPriceLabel amount={minPrice} caption="цена за тур" style={{ marginTop: 4 }} />
+          ) : totalFound > 0 ? (
             <Text style={[styles.meta, { color: theme.secondaryText }]}>
-              {totalFound} вариантов · сразу выбирайте
+              {totalFound} вариантов
             </Text>
           ) : null}
         </View>
-        <TouchableOpacity
-          onPress={() => void reload()}
-          hitSlop={10}
-          style={[styles.refreshBtn, { borderColor: theme.border }]}
-        >
-          <Ionicons name="refresh" size={18} color={theme.primary} />
-        </TouchableOpacity>
+        {params ? (
+          <TouchableOpacity onPress={openAll} hitSlop={10}>
+            <Text style={[styles.seeAll, { color: theme.primary }]}>Смотреть все</Text>
+          </TouchableOpacity>
+        ) : (
+          <TouchableOpacity
+            onPress={() => void reload()}
+            hitSlop={10}
+            style={[styles.refreshBtn, { borderColor: theme.border, backgroundColor: theme.secondaryBackground }]}
+          >
+            <Ionicons name="refresh" size={18} color={theme.primary} />
+          </TouchableOpacity>
+        )}
       </View>
 
       {loading ? (
@@ -131,21 +194,22 @@ export default function HotelToursSection({
         </View>
       ) : error && offers.length === 0 ? (
         <View style={styles.center}>
-          <Text style={[styles.emptyTitle, { color: theme.text }]}>Не удалось загрузить</Text>
+          <Text style={[styles.emptyTitle, { color: theme.deep || theme.text }]}>Не удалось загрузить</Text>
           <Text style={[styles.meta, { color: theme.secondaryText, textAlign: 'center' }]}>
             {error}
           </Text>
-          <TouchableOpacity
-            style={[styles.moreBtn, { backgroundColor: theme.primary, marginTop: 12 }]}
+          <PrimaryButton
+            title={i18n.t('home.hotDealsRetry')}
             onPress={() => void reload()}
-          >
-            <Text style={styles.moreBtnText}>{i18n.t('home.hotDealsRetry')}</Text>
-          </TouchableOpacity>
+            variant="cta"
+            small
+            style={{ marginTop: 12, minWidth: 140 }}
+          />
         </View>
       ) : offers.length === 0 ? (
         <View style={styles.center}>
           <Ionicons name="airplane-outline" size={28} color={theme.secondaryText} />
-          <Text style={[styles.emptyTitle, { color: theme.text, marginTop: 8 }]}>
+          <Text style={[styles.emptyTitle, { color: theme.deep || theme.text, marginTop: 8 }]}>
             На ближайшие даты туров нет
           </Text>
           <Text style={[styles.meta, { color: theme.secondaryText, textAlign: 'center' }]}>
@@ -153,12 +217,14 @@ export default function HotelToursSection({
           </Text>
         </View>
       ) : (
-        <View style={{ gap: 8 }}>
+        <View style={{ gap: 10 }}>
           {offers.map((o) => (
             <OfferRow
               key={o.key}
               offer={o}
               theme={theme}
+              thumb={thumb}
+              adults={adults}
               onPress={() => void openOffer(o, navigation)}
             />
           ))}
@@ -186,20 +252,25 @@ export default function HotelToursSection({
 
 const styles = StyleSheet.create({
   wrap: {
-    marginHorizontal: 16,
-    marginBottom: 16,
-    borderRadius: radius.lg,
+    marginHorizontal: spacing.md,
+    marginBottom: spacing.md,
+    borderRadius: radius.xl,
     borderWidth: 1,
-    padding: 14,
+    padding: spacing.md,
   },
-  header: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 12, gap: 8 },
-  eyebrow: { fontSize: 11, fontWeight: '700', letterSpacing: 0.6 },
-  title: { fontSize: 20, fontWeight: '800', marginTop: 2 },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginBottom: spacing.sm,
+    gap: 8,
+  },
+  title: { fontSize: 20, fontWeight: '800', letterSpacing: -0.3 },
   meta: { fontSize: 13, marginTop: 2 },
+  seeAll: { fontSize: 14, fontWeight: '700', marginTop: 4 },
   refreshBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 40,
+    height: 40,
+    borderRadius: radius.md,
     borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
@@ -210,22 +281,34 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     borderWidth: 1,
-    borderRadius: radius.md,
-    paddingHorizontal: 12,
-    paddingVertical: 12,
+    borderRadius: radius.lg,
+    padding: 10,
     gap: 10,
   },
-  rowTitle: { fontSize: 14, fontWeight: '600' },
+  thumb: {
+    width: 64,
+    height: 72,
+    borderRadius: radius.sm,
+    backgroundColor: '#E8EEF5',
+  },
+  rowMid: { flex: 1, minWidth: 0, gap: 2 },
+  rowTitle: { fontSize: 14, fontWeight: '700' },
   rowSub: { fontSize: 12 },
-  priceCol: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  price: { fontSize: 16, fontWeight: '800' },
+  confirmRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 },
+  confirmText: { fontSize: 11, fontWeight: '600', flex: 1 },
+  priceCol: { alignItems: 'flex-end', gap: 6, maxWidth: 120 },
+  selectPill: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: radius.md,
+  },
+  selectPillText: { color: '#fff', fontSize: 11, fontWeight: '800' },
   moreBtn: {
     marginTop: 4,
-    borderRadius: radius.md,
-    paddingVertical: 12,
+    borderRadius: radius.lg,
+    paddingVertical: 14,
     alignItems: 'center',
     borderWidth: 1,
   },
-  moreBtnText: { color: '#fff', fontWeight: '700', fontSize: 14 },
   moreOutlineText: { fontWeight: '700', fontSize: 14 },
 });

@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import {
   View,
   Text,
-  TextInput,
   TouchableOpacity,
   StyleSheet,
   Alert,
@@ -16,9 +15,9 @@ import { Ionicons } from '@expo/vector-icons';
 import { AuthService } from '../services/AuthService';
 import { useAppContext } from '../contexts/AppContext';
 import AppLogo from '../components/AppLogo';
-import { PrimaryButton } from '../components/ui';
+import { PrimaryButton, TextField, ScreenHeader } from '../components/ui';
 import { getPasswordValidationMessage } from '../utils/validation';
-import { radius, shadows } from '../config/designSystem';
+import { radius, shadows, spacing, typography, touchTargets } from '../config/designSystem';
 
 interface ResetPasswordScreenProps {
   navigation: any;
@@ -84,7 +83,7 @@ export default function ResetPasswordScreen({ navigation, route: _route }: Reset
 
   return (
     <SafeAreaView
-      edges={['top', 'bottom']}
+      edges={['bottom']}
       style={[styles.safeArea, { backgroundColor: theme.background }]}
     >
       <KeyboardAvoidingView
@@ -92,150 +91,117 @@ export default function ResetPasswordScreen({ navigation, route: _route }: Reset
         style={[styles.container, { backgroundColor: theme.background }]}
       >
         <StatusBar style={isDark ? 'light' : 'dark'} />
+        <ScreenHeader title="Новый пароль" onBack={() => navigation.goBack()} />
         <ScrollView
           contentContainerStyle={styles.scrollContent}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"
+          showsVerticalScrollIndicator={false}
         >
           <View style={styles.content}>
-          {/* Кнопка назад */}
-          <TouchableOpacity
-            style={styles.backButton}
-            onPress={() => navigation.goBack()}
-          >
-            <Ionicons name="arrow-back" size={24} color={theme.primary} />
-          </TouchableOpacity>
+            <View style={styles.brandBlock}>
+              <AppLogo size={72} shape="rounded" bordered borderColor={theme.primary} backgroundColor={theme.surface} />
+              <Text style={[styles.wordmark, { color: theme.deep }]}>TravelHub</Text>
+            </View>
 
-          <View style={[styles.iconContainer, { backgroundColor: theme.secondaryBackground, borderColor: theme.border }]}>
-            <AppLogo size={72} bordered borderColor={theme.primary} backgroundColor={theme.surface} />
-          </View>
+            <View style={[styles.formCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+              <Text style={[styles.title, { color: theme.text }]}>Создать новый пароль</Text>
+              <Text style={[styles.subtitle, { color: theme.secondaryText }]}>
+                Введите код из email и новый пароль
+              </Text>
 
-          <View style={[styles.formCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-            <Text style={[styles.title, { color: theme.text }]}>Создать новый пароль</Text>
-            <Text style={[styles.subtitle, { color: theme.secondaryText }]}>
-              Введите код из email и новый пароль
-            </Text>
-            <View style={styles.form}>
-            {/* Код из email */}
-            <Text style={[styles.label, { color: theme.text }]}>Код из email</Text>
-            <TextInput
-              style={[
-                styles.input,
-                {
-                  backgroundColor: theme.card,
-                  borderColor: theme.border,
-                  color: theme.text,
-                },
-                styles.codeInput,
-              ]}
-              placeholder="XXXXXX"
-              placeholderTextColor={theme.secondaryText}
-              value={resetToken}
-              onChangeText={(text) => setResetToken(text.toUpperCase())}
-              autoCapitalize="characters"
-              autoCorrect={false}
-              maxLength={6}
-              editable={!loading}
-            />
+              <TextField
+                label="Код из email"
+                placeholder="XXXXXX"
+                value={resetToken}
+                onChangeText={(text) => setResetToken(text.toUpperCase())}
+                autoCapitalize="characters"
+                autoCorrect={false}
+                maxLength={6}
+                editable={!loading}
+                style={styles.codeInput}
+                iconLeft={<Ionicons name="key-outline" size={20} color={theme.secondaryText} />}
+              />
 
-            {/* Новый пароль */}
-            <Text style={[styles.label, { color: theme.text }]}>Новый пароль</Text>
-            <View style={styles.passwordContainer}>
-              <TextInput
-                style={[
-                  styles.input,
-                  styles.passwordInput,
-                  {
-                    backgroundColor: theme.card,
-                    borderColor: theme.border,
-                    color: theme.text,
-                  },
-                ]}
+              <TextField
+                label="Новый пароль"
                 placeholder="Минимум 8 символов и цифра"
-                placeholderTextColor={theme.secondaryText}
                 value={newPassword}
                 onChangeText={setNewPassword}
                 secureTextEntry={!showPassword}
                 autoCapitalize="none"
                 editable={!loading}
+                iconLeft={<Ionicons name="lock-closed-outline" size={20} color={theme.secondaryText} />}
+                iconRight={
+                  <TouchableOpacity
+                    onPress={() => setShowPassword(!showPassword)}
+                    hitSlop={10}
+                    style={styles.eyeHit}
+                  >
+                    <Ionicons
+                      name={showPassword ? 'eye-outline' : 'eye-off-outline'}
+                      size={22}
+                      color={theme.secondaryText}
+                    />
+                  </TouchableOpacity>
+                }
               />
-              <TouchableOpacity
-                style={styles.eyeButton}
-                onPress={() => setShowPassword(!showPassword)}
-              >
-                <Ionicons
-                  name={showPassword ? 'eye-outline' : 'eye-off-outline'}
-                  size={24}
-                  color={theme.secondaryText}
-                />
-              </TouchableOpacity>
-            </View>
 
-            {/* Подтверждение пароля */}
-            <Text style={[styles.label, { color: theme.text }]}>Подтвердите пароль</Text>
-            <View style={styles.passwordContainer}>
-              <TextInput
-                style={[
-                  styles.input,
-                  styles.passwordInput,
-                  {
-                    backgroundColor: theme.card,
-                    borderColor: theme.border,
-                    color: theme.text,
-                  },
-                ]}
+              <TextField
+                label="Подтвердите пароль"
                 placeholder="Введите пароль еще раз"
-                placeholderTextColor={theme.secondaryText}
                 value={confirmPassword}
                 onChangeText={setConfirmPassword}
                 secureTextEntry={!showConfirmPassword}
                 autoCapitalize="none"
                 editable={!loading}
+                iconLeft={<Ionicons name="shield-checkmark-outline" size={20} color={theme.secondaryText} />}
+                iconRight={
+                  <TouchableOpacity
+                    onPress={() => setShowConfirmPassword(!showConfirmPassword)}
+                    hitSlop={10}
+                    style={styles.eyeHit}
+                  >
+                    <Ionicons
+                      name={showConfirmPassword ? 'eye-outline' : 'eye-off-outline'}
+                      size={22}
+                      color={theme.secondaryText}
+                    />
+                  </TouchableOpacity>
+                }
               />
+
+              <PrimaryButton
+                title="Сбросить пароль"
+                onPress={handleResetPassword}
+                loading={loading}
+                variant="cta"
+                iconLeft={<Ionicons name="checkmark-circle-outline" size={20} color={theme.surface} />}
+                style={styles.button}
+              />
+
               <TouchableOpacity
-                style={styles.eyeButton}
-                onPress={() => setShowConfirmPassword(!showConfirmPassword)}
+                style={styles.linkButton}
+                onPress={() => navigation.navigate('ForgotPassword')}
+                hitSlop={8}
               >
-                <Ionicons
-                  name={showConfirmPassword ? 'eye-outline' : 'eye-off-outline'}
-                  size={24}
-                  color={theme.secondaryText}
-                />
+                <Text style={[styles.linkText, { color: theme.secondaryText }]}>
+                  Не получили код?{' '}
+                  <Text style={[styles.linkTextBold, { color: theme.primary }]}>Отправить снова</Text>
+                </Text>
               </TouchableOpacity>
             </View>
 
-            {/* Кнопка сброса */}
-            <PrimaryButton
-              title="Сбросить пароль"
-              onPress={handleResetPassword}
-              loading={loading}
-              variant="cta"
-              iconLeft={<Ionicons name="checkmark-circle-outline" size={20} color={theme.surface} />}
-              style={styles.button}
-            />
-
-            {/* Ссылка на повторную отправку кода */}
-            <TouchableOpacity
-              style={styles.linkButton}
-              onPress={() => navigation.navigate('ForgotPassword')}
-            >
-              <Text style={[styles.linkText, { color: theme.secondaryText }]}>
-                Не получили код?{' '}
-                <Text style={[styles.linkTextBold, { color: theme.primary }]}>Отправить снова</Text>
+            <View style={[styles.infoBox, { backgroundColor: theme.secondaryBackground }]}>
+              <View style={[styles.infoIcon, { backgroundColor: theme.primary + '22' }]}>
+                <Ionicons name="shield-checkmark-outline" size={20} color={theme.primary} />
+              </View>
+              <Text style={[styles.infoText, { color: theme.secondaryText }]}>
+                Пароль должен содержать минимум 8 символов и хотя бы одну цифру.
               </Text>
-            </TouchableOpacity>
+            </View>
           </View>
-          </View>
-
-          {/* Информация */}
-          <View style={[styles.infoBox, { backgroundColor: theme.secondaryBackground }]}>
-            <Ionicons name="shield-checkmark-outline" size={20} color={theme.primary} />
-            <Text style={[styles.infoText, { color: theme.secondaryText }]}>
-              Пароль должен содержать минимум 8 символов и хотя бы одну цифру.
-            </Text>
-          </View>
-        </View>
-      </ScrollView>
+        </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -250,111 +216,83 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     flexGrow: 1,
-    paddingBottom: 36,
+    paddingBottom: spacing.xxxl,
   },
   content: {
     flex: 1,
-    padding: 24,
-    paddingTop: 60,
+    padding: spacing.xl,
     width: '100%',
     maxWidth: 560,
     alignSelf: 'center',
   },
-  backButton: {
-    position: 'absolute',
-    top: 20,
-    left: 24,
-    zIndex: 10,
-    padding: 8,
-  },
-  iconContainer: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
+  brandBlock: {
     alignItems: 'center',
-    justifyContent: 'center',
-    alignSelf: 'center',
-    marginBottom: 24,
-    borderWidth: 1,
+    marginBottom: spacing.xl,
+    marginTop: spacing.sm,
+  },
+  wordmark: {
+    ...typography.h2,
+    marginTop: spacing.md,
   },
   formCard: {
     borderRadius: radius.xl,
     borderWidth: 1,
-    padding: 20,
+    padding: spacing.lg,
     ...shadows.cardRaised,
   },
   title: {
-    fontSize: 28,
-    fontWeight: 'bold',
+    ...typography.h2,
     textAlign: 'center',
-    marginBottom: 8,
+    marginBottom: spacing.xs,
   },
   subtitle: {
-    fontSize: 16,
+    ...typography.caption,
     textAlign: 'center',
-    marginBottom: 24,
-    lineHeight: 24,
-  },
-  form: {
-    width: '100%',
-  },
-  label: {
-    fontSize: 14,
-    fontWeight: '600',
-    marginBottom: 8,
-    marginLeft: 4,
-  },
-  input: {
-    borderRadius: 12,
-    padding: 16,
-    fontSize: 16,
-    marginBottom: 20,
-    borderWidth: 1,
+    marginBottom: spacing.lg,
+    lineHeight: 22,
   },
   codeInput: {
     textAlign: 'center',
-    fontSize: 24,
-    letterSpacing: 8,
-    fontWeight: 'bold',
+    letterSpacing: 6,
+    fontWeight: '700',
   },
-  passwordContainer: {
-    position: 'relative',
-  },
-  passwordInput: {
-    paddingRight: 50,
-  },
-  eyeButton: {
-    position: 'absolute',
-    right: 16,
-    top: 16,
-    padding: 4,
+  eyeHit: {
+    minWidth: touchTargets.iconButton,
+    minHeight: touchTargets.iconButton,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   button: {
-    marginTop: 8,
+    marginTop: spacing.sm,
   },
   linkButton: {
-    marginTop: 24,
+    marginTop: spacing.lg,
     alignItems: 'center',
   },
   linkText: {
-    fontSize: 14,
+    ...typography.caption,
   },
   linkTextBold: {
-    fontWeight: '600',
+    fontWeight: '700',
   },
   infoBox: {
     flexDirection: 'row',
-    padding: 16,
-    borderRadius: 12,
-    marginTop: 24,
+    padding: spacing.md,
+    borderRadius: radius.lg,
+    marginTop: spacing.xl,
     alignItems: 'flex-start',
+    gap: spacing.sm,
+  },
+  infoIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   infoText: {
     flex: 1,
-    fontSize: 13,
-    marginLeft: 12,
+    ...typography.small,
     lineHeight: 20,
   },
 });
-
-

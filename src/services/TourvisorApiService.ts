@@ -36,6 +36,7 @@ import {
   getTourSearchApiParams,
   isTourSearchStatusError,
   isTourSearchStatusFinished,
+  canFetchTourSearchResultsEarly,
   TOUR_SEARCH_MAX_WAIT_MS,
   TOUR_SEARCH_POLL_INTERVAL_MS,
 } from '../utils/tourSearchCache';
@@ -1073,6 +1074,8 @@ class TourvisorApiService {
   ): Promise<TourSearchStatus> {
     const startedAt = Date.now();
     let lastStatus: TourSearchStatus | null = null;
+    let stableProgressHits = 0;
+    let lastProgress = -1;
 
     while (Date.now() - startedAt < maxWaitMs) {
       let status: TourSearchStatus | null = null;
@@ -1094,8 +1097,28 @@ class TourvisorApiService {
       if (isTourSearchStatusError(status.status)) {
         throw new Error('Tourvisor API: ошибка поиска на сервере');
       }
-      if (isTourSearchStatusFinished(status.status, status.progress)) {
+
+      const elapsed = Date.now() - startedAt;
+      if (canFetchTourSearchResultsEarly(status, elapsed)) {
         return status;
+      }
+
+      const p = status.progress ?? 0;
+      if (p === lastProgress && p >= 80) {
+        stableProgressHits += 1;
+        // Tourvisor часто «висит» на 90% — забираем накопленные результаты
+        if (stableProgressHits >= 3) {
+          logger.warn('[Tourvisor API] progress stalled, fetching results early', {
+            searchId,
+            progress: p,
+            status: status.status,
+            elapsed,
+          });
+          return status;
+        }
+      } else {
+        stableProgressHits = 0;
+        lastProgress = p;
       }
 
       await new Promise((r) => setTimeout(r, pollIntervalMs));

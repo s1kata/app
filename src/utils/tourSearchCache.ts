@@ -13,6 +13,7 @@ import NetInfo from '@react-native-community/netinfo';
 import { TourSearchParams, TourHotel, Tour } from '../types/tourvisor';
 import { isTourOperatorAllowed } from '../config/tourOperators';
 import { sanitizeTourMealParam } from './tourvisorMeals';
+import { isPlausiblePackagePrice } from './tourPriceSanity';
 
 /** Показываем и ищем столько туров, сколько вернёт API (без пагинации) */
 export const TOUR_SEARCH_LIMIT = 30;
@@ -84,6 +85,8 @@ export function getTourSearchApiParams(params: TourSearchParams): TourSearchPara
     skipOperatorFilter: _skipOp,
     ...apiParams
   } = normalized as TourSearchParams & { skipOperatorFilter?: boolean };
+  // Tourvisor отдаёт цены в RUB; валюта в настройках — только для отображения
+  apiParams.currency = 'RUB';
   return apiParams;
 }
 
@@ -150,13 +153,39 @@ export function filterHotelsByPriceBounds(
   return out;
 }
 
+/** Убрать туры с неправдоподобно низкой ценой (мусор API вроде 7619 ₽ Таиланд). */
+export function filterHotelsByPlausiblePackagePrices(hotels: TourHotel[]): TourHotel[] {
+  if (!hotels?.length) return hotels ?? [];
+  const out: TourHotel[] = [];
+  for (const hotel of hotels) {
+    if (!hotel || !Array.isArray(hotel.tours)) continue;
+    const countryId = hotel.country?.id ?? null;
+    const tours = hotel.tours.filter((t) =>
+      isPlausiblePackagePrice(Number(t?.price) || 0, {
+        currency: t?.currency || hotel.currency,
+        countryId,
+        nights: t?.nights,
+      }),
+    );
+    if (tours.length === 0) continue;
+    const sanePrices = tours.map((t) => Number(t.price) || 0).filter((p) => p > 0);
+    out.push({
+      ...hotel,
+      tours,
+      price: sanePrices.length ? Math.min(...sanePrices) : hotel.price,
+    });
+  }
+  return out;
+}
+
 /** Применить budget-фильтр из searchParams к выдаче. */
 export function applyTourSearchPriceFilter(
   hotels: TourHotel[],
   params: TourSearchParams | null | undefined,
 ): TourHotel[] {
   if (!params || !hotels?.length) return hotels ?? [];
-  return filterHotelsByPriceBounds(hotels, params.priceFrom, params.priceTo);
+  const sane = filterHotelsByPlausiblePackagePrices(hotels);
+  return filterHotelsByPriceBounds(sane, params.priceFrom, params.priceTo);
 }
 
 /**
@@ -299,10 +328,24 @@ export function sanitizeTourHotelsFromCache(raw: unknown): TourHotel[] {
         (typeof meal?.id === 'number' && meal.id > 0);
       if (!hasMeal) return false;
       if (typeof t.price !== 'number' || !t.date) return false;
+      if (
+        !isPlausiblePackagePrice(t.price, {
+          currency: t.currency || hotel.currency,
+          countryId: hotel.country?.id,
+          nights: t.nights,
+        })
+      ) {
+        return false;
+      }
       return true;
     });
     if (tours.length === 0) continue;
-    result.push({ ...hotel, tours });
+    const sanePrices = tours.map((t) => Number(t.price) || 0).filter((p) => p > 0);
+    result.push({
+      ...hotel,
+      tours,
+      price: sanePrices.length ? Math.min(...sanePrices) : hotel.price,
+    });
   }
   return result;
 }
@@ -344,14 +387,48 @@ export function computeNightsRangeFromDates(
 /** Максимальное ожидание завершения поиска на Tourvisor (мс) — важно для медленного LTE */
 export const TOUR_SEARCH_MAX_WAIT_MS = 180_000;
 
-/** Tourvisor отдаёт status: "complete" или "completed" */
+/** Через столько мс уже можно забирать первые результаты (рекомендация Tourvisor ~7с) */
+export const TOUR_SEARCH_EARLY_RESULTS_MS = 8_000;
+
+/** Tourvisor: status бывает complete/completed/finished; progress 100 — тоже готово */
 export function isTourSearchStatusFinished(status?: string, progress?: number): boolean {
-  const s = (status || '').toLowerCase();
-  return s === 'completed' || s === 'complete' || (progress ?? 0) >= 100;
+  if ((progress ?? 0) >= 100) return true;
+  const s = (status || '').toLowerCase().trim();
+  return (
+    s === 'completed' ||
+    s === 'complete' ||
+    s === 'finished' ||
+    s === 'finish' ||
+    s === 'done' ||
+    s === 'ready' ||
+    s === 'success' ||
+    s === 'ok'
+  );
+}
+
+/**
+ * Можно забирать результаты до 100%:
+ * — поиск формально завершён, или
+ * — прошло ≥8с и есть сигнал (progress/minPrice), или
+ * — прошло ≥20с (не держим UI на 90% бесконечно).
+ */
+export function canFetchTourSearchResultsEarly(
+  status: { status?: string; progress?: number; minPrice?: number } | null | undefined,
+  elapsedMs: number,
+): boolean {
+  if (!status) return false;
+  if (isTourSearchStatusFinished(status.status, status.progress)) return true;
+  const progress = status.progress ?? 0;
+  const hasSignal = progress >= 35 || (status.minPrice ?? 0) > 0;
+  if (elapsedMs >= TOUR_SEARCH_EARLY_RESULTS_MS && hasSignal) return true;
+  if (elapsedMs >= 20_000 && progress >= 15) return true;
+  if (elapsedMs >= 35_000) return true;
+  return false;
 }
 
 export function isTourSearchStatusError(status?: string): boolean {
-  return (status || '').toLowerCase() === 'error';
+  const s = (status || '').toLowerCase().trim();
+  return s === 'error' || s === 'failed' || s === 'fail';
 }
 
 export function isTransientTourvisorError(error: unknown): boolean {

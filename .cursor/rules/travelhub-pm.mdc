@@ -1,0 +1,24 @@
+---
+description: PM helper — scope, acceptance, leads without enterprise CRM jargon
+alwaysApply: true
+---
+
+# PM / leads (owner is not a PM)
+
+When starting work, write a tiny ticket (Linear if connected):
+
+## Ticket template
+- **Goal** (1 sentence, customer language)
+- **In scope** / **Out of scope**
+- **Acceptance** (checklist a non-dev can verify)
+- **Design ref** (concept screen # or Figma frame)
+- **Risks** (API, payment, store review)
+
+## Lead / sales hygiene (simple)
+- Capture: contact, need (tour/hotel), dates, budget if known, next step, owner
+- Prefer existing CRM/bookings flow over new CRM products
+- Never promise features not in acceptance
+
+## Status language
+Use: Idea → Spec → Building → Preview → QA → Released  
+Avoid corporate fluff; keep Russian plain language for the owner.

@@ -82,7 +82,7 @@ module.exports = {
     name: "TravelHub",
     slug: "travelhub",
     owner: (process.env.EXPO_OWNER || "s1kata12").trim(),
-    version: "1.0.3",
+    version: "1.1.0",
     scheme: "travelhub",
     orientation: "portrait",
     userInterfaceStyle: "automatic",
@@ -99,7 +99,7 @@ module.exports = {
       supportsTablet: false,
       bundleIdentifier: iosBundleIdentifier,
       icon: appIconPng,
-      buildNumber: "4",
+      buildNumber: "5",
       infoPlist: {
         // RU + EN в одной строке — ревью App Store / TestFlight и пользователи EN-системы
         NSLocationWhenInUseUsageDescription:
@@ -112,7 +112,7 @@ module.exports = {
     },
     android: {
       package: androidPackage,
-      versionCode: 4,
+      versionCode: 5,
       usesCleartextTraffic: !isProductionLike,
       adaptiveIcon: {
         foregroundImage: appIconPng,

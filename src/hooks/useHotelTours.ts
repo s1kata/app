@@ -8,6 +8,7 @@ import { tourvisorApi } from '../services/TourvisorApiService';
 import { buildTourSearchParamsForHotel } from '../utils/hotelTourSearch';
 import { logger } from '../utils/logger';
 import { cacheTourFromSearchResult } from '../utils/tourDetailsCache';
+import { isPlausiblePackagePrice, saneMinPrice } from '../utils/tourPriceSanity';
 
 export const HOTEL_TOURS_PAGE = 25;
 
@@ -32,16 +33,26 @@ function flattenOffers(hotels: TourHotel[], hotelId: number): HotelTourOffer[] {
     }
   }
   out.sort((a, b) => (Number(a.tour.price) || 0) - (Number(b.tour.price) || 0));
-  return out;
+  return out.filter((o) =>
+    isPlausiblePackagePrice(Number(o.tour.price) || 0, {
+      currency: o.tour.currency,
+      countryId: o.hotel.country?.id,
+      nights: o.tour.nights,
+    }),
+  );
 }
 
 function minPriceOf(offers: HotelTourOffer[]): number {
-  let min = 0;
-  for (const o of offers) {
-    const p = Number(o.tour.price) || 0;
-    if (p > 0 && (min === 0 || p < min)) min = p;
-  }
-  return min;
+  if (!offers.length) return 0;
+  const countryId = offers[0]?.hotel?.country?.id;
+  return saneMinPrice(
+    offers.map((o) => Number(o.tour.price) || 0),
+    {
+      currency: offers[0]?.tour?.currency,
+      countryId,
+      nights: offers.find((o) => Number(o.tour.nights) > 0)?.tour?.nights,
+    },
+  );
 }
 
 export function useHotelTours(

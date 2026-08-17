@@ -8,15 +8,19 @@ import {
   Text,
   StyleSheet,
   TouchableOpacity,
-  useWindowDimensions,
+  ScrollView,
   Animated,
+  Alert,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useAppContext } from '../contexts/AppContext';
 import { i18n } from '../config/i18n';
+import { Image } from 'expo-image';
 import CachedImage from './ui/CachedImage';
+import TourPriceLabel from './ui/TourPriceLabel';
+import { isPlausibleHotItem } from '../utils/tourPriceSanity';
 import { DEFAULT_HOTEL_IMAGE } from '../constants/images';
 import { tourvisorApi } from '../services/TourvisorApiService';
 import { hotelPictureCache } from '../services/HotelPictureCache';
@@ -25,24 +29,26 @@ import { dictionaryService } from '../services/DictionaryService';
 import { fetchHotToursViaBackend } from '../services/sync/NextPatchBackendClient';
 import { TourHot } from '../types/tourvisor';
 import { radius, shadows, spacing } from '../config/designSystem';
+import { settingsService } from '../services/SettingsService';
+import type { Currency } from '../services/SettingsService';
 import { logger } from '../utils/logger';
-import { cacheTourFromHot } from '../utils/tourDetailsCache';
+import { cacheTourFromHot, tourHotToHotelAndTour, buildTourOutputFromSearchResult } from '../utils/tourDetailsCache';
+import { FavoritesService } from '../services/FavoritesService';
+import type { Hotel } from '../types';
+import { navigateRoot } from '../utils/navHelpers';
+import { formatDepartureFrom } from '../utils/ruFromCity';
+import { formatDateRuShort } from '../utils/formatDateRu';
+import { formatNightsRu } from '../utils/pluralRu';
 
-const CACHE_KEY = 'home_hot_tours_v3';
+const CACHE_KEY = 'home_hot_tours_v4';
 const CACHE_TTL_MS = 15 * 60 * 1000;
+/** Даже просроченный кэш показываем сразу (SWR), пока сеть обновляет. */
+const STALE_MAX_MS = 24 * 60 * 60 * 1000;
 const LIMIT = 12;
+/** Home: максимум 2 города — скорость важнее широты. */
+const HOME_DEPARTURE_LIMIT = 2;
 const DEPARTURE_PREF_KEY = 'user_preferred_departure_id';
-const MAJOR_DEPARTURE_NAMES = [
-  'самара',
-  'москва',
-  'санкт-петербург',
-  'казань',
-  'екатеринбург',
-  'новосибирск',
-  'уфа',
-  'краснодар',
-  'ростов',
-];
+const MAJOR_DEPARTURE_NAMES = ['москва', 'самара'];
 
 type Props = {
   navigation: any;
@@ -50,6 +56,17 @@ type Props = {
 };
 
 type CachePayload = { at: number; items: TourHot[] };
+
+/** RAM: повторный заход на Home без чтения AsyncStorage. */
+let memoryHotCache: CachePayload | null = null;
+
+function prefetchHotImages(list: TourHot[]) {
+  const urls = list
+    .map((h) => h.hotel?.picturelink)
+    .filter((u): u is string => typeof u === 'string' && u.length > 8)
+    .slice(0, 12);
+  if (urls.length) void Image.prefetch(urls);
+}
 
 function ShimmerCard({ theme }: { theme: { card: string; border: string } }) {
   const anim = useRef(new Animated.Value(0)).current;
@@ -64,12 +81,12 @@ function ShimmerCard({ theme }: { theme: { card: string; border: string } }) {
   return (
     <View
       style={[
-        styles.card,
+        styles.hCard,
         shadows.card,
-        { backgroundColor: theme.card, borderColor: theme.border, marginBottom: 10 },
+        { backgroundColor: theme.card, borderColor: theme.border },
       ]}
     >
-      <View style={[styles.thumb, { backgroundColor: `${theme.border}88`, overflow: 'hidden' }]}>
+      <View style={[styles.hPhotoWrap, { backgroundColor: `${theme.border}88`, overflow: 'hidden' }]}>
         <Animated.View style={[StyleSheet.absoluteFill, { transform: [{ translateX }] }]}>
           <LinearGradient
             colors={['transparent', 'rgba(255,255,255,0.35)', 'transparent']}
@@ -79,7 +96,7 @@ function ShimmerCard({ theme }: { theme: { card: string; border: string } }) {
           />
         </Animated.View>
       </View>
-      <View style={styles.body}>
+      <View style={styles.hBody}>
         <View style={[styles.skelLine, { width: '78%', backgroundColor: theme.border }]} />
         <View style={[styles.skelLine, { width: '52%', backgroundColor: theme.border, marginTop: 8 }]} />
         <View style={[styles.skelLine, { width: '40%', backgroundColor: theme.border, marginTop: 12, height: 14 }]} />
@@ -116,7 +133,7 @@ async function resolveDeparturePool(): Promise<{ pool: number[]; names: Map<numb
     if (saved && deps.some((d) => String(d.id) === saved)) {
       preferred = Number(saved);
     } else {
-      const samara = deps.find((d) => d.name.toLowerCase().includes('самара'));
+      const samara = deps.find((d) => d.name.toLowerCase().includes('москва'));
       preferred = samara?.id || deps[0]?.id || 1;
     }
 
@@ -125,7 +142,7 @@ async function resolveDeparturePool(): Promise<{ pool: number[]; names: Map<numb
 
     const pool: number[] = [];
     const push = (id?: number) => {
-      if (!id || pool.includes(id)) return;
+      if (!id || pool.includes(id) || pool.length >= HOME_DEPARTURE_LIMIT) return;
       pool.push(id);
     };
     push(preferred);
@@ -133,7 +150,6 @@ async function resolveDeparturePool(): Promise<{ pool: number[]; names: Map<numb
     for (const needle of MAJOR_DEPARTURE_NAMES) {
       const found = deps.find((d) => d.name.toLowerCase().includes(needle));
       push(found?.id);
-      if (pool.length >= 6) break;
     }
     if (!pool.length) pool.push(1);
     return { pool, names };
@@ -143,16 +159,41 @@ async function resolveDeparturePool(): Promise<{ pool: number[]; names: Map<numb
   }
 }
 
+function favoriteKey(item: TourHot): string {
+  const tid = item.tourId ? String(item.tourId).trim() : '';
+  if (tid) return `t:${tid}`;
+  const hid = Number(item.hotel?.id) || 0;
+  return hid ? `h:${hid}` : '';
+}
+
 export default function HomeHotToursSection({ navigation, refreshKey = 0 }: Props) {
-  const { theme, apiReady } = useAppContext();
-  const { width } = useWindowDimensions();
-  const [items, setItems] = useState<TourHot[]>([]);
-  const [loading, setLoading] = useState(true);
-  const thumbSize = Math.min(112, Math.round(width * 0.28));
+  const { theme, apiReady, user, language, currency } = useAppContext();
+  void language;
+  const [items, setItems] = useState<TourHot[]>(() => memoryHotCache?.items ?? []);
+  const [loading, setLoading] = useState(() => !(memoryHotCache?.items?.length));
+  const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set());
+  const isGuest = user?.uid?.startsWith('guest_') || user?.isAnonymous === true;
 
-  const load = useCallback(async (bypassCache = false) => {
-    setLoading(true);
+  useEffect(() => {
+    if (!user || isGuest) {
+      setFavoriteIds(new Set());
+      return;
+    }
+    void (async () => {
+      try {
+        const fs = FavoritesService.getInstance();
+        const [tours, hotels] = await Promise.all([fs.getFavoriteTours(), fs.getFavoriteHotels()]);
+        const ids = new Set<string>();
+        tours.forEach((t) => ids.add(`t:${t.id}`));
+        hotels.forEach((h) => ids.add(`h:${h.id}`));
+        setFavoriteIds(ids);
+      } catch {
+        /* ignore */
+      }
+    })();
+  }, [user, isGuest, refreshKey]);
 
+  const load = useCallback(async (forceNetwork = false) => {
     const fetchAndStore = async (soft: boolean) => {
       try {
         const { pool, names } = await resolveDeparturePool();
@@ -160,7 +201,7 @@ export default function HomeHotToursSection({ navigation, refreshKey = 0 }: Prop
         const tryFetch = async (departureId: number): Promise<TourHot[]> => {
           const params = {
             departureId,
-            currency: 'RUB' as const,
+            currency: (currency || 'RUB') as Currency,
             onlyCharter: false,
             limit: 16,
           };
@@ -201,18 +242,19 @@ export default function HomeHotToursSection({ navigation, refreshKey = 0 }: Prop
           }
         }
 
-        merged.sort((a, b) => (Number(a.price) || 0) - (Number(b.price) || 0));
-        const list = merged.slice(0, LIMIT);
+        const sane = merged.filter(isPlausibleHotItem);
+        sane.sort((a, b) => (Number(a.price) || 0) - (Number(b.price) || 0));
+        const list = sane.slice(0, LIMIT);
 
         if (list.length) {
           void hotelPictureCache.ingestFromTours(
             list.map((h) => ({ hotel: h.hotel, picture: h.hotel?.picturelink })),
           );
+          prefetchHotImages(list);
           setItems(list);
-          await AsyncStorage.setItem(
-            CACHE_KEY,
-            JSON.stringify({ at: Date.now(), items: list } satisfies CachePayload),
-          );
+          const payload: CachePayload = { at: Date.now(), items: list };
+          memoryHotCache = payload;
+          await AsyncStorage.setItem(CACHE_KEY, JSON.stringify(payload));
         } else if (!soft) {
           setItems([]);
         }
@@ -225,22 +267,43 @@ export default function HomeHotToursSection({ navigation, refreshKey = 0 }: Prop
     };
 
     try {
-      if (!bypassCache) {
+      // 1) RAM
+      if (!forceNetwork && memoryHotCache?.items?.length) {
+        setItems(memoryHotCache.items);
+        setLoading(false);
+        prefetchHotImages(memoryHotCache.items);
+        const age = Date.now() - memoryHotCache.at;
+        if (age < CACHE_TTL_MS) {
+          void fetchAndStore(true);
+          return;
+        }
+        void fetchAndStore(true);
+        return;
+      }
+
+      // 2) Disk (включая просроченный до STALE_MAX)
+      if (!forceNetwork) {
         const raw = await AsyncStorage.getItem(CACHE_KEY);
         if (raw) {
           const parsed = JSON.parse(raw) as CachePayload;
-          if (parsed?.items?.length && Date.now() - parsed.at < CACHE_TTL_MS) {
+          const age = Date.now() - (parsed?.at || 0);
+          if (parsed?.items?.length && age < STALE_MAX_MS) {
+            memoryHotCache = parsed;
             setItems(parsed.items);
             setLoading(false);
+            prefetchHotImages(parsed.items);
             void fetchAndStore(true);
             return;
           }
         }
       }
+
+      // 3) Холодный старт / принудительное обновление
+      if (!memoryHotCache?.items?.length) setLoading(true);
       await fetchAndStore(false);
     } catch (e) {
       logger.debug('[HomeHotTours]', (e as Error)?.message);
-      setItems([]);
+      if (!memoryHotCache?.items?.length) setItems([]);
       setLoading(false);
     }
   }, []);
@@ -251,6 +314,84 @@ export default function HomeHotToursSection({ navigation, refreshKey = 0 }: Prop
   }, [apiReady, load, refreshKey]);
 
   const openAll = () => navigation.navigate('ApiHotTours');
+
+  const toggleFavorite = async (item: TourHot) => {
+    try {
+      if (!user || isGuest) {
+        Alert.alert(i18n.t('favorites.authRequired'), i18n.t('auth.favoritesRequired'), [
+          { text: i18n.t('common.cancel'), style: 'cancel' },
+          {
+            text: i18n.t('auth.login'),
+            onPress: () => navigateRoot(navigation, 'Login'),
+          },
+        ]);
+        return;
+      }
+
+      const realTourId = item.tourId ? String(item.tourId).trim() : '';
+      if (realTourId) {
+        const pair = tourHotToHotelAndTour(item);
+        if (!pair) {
+          Alert.alert(i18n.t('common.error'), i18n.t('favorites.updateFailed'));
+          return;
+        }
+        const tour = buildTourOutputFromSearchResult(pair.hotel, pair.tour);
+        const result = await FavoritesService.getInstance().toggleTourFavorite(tour);
+        if (!result.success) {
+          Alert.alert(i18n.t('common.error'), result.error || i18n.t('favorites.updateFailed'));
+          return;
+        }
+        const key = `t:${realTourId}`;
+        setFavoriteIds((prev) => {
+          const next = new Set(prev);
+          if (result.isFavorite) next.add(key);
+          else next.delete(key);
+          return next;
+        });
+        return;
+      }
+
+      // Нет реального tourId (часто в витрине акций) — сохраняем отель
+      const hid = Number(item.hotel?.id) || 0;
+      if (!hid) {
+        Alert.alert(i18n.t('common.error'), i18n.t('favorites.updateFailed'));
+        return;
+      }
+      const hotel: Hotel = {
+        id: String(hid),
+        name: String(item.hotel?.name || ''),
+        description: '',
+        location: item.hotel?.region?.name || '',
+        country: item.country?.name || item.hotel?.country?.name || '',
+        category: String(item.hotel?.category || ''),
+        rating: Number(item.hotel?.rating) || 0,
+        reviews: 0,
+        price: Number(item.price) || 0,
+        currency: item.currency || 'RUB',
+        image: item.hotel?.picturelink || '',
+        gallery: item.hotel?.picturelink ? [item.hotel.picturelink] : [],
+        amenities: [],
+        stars: Number(item.hotel?.category) || 0,
+        mealTypes: [],
+        available: true,
+      };
+      const result = await FavoritesService.getInstance().toggleHotelFavorite(hotel);
+      if (!result.success) {
+        Alert.alert(i18n.t('common.error'), result.error || i18n.t('favorites.updateFailed'));
+        return;
+      }
+      const key = `h:${hid}`;
+      setFavoriteIds((prev) => {
+        const next = new Set(prev);
+        if (result.isFavorite) next.add(key);
+        else next.delete(key);
+        return next;
+      });
+    } catch (e) {
+      logger.debug('[HomeHotTours] favorite', (e as Error)?.message);
+      Alert.alert(i18n.t('common.error'), i18n.t('favorites.updateFailed'));
+    }
+  };
 
   const openItem = async (item: TourHot) => {
     try {
@@ -275,28 +416,20 @@ export default function HomeHotToursSection({ navigation, refreshKey = 0 }: Prop
   return (
     <View style={styles.wrap}>
       <View style={styles.headerRow}>
-        <View style={{ flex: 1 }}>
-          <Text style={[styles.eyebrow, { color: theme.accent || theme.primary }]}>
-            {i18n.t('home.hotDealsEyebrow').toUpperCase()}
-          </Text>
-          <Text style={[styles.title, { color: theme.text }]}>{i18n.t('home.hotDealsTitle')}</Text>
-        </View>
-        <TouchableOpacity
-          onPress={openAll}
-          hitSlop={12}
-          style={[styles.allBtn, { borderColor: theme.border, backgroundColor: theme.card }]}
-        >
-          <Text style={[styles.allBtnText, { color: theme.primary }]}>{i18n.t('home.hotDealsAll')}</Text>
-          <Ionicons name="chevron-forward" size={16} color={theme.primary} />
+        <Text style={[styles.title, { color: theme.deep || theme.text }]}>
+          {i18n.t('home.hotToursTitle')}
+        </Text>
+        <TouchableOpacity onPress={openAll} hitSlop={12}>
+          <Text style={[styles.allBtnText, { color: theme.primary }]}>{i18n.t('home.seeAllArrow')}</Text>
         </TouchableOpacity>
       </View>
 
       {loading && items.length === 0 ? (
-        <View>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.hScroll}>
           {[0, 1, 2].map((k) => (
             <ShimmerCard key={k} theme={theme} />
           ))}
-        </View>
+        </ScrollView>
       ) : items.length === 0 ? (
         <TouchableOpacity
           activeOpacity={0.88}
@@ -331,93 +464,119 @@ export default function HomeHotToursSection({ navigation, refreshKey = 0 }: Prop
           </View>
         </TouchableOpacity>
       ) : (
-        <View>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.hScroll}>
           {items.map((item, idx) => {
             const drop = discountPercent(item);
             const key = `hot_${tourKey(item)}_${idx}`;
             const image = item.hotel?.picturelink || DEFAULT_HOTEL_IMAGE;
-            const geo = [item.country?.name, item.hotel?.region?.name].filter(Boolean).join(' · ');
-            const fromCity = item.departure?.name ? `из ${item.departure.name}` : '';
+            const place = [item.country?.name, item.hotel?.region?.name].filter(Boolean).join(', ');
+            const mealName =
+              item.meal?.russianName || item.meal?.fullRussianName || item.meal?.name || '';
+            const fKey = favoriteKey(item);
+            const isFav = fKey ? favoriteIds.has(fKey) : false;
+            const displayPrice = settingsService.convertPrice(
+              Number(item.price) || 0,
+              (item.currency || 'RUB') as Currency,
+              currency,
+            );
+            const displayOld = settingsService.convertPrice(
+              Number(item.priceOld) || 0,
+              (item.currency || 'RUB') as Currency,
+              currency,
+            );
+            const currencySymbol = settingsService.getCurrencySymbol(currency);
             return (
               <TouchableOpacity
                 key={key}
-                activeOpacity={0.88}
+                activeOpacity={0.9}
                 onPress={() => void openItem(item)}
-                style={[
-                  styles.card,
-                  shadows.card,
-                  { backgroundColor: theme.card, borderColor: theme.border },
-                ]}
+                style={[styles.hCard, shadows.card, { backgroundColor: theme.card, borderColor: theme.border }]}
+                accessibilityRole="button"
+                accessibilityLabel={[
+                  place || item.hotel?.name || i18n.t('hotTours.title'),
+                  item.nights ? formatNightsRu(item.nights) : '',
+                  item.date ? formatDateRuShort(item.date) : '',
+                  mealName,
+                  item.departure?.name
+                    ? formatDepartureFrom(item.departure.name, language)
+                    : '',
+                  displayPrice
+                    ? `от ${displayPrice.toLocaleString('ru-RU')} ${currencySymbol}`
+                    : '',
+                ]
+                  .filter(Boolean)
+                  .join(', ')}
               >
-                <View style={[styles.thumbWrap, { width: thumbSize, height: thumbSize }]}>
-                  <CachedImage
-                    source={{ uri: image }}
-                    style={styles.thumb}
-                    contentFit="cover"
-                    recyclingKey={key}
-                  />
-                  <View style={[styles.flameDot, { backgroundColor: theme.accent || '#FF6B00' }]}>
-                    <Ionicons name="flame" size={11} color="#fff" />
-                  </View>
+                <View style={styles.hPhotoWrap} importantForAccessibility="no-hide-descendants">
+                  <CachedImage source={{ uri: image }} style={styles.hPhoto} contentFit="cover" recyclingKey={key} />
                   {drop != null ? (
-                    <View style={styles.dropBadge}>
+                    <View style={styles.dropBadge} accessible={false}>
                       <Text style={styles.dropText}>−{drop}%</Text>
                     </View>
                   ) : null}
+                  <TouchableOpacity
+                    style={styles.heartBtn}
+                    onPress={() => void toggleFavorite(item)}
+                    hitSlop={8}
+                    accessibilityRole="button"
+                    accessibilityLabel={isFav ? 'Убрать из избранного' : 'Добавить в избранное'}
+                  >
+                    <Ionicons
+                      name={isFav ? 'heart' : 'heart-outline'}
+                      size={16}
+                      color={isFav ? '#FF6B6B' : '#fff'}
+                    />
+                  </TouchableOpacity>
                 </View>
-                <View style={styles.body}>
-                  <Text style={[styles.name, { color: theme.text }]} numberOfLines={2}>
-                    {item.hotel?.name || i18n.t('hotTours.title')}
+                <View style={styles.hBody} importantForAccessibility="no-hide-descendants">
+                  <Text style={[styles.hName, { color: theme.deep || theme.text }]} numberOfLines={1}>
+                    {place || item.hotel?.name || i18n.t('hotTours.title')}
                   </Text>
-                  {geo ? (
-                    <Text style={[styles.geo, { color: theme.secondaryText }]} numberOfLines={1}>
-                      {geo}
-                    </Text>
-                  ) : null}
-                  <Text style={[styles.meta, { color: theme.secondaryText }]} numberOfLines={1}>
-                    {[
-                      fromCity,
-                      item.date,
-                      item.nights
-                        ? `${item.nights} ${
-                            item.nights === 1
-                              ? i18n.t('search.night')
-                              : item.nights < 5
-                                ? i18n.t('search.nights2')
-                                : i18n.t('search.nights')
-                          }`
-                        : '',
-                    ]
+                  <Text style={[styles.hMeta, { color: theme.secondaryText }]} numberOfLines={1}>
+                    {[item.nights ? formatNightsRu(item.nights) : '', item.date ? formatDateRuShort(item.date) : '']
                       .filter(Boolean)
                       .join(' · ')}
                   </Text>
-                  <View style={styles.priceRow}>
-                    <View style={{ flex: 1 }}>
-                      {item.priceOld > item.price ? (
-                        <Text style={[styles.oldPrice, { color: theme.secondaryText }]}>
-                          {Number(item.priceOld).toLocaleString('ru-RU')} ₽
-                        </Text>
+                  {(mealName || item.departure?.name) ? (
+                    <View style={styles.hIcons}>
+                      {mealName ? (
+                        <View style={styles.hIconChip}>
+                          <Ionicons name="restaurant-outline" size={12} color={theme.secondaryText} />
+                          <Text style={[styles.hIconText, { color: theme.secondaryText }]} numberOfLines={1}>
+                            {mealName}
+                          </Text>
+                        </View>
                       ) : null}
-                      <Text style={[styles.price, { color: theme.primary }]}>
-                        {Number(item.price || 0).toLocaleString('ru-RU')} ₽
-                      </Text>
+                      {item.departure?.name ? (
+                        <View style={styles.hIconChip}>
+                          <Ionicons name="airplane-outline" size={12} color={theme.secondaryText} />
+                          <Text style={[styles.hIconText, { color: theme.secondaryText }]} numberOfLines={1}>
+                            {formatDepartureFrom(item.departure.name, language)}
+                          </Text>
+                        </View>
+                      ) : null}
                     </View>
-                    <Ionicons name="chevron-forward" size={18} color={theme.secondaryText} />
+                  ) : null}
+                  <View style={styles.hPriceRow}>
+                    <TourPriceLabel
+                      amount={displayPrice}
+                      currencySymbol={currencySymbol}
+                      fromPrefix
+                      caption="за тур"
+                      accent
+                      style={{ flex: 1, minWidth: 0 }}
+                    />
+                    {item.priceOld > item.price ? (
+                      <Text style={[styles.oldPrice, { color: theme.secondaryText }]}>
+                        {displayOld.toLocaleString('ru-RU')} {currencySymbol}
+                      </Text>
+                    ) : null}
                   </View>
                 </View>
               </TouchableOpacity>
             );
           })}
-          <TouchableOpacity
-            onPress={openAll}
-            style={[styles.moreBtn, { borderColor: theme.border, backgroundColor: theme.card }]}
-          >
-            <Text style={[styles.moreBtnText, { color: theme.primary }]}>
-              {i18n.t('home.hotDealsAll')}
-            </Text>
-            <Ionicons name="arrow-forward" size={16} color={theme.primary} />
-          </TouchableOpacity>
-        </View>
+        </ScrollView>
       )}
     </View>
   );
@@ -432,7 +591,6 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     gap: 12,
   },
-  eyebrow: { fontSize: 11, fontWeight: '700', letterSpacing: 0.8, marginBottom: 2 },
   title: { fontSize: 20, fontWeight: '800' },
   allBtn: {
     flexDirection: 'row',
@@ -447,7 +605,7 @@ const styles = StyleSheet.create({
   hint: { fontSize: 13, textAlign: 'center', lineHeight: 18 },
   empty: {
     borderWidth: 1,
-    borderRadius: radius.lg,
+    borderRadius: radius.xl,
     padding: 22,
     alignItems: 'center',
     gap: 8,
@@ -461,67 +619,62 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   emptyTitle: { fontSize: 16, fontWeight: '700' },
-  card: {
-    flexDirection: 'row',
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    overflow: 'hidden',
-    marginBottom: 10,
-    padding: 10,
-    gap: 12,
-  },
-  thumbWrap: {
-    borderRadius: radius.md,
-    overflow: 'hidden',
-    position: 'relative',
-  },
-  thumb: { width: '100%', height: '100%', borderRadius: radius.md },
-  flameDot: {
-    position: 'absolute',
-    top: 6,
-    left: 6,
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   dropBadge: {
     position: 'absolute',
-    bottom: 6,
-    left: 6,
-    backgroundColor: '#16A34A',
-    borderRadius: 6,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
+    top: 10,
+    left: 10,
+    backgroundColor: '#FF6B6B',
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
   },
-  dropText: { color: '#fff', fontSize: 11, fontWeight: '800' },
-  body: { flex: 1, justifyContent: 'center', gap: 2, paddingRight: 2 },
-  name: { fontSize: 15, fontWeight: '700', lineHeight: 20 },
-  geo: { fontSize: 12, marginTop: 2 },
-  meta: { fontSize: 12, marginTop: 2 },
-  priceRow: {
-    marginTop: 6,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
+  dropText: { color: '#fff', fontSize: 12, fontWeight: '800' },
   oldPrice: {
     fontSize: 12,
     textDecorationLine: 'line-through',
     marginBottom: 1,
   },
-  price: { fontSize: 18, fontWeight: '800' },
-  moreBtn: {
-    marginTop: 4,
-    borderWidth: 1,
-    borderRadius: radius.lg,
-    paddingVertical: 12,
-    flexDirection: 'row',
+  hScroll: { paddingRight: 8, gap: 12 },
+  hCard: {
+    width: 236,
+    borderRadius: radius.xl,
+    borderWidth: StyleSheet.hairlineWidth,
+    overflow: 'hidden',
+    marginRight: 4,
+  },
+  hPhotoWrap: {
+    width: '100%',
+    height: 148,
+    backgroundColor: '#E8EEF5',
+  },
+  hPhoto: { width: '100%', height: '100%' },
+  heartBtn: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255,255,255,0.94)',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 6,
   },
-  moreBtnText: { fontSize: 14, fontWeight: '700' },
+  hBody: { padding: 12, gap: 4 },
+  hName: { fontSize: 15, fontWeight: '800' },
+  hMeta: { fontSize: 12, fontWeight: '500' },
+  hIcons: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 2,
+  },
+  hIconChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    maxWidth: '100%',
+  },
+  hIconText: { fontSize: 11, fontWeight: '500', maxWidth: 96 },
+  hPriceRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 8, marginTop: 6 },
   skelLine: { height: 10, borderRadius: 6 },
 });

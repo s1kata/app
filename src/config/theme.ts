@@ -5,10 +5,10 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 export type ThemeMode = 'light' | 'dark' | 'auto';
 
 export interface Theme {
-  primary: string;      // Основной синий #0066CC
-  secondary: string;    // Светлый синий #3399FF
-  deep: string;         // Тёмный синий #004999
-  accent: string;       // CTA-оранжевый #FF6B00 (кнопки, скидки)
+  primary: string;
+  secondary: string;
+  deep: string;
+  accent: string;
   background: string;
   secondaryBackground: string;
   surface: string;
@@ -32,61 +32,61 @@ export interface Theme {
   };
 }
 
-// Светлая тема: clean travel-стиль (Booking.com / Aviasales)
+/** Светлая тема — OTA-концепт TravelHub (navy / teal / coral) */
 const lightTheme: Theme = {
-  primary: '#0066CC',
-  secondary: '#3399FF',
-  deep: '#004999',
-  accent: '#FF6B00',          // только CTA-кнопки и бейджи скидок
-  background: '#F5F7FA',
-  secondaryBackground: '#F0F7FF',
+  primary: '#5DA9A4',
+  secondary: '#7BC4BF',
+  deep: '#12122E',
+  accent: '#FF6B6B',
+  background: '#FFFFFF',
+  secondaryBackground: '#F6F8FB',
   surface: '#FFFFFF',
-  text: '#1A1A1A',
-  secondaryText: '#666666',
-  tertiaryText: '#999999',
+  text: '#12122E',
+  secondaryText: '#64748B',
+  tertiaryText: '#94A3B8',
   success: '#27AE60',
   error: '#E74C3C',
   warning: '#F39C12',
-  border: 'rgba(0, 102, 204, 0.12)',
+  border: 'rgba(18, 18, 46, 0.08)',
   lightGray: '#EEF2F7',
-  shadow: '#000000',
-  inactive: '#BBBBBB',
-  disabled: 'rgba(187, 187, 187, 0.5)',
+  shadow: '#12122E',
+  inactive: '#B8C0CC',
+  disabled: 'rgba(184, 192, 204, 0.5)',
   card: '#FFFFFF',
-  notification: '#E74C3C',
+  notification: '#FF6B6B',
   gradient: {
-    primary: ['#0066CC', '#3399FF'],
-    secondary: ['#3399FF', '#0066CC'],
-    accent: ['#FF6B00', '#FF8C33'],
+    primary: ['#12122E', '#1A4B8C', '#5DA9A4'],
+    secondary: ['#5DA9A4', '#7BC4BF'],
+    accent: ['#FF6B6B', '#FF8A80'],
   },
 };
 
-// Тёмная тема: тёмный фон, синий + оранжевый акцент
+/** Тёмная тема — тот же вайб; deep = цвет заголовков (светлый на тёмном фоне) */
 const darkTheme: Theme = {
-  primary: '#4DA6FF',
-  secondary: '#66B8FF',
-  deep: '#0066CC',
-  accent: '#FF6B00',
-  background: '#1A1A1A',
-  secondaryBackground: '#1E2A38',
-  surface: '#2C2C2C',
-  text: '#FFFFFF',
-  secondaryText: '#AAAAAA',
-  tertiaryText: '#777777',
+  primary: '#7BC4BF',
+  secondary: '#5DA9A4',
+  deep: '#F1F5F9',
+  accent: '#FF6B6B',
+  background: '#0F1218',
+  secondaryBackground: '#161B24',
+  surface: '#1A2130',
+  text: '#F8FAFC',
+  secondaryText: '#A8B3C4',
+  tertiaryText: '#7B8798',
   success: '#2ECC71',
   error: '#E74C3C',
   warning: '#F39C12',
-  border: 'rgba(77, 166, 255, 0.15)',
-  lightGray: '#2A3544',
+  border: 'rgba(123, 196, 191, 0.16)',
+  lightGray: '#232B3A',
   shadow: '#000000',
-  inactive: '#555555',
-  disabled: 'rgba(85, 85, 85, 0.5)',
-  card: '#252F3E',
-  notification: '#E74C3C',
+  inactive: '#556070',
+  disabled: 'rgba(85, 96, 112, 0.5)',
+  card: '#1A2130',
+  notification: '#FF6B6B',
   gradient: {
-    primary: ['#004999', '#0066CC'],
-    secondary: ['#0066CC', '#3399FF'],
-    accent: ['#FF6B00', '#FF8C33'],
+    primary: ['#0B0B1A', '#1A3A5C', '#5DA9A4'],
+    secondary: ['#5DA9A4', '#7BC4BF'],
+    accent: ['#FF6B6B', '#FF8A80'],
   },
 };
 

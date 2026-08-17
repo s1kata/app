@@ -11,6 +11,7 @@ import {
   type PopularHotelCountry,
 } from '../config/popularHotelsCountries';
 import { logger } from '../utils/logger';
+import { isPlausiblePackagePrice, saneMinPrice } from '../utils/tourPriceSanity';
 
 export type PopularHotelCard = HotelCompact & {
   minPrice: number;
@@ -32,16 +33,38 @@ function pickPrice(...vals: unknown[]): number {
 }
 
 function hotelMinPrice(h: TourHotel): number {
-  let min = 0;
   const tours = Array.isArray(h.tours) ? h.tours : [];
-  for (const t of tours) {
-    const anyT = t as Tour & { totalPrice?: number; priceRub?: number; cost?: number };
-    const p = pickPrice(anyT.totalPrice, anyT.price, anyT.priceRub, anyT.cost);
-    if (p > 0 && (min === 0 || p < min)) min = p;
+  const priced = tours
+    .map((t) => {
+      const anyT = t as Tour & { totalPrice?: number; priceRub?: number; cost?: number };
+      return {
+        price: pickPrice(anyT.totalPrice, anyT.price, anyT.priceRub, anyT.cost),
+        currency: (t as Tour).currency || 'RUB',
+        nights: (t as Tour).nights,
+      };
+    })
+    .filter((x) => x.price > 0);
+
+  if (priced.length) {
+    return saneMinPrice(
+      priced.map((x) => x.price),
+      {
+        currency: priced[0].currency,
+        countryId: h.country?.id,
+        nights: priced.find((x) => Number(x.nights) > 0)?.nights,
+      },
+    );
   }
+
   const anyH = h as TourHotel & { priceFrom?: number };
-  if (!min) min = pickPrice(anyH.price, anyH.priceFrom);
-  return min;
+  const fallback = pickPrice(anyH.price, anyH.priceFrom);
+  if (
+    fallback > 0 &&
+    isPlausiblePackagePrice(fallback, { currency: 'RUB', countryId: h.country?.id })
+  ) {
+    return fallback;
+  }
+  return 0;
 }
 
 function hotelPhoto(h: TourHotel): string {

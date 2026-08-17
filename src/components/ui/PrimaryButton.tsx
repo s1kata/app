@@ -14,6 +14,7 @@ import {
   ActivityIndicator,
   ViewStyle,
   TextStyle,
+  StyleProp,
   View,
 } from 'react-native';
 import { useAppContext } from '../../contexts/AppContext';
@@ -33,7 +34,7 @@ interface PrimaryButtonProps {
   /** Danger-вариант (деструктивные действия) */
   danger?: boolean;
   iconLeft?: React.ReactNode;
-  style?: ViewStyle;
+  style?: StyleProp<ViewStyle>;
   textStyle?: TextStyle;
 }
 

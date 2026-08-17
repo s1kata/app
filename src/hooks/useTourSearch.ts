@@ -28,6 +28,15 @@ import { filterTourHotelsByCountryOperators } from '../config/tourOperators';
 
 const FRESH_CACHE_ASYNC_PREFIX = 'fresh_cache_';
 
+function safeFilterByOperators(hotels: TourHotel[]): TourHotel[] {
+  try {
+    return filterTourHotelsByCountryOperators(hotels);
+  } catch (e) {
+    logger.warn('[useTourSearch] operator filter failed, returning raw list:', (e as Error)?.message || e);
+    return Array.isArray(hotels) ? hotels : [];
+  }
+}
+
 function isNetworkOrServerError(error: unknown): boolean {
   const message = String((error as Error)?.message || '').toLowerCase();
   return (
@@ -51,6 +60,7 @@ function showToursLoadErrorAlertOnce() {
 }
 
 async function saveTourSearchToAsyncStorage(cacheKey: string, results: TourHotel[]): Promise<void> {
+  if (!results?.length) return;
   try {
     const entry = {
       data: results,
@@ -99,7 +109,48 @@ export async function saveTourSearchToLocalCaches(
   }
 }
 
-async function fetchTourSearch(params: TourSearchParams, limit: number): Promise<TourHotel[]> {
+/** Гибридный прогресс: time-based + API, чтобы UI не залипал на 18%. */
+function createHybridProgress(onProgress?: (progress: number) => void) {
+  const startedAt = Date.now();
+  let last = 5;
+  let tick: ReturnType<typeof setInterval> | null = null;
+
+  const emit = (apiProgress?: number) => {
+    const elapsed = Date.now() - startedAt;
+    // 5→72 за ~28с (ease), потолок 88 пока API не finished
+    const t = Math.min(1, elapsed / 28_000);
+    const timeBased = 5 + (1 - Math.pow(1 - t, 1.6)) * 67;
+    const apiRaw = typeof apiProgress === 'number' && apiProgress > 0 ? apiProgress : 0;
+    const apiMapped = apiRaw > 0 ? 12 + (apiRaw / 100) * 80 : 0;
+    const next = Math.max(last, Math.min(92, Math.max(timeBased, apiMapped)));
+    last = next;
+    onProgress?.(Math.round(next));
+  };
+
+  tick = setInterval(() => emit(), 350);
+  emit(0);
+
+  return {
+    emit,
+    finish: () => {
+      if (tick) clearInterval(tick);
+      tick = null;
+      last = 100;
+      onProgress?.(100);
+    },
+    stop: () => {
+      if (tick) clearInterval(tick);
+      tick = null;
+    },
+  };
+}
+
+async function fetchTourSearch(
+  params: TourSearchParams,
+  limit: number,
+  onProgress?: (progress: number) => void,
+  onPartial?: (hotels: TourHotel[]) => void,
+): Promise<TourHotel[]> {
   const workerUrl = (Constants.expoConfig?.extra as Record<string, string> | undefined)
     ?.tourvisorWorkerUrl as string | undefined;
   const tourvisorUrl = tourvisorApi.getBaseUrl();
@@ -137,29 +188,36 @@ async function fetchTourSearch(params: TourSearchParams, limit: number): Promise
       const searchParams = new URLSearchParams(entries);
       const endpoint = `${workerUrl.replace(/\/+$/, '')}/tours/search?${searchParams.toString()}`;
       logger.debug('[useTourSearch] worker request', { endpoint, params: normalized, limit });
-      const res = await fetch(endpoint, {
-        headers: { Accept: 'application/json' },
-      });
-      if (!res.ok) throw new Error(`Worker ${res.status}: ${res.statusText}`);
-      const json = await res.json();
-      const data = Array.isArray(json)
-        ? json
-        : Array.isArray(json?.data)
-          ? json.data
-          : Array.isArray(json?.results)
-            ? json.results
-            : null;
-      if (!Array.isArray(data)) {
-        throw new Error('Invalid worker response');
+      const hybrid = createHybridProgress(onProgress);
+      try {
+        const res = await fetch(endpoint, {
+          headers: { Accept: 'application/json' },
+        });
+        if (!res.ok) throw new Error(`Worker ${res.status}: ${res.statusText}`);
+        const json = await res.json();
+        const data = Array.isArray(json)
+          ? json
+          : Array.isArray(json?.data)
+            ? json.data
+            : Array.isArray(json?.results)
+              ? json.results
+              : null;
+        if (!Array.isArray(data)) {
+          throw new Error('Invalid worker response');
+        }
+        logger.debug('[useTourSearch] worker response', { count: data.length });
+        const skipOps = !!(params as TourSearchParams).skipOperatorFilter || !!(params.hotelIds && params.hotelIds.length);
+        let hotels = skipOps ? data : safeFilterByOperators(data);
+        if (Array.isArray(params.hotelIds) && params.hotelIds.length) {
+          const want = new Set(params.hotelIds.map(Number));
+          hotels = hotels.filter((h: TourHotel) => want.has(Number(h.id)));
+        }
+        hybrid.finish();
+        return Array.isArray(hotels) ? hotels : [];
+      } catch (e) {
+        hybrid.stop();
+        throw e;
       }
-      logger.debug('[useTourSearch] worker response', { count: data.length });
-      const skipOps = !!(params as TourSearchParams).skipOperatorFilter || !!(params.hotelIds && params.hotelIds.length);
-      let hotels = skipOps ? data : filterTourHotelsByCountryOperators(data);
-      if (Array.isArray(params.hotelIds) && params.hotelIds.length) {
-        const want = new Set(params.hotelIds.map(Number));
-        hotels = hotels.filter((h: TourHotel) => want.has(Number(h.id)));
-      }
-      return hotels;
     } catch (e) {
       throw new Error(`Worker search failed: ${(e as Error)?.message || String(e)}`);
     }
@@ -176,6 +234,7 @@ async function fetchTourSearch(params: TourSearchParams, limit: number): Promise
   }
 
   for (let cycleAttempt = 0; cycleAttempt < 2; cycleAttempt++) {
+    const hybrid = createHybridProgress(onProgress);
     try {
       logger.debug('[useTourSearch] direct Tourvisor startTourSearch request', {
         params: normalized,
@@ -184,11 +243,34 @@ async function fetchTourSearch(params: TourSearchParams, limit: number): Promise
       });
       const { searchId } = await tourvisorApi.startTourSearch(normalized);
       logger.debug('[useTourSearch] direct Tourvisor searchId received', { searchId, cycleAttempt });
+      hybrid.emit(10);
 
-      await tourvisorApi.pollTourSearchUntilReady(searchId);
+      let paintedPartial = false;
+      const skipOps = !!(params as TourSearchParams).skipOperatorFilter || !!(params.hotelIds && params.hotelIds.length);
+
+      await tourvisorApi.pollTourSearchUntilReady(searchId, (st) => {
+        hybrid.emit(Number(st.progress) || 0);
+        // Ранняя отрисовка: как только есть сигнал — тянем накопленное
+        if (
+          !paintedPartial &&
+          onPartial &&
+          ((st.progress ?? 0) >= 25 || (st.minPrice ?? 0) > 0)
+        ) {
+          paintedPartial = true;
+          void tourvisorApi
+            .getTourSearchResults(searchId, Math.min(limit, 15), { skipOperatorFilter: skipOps })
+            .then((partial) => {
+              if (Array.isArray(partial) && partial.length > 0) {
+                onPartial(partial);
+              }
+            })
+            .catch(() => {
+              paintedPartial = false;
+            });
+        }
+      });
 
       let results: TourHotel[] = [];
-      const skipOps = !!(params as TourSearchParams).skipOperatorFilter || !!(params.hotelIds && params.hotelIds.length);
       for (let attempt = 0; attempt < 3; attempt++) {
         try {
           results = await tourvisorApi.getTourSearchResults(searchId, limit, {
@@ -211,8 +293,10 @@ async function fetchTourSearch(params: TourSearchParams, limit: number): Promise
         count: results.length,
         cycleAttempt,
       });
+      hybrid.finish();
       return Array.isArray(results) ? results : [];
     } catch (e) {
+      hybrid.stop();
       if (!isSearchSessionExpiredError(e) || cycleAttempt >= 1) {
         throw e;
       }
@@ -231,13 +315,15 @@ async function fetchTourSearch(params: TourSearchParams, limit: number): Promise
 export async function searchTours(
   params: TourSearchParams,
   limit: number = TOUR_SEARCH_LIMIT,
-  bypassCache: boolean = false
+  bypassCache: boolean = false,
+  onProgress?: (progress: number) => void,
+  onPartial?: (hotels: TourHotel[]) => void,
 ): Promise<TourHotel[]> {
   const cacheKey = getTourSearchCacheKey(params, limit);
 
   if (bypassCache) {
     try {
-      const results = await fetchTourSearch(params, limit);
+      const results = await fetchTourSearch(params, limit, onProgress, onPartial);
       if (results.length > 0) await saveTourSearchToAllCaches(params, results, limit);
       return results;
     } catch (error) {
@@ -258,7 +344,7 @@ export async function searchTours(
   try {
     const results = await freshCacheService.getData(
       cacheKey,
-      () => fetchTourSearch(params, limit),
+      () => fetchTourSearch(params, limit, onProgress, onPartial),
       firestoreAdapter
     );
     if (results?.length) {

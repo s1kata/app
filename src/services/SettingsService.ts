@@ -139,12 +139,17 @@ class SettingsService {
     return `${converted ? converted.toLocaleString() : 'По запросу'} ${symbol}`;
   }
 
-  /** Форматирует цену тура: конвертирует из валюты тура в текущую валюту приложения */
+  /**
+   * Форматирует цену тура с префиксом «от » (концепт UI).
+   * Для карточек с подписью «за тур» предпочтительнее TourPriceLabel / formatTourPriceFrom.
+   * Для точных сумм без «от» (сборы, доплаты, итог брони) используйте formatPrice.
+   */
   formatTourPrice(price: number, fromCurrency: Currency, toCurrency?: Currency): string {
     const target = toCurrency || this.settings.currency;
     const converted = this.convertPrice(price, fromCurrency, target);
     const symbol = this.getCurrencySymbol(target);
-    return `${converted ? converted.toLocaleString() : '—'} ${symbol}`;
+    if (!converted) return `— ${symbol}`;
+    return `от ${converted.toLocaleString()} ${symbol}`;
   }
 }
 

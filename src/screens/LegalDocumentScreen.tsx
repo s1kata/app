@@ -17,6 +17,8 @@ import {
   PRIVACY_POLICY_TEXT,
   TERMS_OF_SERVICE_TEXT,
 } from '../config/legalContent';
+import { ScreenHeader } from '../components/ui';
+import { radius, shadows, spacing, typography } from '../config/designSystem';
 
 interface LegalDocumentScreenProps {
   navigation: any;
@@ -70,17 +72,8 @@ export default function LegalDocumentScreen({ navigation, route }: LegalDocument
   const webUrl = isPrivacy ? `${siteBase}/privacy.html` : `${siteBase}/terms.html`;
 
   return (
-    <SafeAreaView edges={['top', 'bottom']} style={[styles.container, { backgroundColor: theme.background }]}>
-      {/* Header */}
-      <View style={[styles.header, { backgroundColor: theme.card, borderBottomColor: theme.border }]}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
-          <Ionicons name="arrow-back" size={24} color={theme.text} />
-        </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: theme.text }]} numberOfLines={1}>
-          {title}
-        </Text>
-        <View style={styles.headerSpacer} />
-      </View>
+    <SafeAreaView edges={['bottom']} style={[styles.container, { backgroundColor: theme.background }]}>
+      <ScreenHeader title={title} onBack={() => navigation.goBack()} />
 
       <ScrollView
         style={styles.scrollView}
@@ -166,36 +159,17 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 8,
-    paddingVertical: 12,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  backButton: {
-    padding: 8,
-  },
-  headerTitle: {
-    fontSize: 17,
-    fontWeight: '600',
-    flex: 1,
-    textAlign: 'center',
-  },
-  headerSpacer: {
-    width: 40,
-  },
   scrollView: {
     flexGrow: 1,
   },
   scrollContent: {
-    padding: 16,
-    paddingBottom: 32,
+    padding: spacing.md,
+    paddingBottom: spacing.xxl,
   },
   hero: {
-    borderRadius: 16,
-    padding: 24,
-    marginBottom: 20,
+    borderRadius: radius.xl,
+    padding: spacing.xl,
+    marginBottom: spacing.lg,
     borderWidth: 1,
     alignItems: 'center',
   },
@@ -205,93 +179,86 @@ const styles = StyleSheet.create({
     borderRadius: 36,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 12,
+    marginBottom: spacing.sm,
   },
   heroAppName: {
-    fontSize: 13,
-    fontWeight: '600',
+    ...typography.smallBold,
     letterSpacing: 0.5,
-    marginBottom: 4,
+    marginBottom: spacing.xxs,
   },
   heroDocTitle: {
-    fontSize: 20,
-    fontWeight: '700',
+    ...typography.h2,
     textAlign: 'center',
-    marginBottom: 6,
+    marginBottom: spacing.xxs,
   },
   heroUpdated: {
-    fontSize: 12,
+    ...typography.small,
   },
   contentCard: {
-    borderRadius: 16,
+    borderRadius: radius.xl,
     borderWidth: StyleSheet.hairlineWidth,
-    padding: 20,
-    marginBottom: 16,
+    padding: spacing.lg,
+    marginBottom: spacing.md,
+    ...shadows.card,
   },
   docTitle: {
-    fontSize: 22,
-    fontWeight: '700',
-    marginBottom: 16,
-    lineHeight: 28,
+    ...typography.h2,
+    marginBottom: spacing.md,
   },
   sectionRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 20,
-    marginBottom: 8,
+    marginTop: spacing.lg,
+    marginBottom: spacing.xs,
   },
   sectionAccent: {
     width: 4,
     height: 20,
     borderRadius: 2,
-    marginRight: 10,
+    marginRight: spacing.sm,
   },
   sectionTitle: {
-    fontSize: 17,
-    fontWeight: '600',
+    ...typography.h3,
     flex: 1,
   },
   sectionSmall: {
-    fontSize: 15,
-    fontWeight: '600',
-    marginTop: 12,
-    marginBottom: 6,
+    ...typography.bodyBold,
+    marginTop: spacing.sm,
+    marginBottom: spacing.xxs,
   },
   paragraph: {
-    fontSize: 15,
-    lineHeight: 24,
-    marginBottom: 10,
+    ...typography.body,
+    marginBottom: spacing.sm,
   },
   listRow: {
     flexDirection: 'row',
-    marginBottom: 6,
-    paddingLeft: 4,
+    marginBottom: spacing.xxs,
+    paddingLeft: spacing.xxs,
   },
   listBullet: {
-    fontSize: 16,
-    marginRight: 8,
-    fontWeight: '600',
+    ...typography.bodyBold,
+    marginRight: spacing.xs,
     lineHeight: 24,
   },
   listText: {
-    fontSize: 15,
-    lineHeight: 24,
+    ...typography.body,
     flex: 1,
   },
   webLinkCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 16,
-    borderRadius: 14,
+    padding: spacing.md,
+    borderRadius: radius.lg,
     borderWidth: StyleSheet.hairlineWidth,
-    gap: 10,
+    gap: spacing.sm,
+    minHeight: 56,
+    ...shadows.card,
   },
   webLinkLabel: {
-    fontSize: 14,
+    ...typography.caption,
     flex: 1,
   },
   webLinkAction: {
-    fontSize: 14,
-    fontWeight: '600',
+    ...typography.captionBold,
   },
 });

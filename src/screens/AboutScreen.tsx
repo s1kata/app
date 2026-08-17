@@ -15,15 +15,14 @@ import { Ionicons } from '@expo/vector-icons';
 import { useAppContext } from '../contexts/AppContext';
 import { i18n } from '../config/i18n';
 import AppLogo from '../components/AppLogo';
-import { PrimaryButton } from '../components/ui';
-import { radius, shadows, spacing, typography, surfaces } from '../config/designSystem';
+import { PrimaryButton, ScreenHeader } from '../components/ui';
+import { shadows, spacing, typography, surfaces } from '../config/designSystem';
 import {
   SUPPORT_EMAIL,
   SUPPORT_MAILTO,
   SUPPORT_PHONE_DISPLAY,
   SUPPORT_PHONE_TEL,
   SUPPORT_WEBSITE_URL,
-  openSupportChat,
 } from '../config/support';
 
 export default function AboutScreen({ navigation }: any) {
@@ -69,22 +68,9 @@ export default function AboutScreen({ navigation }: any) {
   ];
 
   return (
-    <SafeAreaView edges={['top', 'bottom']} style={[styles.container, { backgroundColor: theme.background }]}>
+    <SafeAreaView edges={['bottom']} style={[styles.container, { backgroundColor: theme.background }]}>
       <StatusBar style={isDark ? 'light' : 'dark'} />
-      {/* Header */}
-      <View style={[styles.header, { backgroundColor: theme.card, borderBottomColor: theme.border }]}>
-        <TouchableOpacity
-          onPress={() => navigation.goBack()}
-          style={styles.backButton}
-          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-        >
-          <Ionicons name="arrow-back" size={24} color={theme.text} />
-        </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: theme.text }]} numberOfLines={1}>
-          {i18n.t('about.title')}
-        </Text>
-        <View style={styles.headerSpacer} />
-      </View>
+      <ScreenHeader title={i18n.t('about.title')} onBack={() => navigation.goBack()} />
 
       <ScrollView
         style={styles.scrollView}
@@ -96,7 +82,7 @@ export default function AboutScreen({ navigation }: any) {
           <View style={[styles.logoWrap, { backgroundColor: theme.surface, borderColor: theme.primary }]}>
             <AppLogo size={72} bordered borderColor={theme.primary} backgroundColor={theme.surface} />
           </View>
-          <Text style={[styles.heroAppName, { color: theme.text }]}>TravelHub</Text>
+          <Text style={[styles.heroAppName, { color: theme.deep || theme.text }]}>TravelHub</Text>
           <Text style={[styles.heroTagline, { color: theme.secondaryText }]}>{i18n.t('about.tagline')}</Text>
           <Text style={[styles.heroVersion, { color: theme.tertiaryText }]}>v{appVersion}</Text>
         </View>
@@ -163,7 +149,14 @@ export default function AboutScreen({ navigation }: any) {
           <Text style={[styles.paragraph, { color: theme.secondaryText }]}>{i18n.t('about.supportDesc')}</Text>
           <PrimaryButton
             title={i18n.t('about.openChat')}
-            onPress={() => openSupportChat(Linking.openURL)}
+            onPress={() => {
+              if (navigation?.navigate) {
+                navigation.navigate('HelperChat');
+              } else {
+                openLink(SUPPORT_MAILTO);
+              }
+            }}
+            variant="cta"
             iconLeft={<Ionicons name="chatbubble-ellipses-outline" size={20} color={theme.surface} />}
             style={styles.chatButton}
           />
@@ -176,25 +169,6 @@ export default function AboutScreen({ navigation }: any) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 8,
-    paddingVertical: 12,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  backButton: {
-    padding: 8,
-  },
-  headerTitle: {
-    fontSize: 17,
-    fontWeight: '600',
-    flex: 1,
-    textAlign: 'center',
-  },
-  headerSpacer: {
-    width: 40,
   },
   scrollView: {
     flex: 1,
@@ -258,12 +232,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: spacing.sm,
+    minHeight: 52,
     gap: spacing.sm,
   },
   contactIcon: {
     width: 40,
     height: 40,
-    borderRadius: radius.md,
+    borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
   },

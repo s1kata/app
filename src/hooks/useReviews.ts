@@ -38,6 +38,7 @@ function eventMatchesScope(
 
 export function useReviews(options: {
   tourId?: string;
+  hotelId?: string;
   scope?: ReviewScope;
   withAuth?: boolean;
   limit?: number;
@@ -45,6 +46,8 @@ export function useReviews(options: {
   authReady?: boolean;
 }) {
   const tourId = options.tourId != null && options.tourId !== '' ? String(options.tourId) : undefined;
+  const hotelId =
+    options.hotelId != null && options.hotelId !== '' ? String(options.hotelId) : undefined;
   const { scope = 'all', withAuth = false, limit, authReady = true } = options;
   const [reviews, setReviews] = useState<ReviewDto[]>([]);
   const [loading, setLoading] = useState(true);
@@ -61,11 +64,27 @@ export function useReviews(options: {
     setError(null);
 
     try {
-      const items = await listReviews({
-        tourId,
-        scope: tourId ? 'tour' : scope,
-        withAuth,
-      });
+      let items: ReviewDto[] = [];
+      if (tourId || hotelId) {
+        // Два запроса: старый API берёт только tourId; hotelId ловит отзывы при смене id тура
+        const [byTour, byHotel] = await Promise.all([
+          tourId
+            ? listReviews({ tourId, withAuth, scope: 'tour' }).catch(() => [] as ReviewDto[])
+            : Promise.resolve([] as ReviewDto[]),
+          hotelId
+            ? listReviews({ hotelId, withAuth, scope: 'tour' }).catch(() => [] as ReviewDto[])
+            : Promise.resolve([] as ReviewDto[]),
+        ]);
+        const seen = new Set<string>();
+        items = [...byTour, ...byHotel].filter((r) => {
+          if (!r?.id || seen.has(r.id)) return false;
+          seen.add(r.id);
+          return true;
+        });
+        items.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+      } else {
+        items = await listReviews({ scope, withAuth });
+      }
       if (requestId !== requestIdRef.current) {
         return;
       }
@@ -82,7 +101,7 @@ export function useReviews(options: {
         setLoading(false);
       }
     }
-  }, [tourId, scope, withAuth, limit, authReady]);
+  }, [tourId, hotelId, scope, withAuth, limit, authReady]);
 
   const prependReview = useCallback(
     (review: ReviewDto) => {

@@ -119,17 +119,24 @@ export function getPaymentLegDisplay(paymentStatus: Booking['paymentStatus'] | u
 
 export function statusToneColor(
   tone: StatusLegDisplay['tone'],
-  theme: { success: string; warning: string; error: string; secondaryText: string },
+  theme: {
+    success: string;
+    warning: string;
+    error: string;
+    secondaryText: string;
+    primary?: string;
+    accent?: string;
+  },
 ): string {
   switch (tone) {
     case 'success':
-      return theme.success;
+      return theme.primary || theme.success; // teal
     case 'error':
-      return theme.error;
+      return theme.accent || theme.error; // coral
     case 'muted':
       return theme.secondaryText;
     case 'warning':
     default:
-      return theme.warning;
+      return theme.accent || theme.warning; // coral
   }
 }

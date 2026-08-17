@@ -21,6 +21,7 @@ import type {
   TourFlightsOutput,
 } from '../../types/tourvisor';
 import { logger } from '../../utils/logger';
+import { isPlausiblePackagePrice } from '../../utils/tourPriceSanity';
 
 function getBaseUrl(): string {
   return getCrmApiBaseUrl();
@@ -382,7 +383,13 @@ function mapPromoHotelsToTourHots(
     }
   }
   out.sort((a, b) => (a.price || 0) - (b.price || 0));
-  return out;
+  return out.filter((row) =>
+    isPlausiblePackagePrice(Number(row.price) || 0, {
+      currency: row.currency,
+      countryId: row.country?.id ?? row.hotel?.country?.id,
+      nights: row.nights,
+    }),
+  );
 }
 
 /** Акции с сайта, если Tourvisor /tours/hots недоступен (403). */

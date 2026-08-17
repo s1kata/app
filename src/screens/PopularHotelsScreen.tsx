@@ -1,7 +1,7 @@
 /**
- * Витрина популярных отелей — только с турами и ценой (mobile-first).
+ * Популярные отели — горизонтальные карточки как на концепте 13.
  */
-import React, { useMemo, useState, useCallback } from 'react';
+import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -12,11 +12,15 @@ import {
   RefreshControl,
   StatusBar,
   ActivityIndicator,
+  Alert,
+  useWindowDimensions,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useAppContext } from '../contexts/AppContext';
 import CachedImage from '../components/ui/CachedImage';
+import FilterChip from '../components/ui/FilterChip';
+import TourPriceLabel from '../components/ui/TourPriceLabel';
 import { DEFAULT_HOTEL_IMAGE } from '../constants/images';
 import { POPULAR_HOTEL_COUNTRIES, type PopularHotelCountry } from '../config/popularHotelsCountries';
 import {
@@ -25,117 +29,87 @@ import {
   type PopularHotelCard,
   type PopularHotelsSort,
 } from '../hooks/usePopularHotels';
-import { BRAND, radius, shadows, spacing, typography } from '../config/designSystem';
+import { radius, shadows, spacing } from '../config/designSystem';
+import { FavoritesService } from '../services/FavoritesService';
+import { navigateRoot, navigateTab } from '../utils/navHelpers';
+import type { Hotel } from '../types';
+import { i18n } from '../config/i18n';
+import AuthRequiredCard from '../components/ux/AuthRequiredCard';
 
 const PAGE = 12;
 
 type Props = {
   navigation: any;
+  route?: { params?: { countryId?: number } };
 };
 
-function StarChips({
-  value,
-  onChange,
-  theme,
-}: {
-  value: number;
-  onChange: (n: number) => void;
-  theme: { text: string; secondaryText: string; border: string; card: string; primary: string };
-}) {
-  const opts = [
-    { v: 0, label: 'Все' },
-    { v: 3, label: '3+' },
-    { v: 4, label: '4+' },
-    { v: 5, label: '5★' },
-  ];
-  return (
-    <View style={styles.starsRow}>
-      {opts.map((o) => {
-        const active = value === o.v;
-        return (
-          <TouchableOpacity
-            key={o.v}
-            onPress={() => onChange(o.v)}
-            activeOpacity={0.85}
-            style={[
-              styles.starChip,
-              {
-                backgroundColor: active ? theme.primary : theme.card,
-                borderColor: active ? theme.primary : theme.border,
-              },
-            ]}
-          >
-            <Text style={{ color: active ? '#fff' : theme.secondaryText, fontWeight: '700', fontSize: 13 }}>
-              {o.label}
-            </Text>
-          </TouchableOpacity>
-        );
-      })}
-    </View>
-  );
-}
-
-function HotelCard({
+function HotelRow({
   item,
   theme,
+  mediaWidth,
+  isFavorite,
   onPress,
+  onToggleFavorite,
 }: {
   item: PopularHotelCard;
   theme: any;
+  mediaWidth: number;
+  isFavorite: boolean;
   onPress: () => void;
+  onToggleFavorite: () => void;
 }) {
   const stars = Number(item.category) || 0;
-  const rating = Number(item.rating) || 0;
   const place = item.region?.name || item.country?.name || '';
   const price = item.minPrice || Number(item.price) || 0;
 
   return (
     <TouchableOpacity
-      style={[styles.card, shadows.card, { backgroundColor: theme.card, borderColor: theme.border }]}
+      style={[styles.rowCard, shadows.card, { backgroundColor: theme.card, borderColor: theme.border }]}
       onPress={onPress}
       activeOpacity={0.9}
     >
-      <View style={styles.media}>
+      <View style={[styles.rowMedia, { width: mediaWidth }]}>
         <CachedImage
           source={{ uri: item.picturelink || DEFAULT_HOTEL_IMAGE }}
-          style={styles.image}
+          fallbackUri={DEFAULT_HOTEL_IMAGE}
+          style={styles.rowImage}
           contentFit="cover"
         />
-        <View style={styles.badges}>
-          {stars > 0 ? (
-            <View style={styles.badge}>
-              <Text style={styles.badgeText}>{stars}★</Text>
-            </View>
-          ) : (
-            <View />
-          )}
-          {rating > 0 ? (
-            <View style={styles.badge}>
-              <Ionicons name="star" size={11} color="#B45309" />
-              <Text style={[styles.badgeText, { color: '#B45309' }]}>{rating.toFixed(1)}</Text>
-            </View>
-          ) : null}
-        </View>
+        <TouchableOpacity
+          style={[styles.rowHeart, { backgroundColor: theme.card }]}
+          onPress={onToggleFavorite}
+          hitSlop={8}
+        >
+          <Ionicons
+            name={isFavorite ? 'heart' : 'heart-outline'}
+            size={14}
+            color={isFavorite ? '#FF6B6B' : theme.deep || theme.text}
+          />
+        </TouchableOpacity>
       </View>
-      <View style={styles.body}>
-        {place ? (
-          <Text style={[styles.place, { color: theme.primary }]} numberOfLines={1}>
-            {place.toUpperCase()}
-          </Text>
-        ) : null}
-        <Text style={[styles.name, { color: theme.text }]} numberOfLines={2}>
+      <View style={styles.rowBody}>
+        <Text style={[styles.rowName, { color: theme.deep || theme.text }]} numberOfLines={2}>
           {item.name}
         </Text>
-        <View style={styles.foot}>
-          <View>
-            <Text style={[styles.priceLabel, { color: theme.secondaryText }]}>туры от</Text>
-            <Text style={[styles.price, { color: BRAND.orange }]}>
-              {price > 0 ? `${price.toLocaleString('ru-RU')} ₽` : '—'}
-            </Text>
-          </View>
-          <View style={[styles.go, { backgroundColor: theme.primary }]}>
-            <Text style={styles.goText}>Туры</Text>
-            <Ionicons name="arrow-forward" size={14} color="#fff" />
+        <View style={styles.starsRow}>
+          {Array.from({ length: 5 }).map((_, i) => (
+            <Ionicons
+              key={i}
+              name="star"
+              size={11}
+              color={i < stars ? theme.primary : theme.border}
+            />
+          ))}
+        </View>
+        {place ? (
+          <Text style={{ color: theme.secondaryText, fontSize: 12, marginTop: 2 }} numberOfLines={1}>
+            {place}
+          </Text>
+        ) : null}
+        <View style={styles.rowFoot}>
+          <TourPriceLabel amount={price} caption="за тур" style={{ flex: 1, minWidth: 0, paddingRight: 8 }} />
+          <View style={[styles.toursBtn, { backgroundColor: theme.accent }]}>
+            <Text style={styles.toursBtnText}>Туры</Text>
           </View>
         </View>
       </View>
@@ -143,26 +117,43 @@ function HotelCard({
   );
 }
 
-export default function PopularHotelsScreen({ navigation }: Props) {
-  const { theme, isDark } = useAppContext();
-  const [country, setCountry] = useState<PopularHotelCountry>(POPULAR_HOTEL_COUNTRIES[0]);
+export default function PopularHotelsScreen({ navigation, route }: Props) {
+  const { theme, isDark, user } = useAppContext();
+  const insets = useSafeAreaInsets();
+  const { width: screenWidth } = useWindowDimensions();
+  const mediaWidth = Math.max(96, Math.min(128, Math.round(screenWidth * 0.3)));
+  const isGuest = user?.uid?.startsWith('guest_') || user?.isAnonymous === true;
+  const initial =
+    POPULAR_HOTEL_COUNTRIES.find((c) => c.id === Number(route?.params?.countryId)) ||
+    POPULAR_HOTEL_COUNTRIES[0];
+  const [country, setCountry] = useState<PopularHotelCountry>(initial);
   const [minStars, setMinStars] = useState(0);
-  const [sort, setSort] = useState<PopularHotelsSort>('price');
+  const [sort] = useState<PopularHotelsSort>('price');
   const [shown, setShown] = useState(PAGE);
+  const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set());
+  const [showAuthCard, setShowAuthCard] = useState(false);
+
+  useEffect(() => {
+    const id = Number(route?.params?.countryId);
+    if (!id) return;
+    const found = POPULAR_HOTEL_COUNTRIES.find((c) => c.id === id);
+    if (found) setCountry(found);
+  }, [route?.params?.countryId]);
+
+  useEffect(() => {
+    if (!user || isGuest) {
+      setFavoriteIds(new Set());
+      return;
+    }
+    void FavoritesService.getInstance()
+      .getFavoriteHotels()
+      .then((list) => setFavoriteIds(new Set(list.map((h) => String(h.id)))))
+      .catch(() => {});
+  }, [user, isGuest]);
 
   const { hotels, loading, error, tourContext, reload } = usePopularHotels(country, minStars);
-
-  const sorted = useMemo(
-    () => sortPopularHotels(hotels, sort, 0),
-    [hotels, sort],
-  );
-
+  const sorted = useMemo(() => sortPopularHotels(hotels, sort, 0), [hotels, sort]);
   const visible = useMemo(() => sorted.slice(0, shown), [sorted, shown]);
-
-  const onSelectCountry = useCallback((c: PopularHotelCountry) => {
-    setCountry(c);
-    setShown(PAGE);
-  }, []);
 
   const openHotel = useCallback(
     (item: PopularHotelCard) => {
@@ -176,241 +167,239 @@ export default function PopularHotelsScreen({ navigation }: Props) {
     [navigation, tourContext],
   );
 
+  const toggleHotelFavorite = useCallback(
+    async (item: PopularHotelCard) => {
+      try {
+        if (!user || isGuest) {
+          setShowAuthCard(true);
+          return;
+        }
+        const hotel: Hotel = {
+          id: String(item.id),
+          name: item.name,
+          description: '',
+          location: item.region?.name || '',
+          country: item.country?.name || '',
+          category: String(item.category || ''),
+          rating: Number(item.rating) || 0,
+          reviews: 0,
+          price: Number(item.minPrice || item.price) || 0,
+          currency: 'RUB',
+          image: item.picturelink || '',
+          gallery: item.picturelink ? [item.picturelink] : [],
+          amenities: [],
+          stars: Number(item.category) || 0,
+          mealTypes: [],
+          available: true,
+        };
+        const result = await FavoritesService.getInstance().toggleHotelFavorite(hotel);
+        if (!result.success) {
+          Alert.alert(i18n.t('common.error'), result.error || i18n.t('favorites.updateFailed'));
+          return;
+        }
+        const hid = String(item.id);
+        setFavoriteIds((prev) => {
+          const next = new Set(prev);
+          if (result.isFavorite) next.add(hid);
+          else next.delete(hid);
+          return next;
+        });
+      } catch {
+        Alert.alert(i18n.t('common.error'), i18n.t('favorites.updateFailed'));
+      }
+    },
+    [user, isGuest],
+  );
+
+  const listPadBottom = Math.max(28, insets.bottom + 16);
+
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: theme.background }]} edges={['top']}>
       <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} />
 
-      <View style={[styles.header, { backgroundColor: theme.card, borderBottomColor: theme.border }]}>
-        <TouchableOpacity onPress={() => navigation.goBack()} hitSlop={12} style={styles.backBtn}>
-          <Ionicons name="arrow-back" size={24} color={theme.text} />
+      <View style={styles.topBar}>
+        <TouchableOpacity
+          onPress={() => (navigation.canGoBack() ? navigation.goBack() : navigateTab(navigation, 'Home'))}
+          style={[styles.back, { backgroundColor: theme.card, borderColor: theme.border }]}
+        >
+          <Ionicons name="chevron-back" size={22} color={theme.deep} />
         </TouchableOpacity>
-        <View style={{ flex: 1 }}>
-          <Text style={[styles.headerEyebrow, { color: theme.primary }]}>ТОЛЬКО С ТУРАМИ</Text>
-          <Text style={[styles.headerTitle, { color: theme.text }]}>Популярные отели</Text>
-        </View>
+        <Text style={[styles.topTitle, { color: theme.deep }]} numberOfLines={1}>
+          Популярные отели
+        </Text>
+        <TouchableOpacity
+          onPress={() => navigateTab(navigation, 'Favorites')}
+          style={[styles.back, { backgroundColor: theme.card, borderColor: theme.border }]}
+        >
+          <Ionicons name="heart-outline" size={20} color={theme.deep} />
+        </TouchableOpacity>
       </View>
 
-      <View style={[styles.sticky, { backgroundColor: theme.background, borderBottomColor: theme.border }]}>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.chips}
-        >
-          {POPULAR_HOTEL_COUNTRIES.map((c) => {
-            const active = c.id === country.id;
-            return (
-              <TouchableOpacity
-                key={c.id}
-                onPress={() => onSelectCountry(c)}
-                activeOpacity={0.85}
-                style={[
-                  styles.chip,
-                  {
-                    backgroundColor: active ? theme.text : theme.card,
-                    borderColor: active ? theme.text : theme.border,
-                  },
-                ]}
-              >
-                <Text style={{ color: active ? '#fff' : theme.text, fontWeight: '700', fontSize: 13 }}>
-                  {c.name}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
-        </ScrollView>
-
-        <View style={styles.row2}>
-          <StarChips value={minStars} onChange={(n) => { setMinStars(n); setShown(PAGE); }} theme={theme} />
-          <TouchableOpacity
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={styles.chipsScroll}
+        contentContainerStyle={styles.chips}
+      >
+        {POPULAR_HOTEL_COUNTRIES.map((c) => (
+          <FilterChip
+            key={c.id}
+            label={c.name}
+            active={c.id === country.id}
             onPress={() => {
-              const order: PopularHotelsSort[] = ['price', 'rating', 'stars'];
-              const i = order.indexOf(sort);
-              setSort(order[(i + 1) % order.length]);
+              setCountry(c);
               setShown(PAGE);
             }}
-            style={[styles.sortBtn, { backgroundColor: theme.card, borderColor: theme.border }]}
-          >
-            <Ionicons name="swap-vertical" size={14} color={theme.primary} />
-            <Text style={{ color: theme.text, fontWeight: '700', fontSize: 12 }}>
-              {sort === 'price' ? 'Цена' : sort === 'rating' ? 'Рейтинг' : 'Звёзды'}
-            </Text>
-          </TouchableOpacity>
-        </View>
-      </View>
+          />
+        ))}
+      </ScrollView>
 
-      <View style={styles.metaRow}>
-        <Text style={{ color: theme.secondaryText, fontWeight: '600', fontSize: 13 }}>
-          {loading ? 'Загрузка…' : `${sorted.length} отелей`}
-        </Text>
-      </View>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={styles.chipsScroll}
+        contentContainerStyle={[styles.chips, { paddingTop: 0 }]}
+      >
+        {[
+          { v: 0, label: 'Все' },
+          { v: 3, label: '3+' },
+          { v: 4, label: '4+' },
+          { v: 5, label: '5★' },
+        ].map((o) => (
+          <FilterChip
+            key={o.v}
+            label={o.label}
+            active={minStars === o.v}
+            onPress={() => {
+              setMinStars(o.v);
+              setShown(PAGE);
+            }}
+          />
+        ))}
+      </ScrollView>
 
       {loading && visible.length === 0 ? (
         <View style={styles.center}>
           <ActivityIndicator color={theme.primary} size="large" />
-          <Text style={{ color: theme.secondaryText, marginTop: 12, fontWeight: '600' }}>
-            Подбираем отели с турами…
-          </Text>
         </View>
       ) : (
         <FlatList
+          style={{ flex: 1 }}
           data={visible}
           keyExtractor={(item) => String(item.id)}
-          contentContainerStyle={styles.list}
+          contentContainerStyle={[styles.list, { paddingBottom: listPadBottom }]}
           refreshControl={
             <RefreshControl refreshing={loading} onRefresh={() => void reload()} tintColor={theme.primary} />
           }
           ListEmptyComponent={
             <View style={styles.center}>
-              <Ionicons name="bed-outline" size={36} color={theme.secondaryText} />
-              <Text style={[styles.emptyTitle, { color: theme.text }]}>
-                {error ? 'Не удалось загрузить' : 'Нет отелей с турами'}
-              </Text>
-              <Text style={{ color: theme.secondaryText, textAlign: 'center', marginTop: 6, paddingHorizontal: 24 }}>
-                {error || 'Выберите другую страну или звёзды'}
-              </Text>
-              <TouchableOpacity
-                style={[styles.retry, { backgroundColor: theme.primary }]}
-                onPress={() => void reload()}
-              >
-                <Text style={styles.retryText}>Повторить</Text>
-              </TouchableOpacity>
+              <Text style={{ color: theme.secondaryText }}>{error || 'Нет отелей с турами'}</Text>
             </View>
           }
           renderItem={({ item }) => (
-            <HotelCard item={item} theme={theme} onPress={() => openHotel(item)} />
+            <HotelRow
+              item={item}
+              theme={theme}
+              mediaWidth={mediaWidth}
+              isFavorite={favoriteIds.has(String(item.id))}
+              onPress={() => openHotel(item)}
+              onToggleFavorite={() => void toggleHotelFavorite(item)}
+            />
           )}
           ListFooterComponent={
             shown < sorted.length ? (
               <TouchableOpacity
-                style={[styles.more, { backgroundColor: theme.card, borderColor: theme.border }]}
+                style={[styles.more, { borderColor: theme.border, backgroundColor: theme.card }]}
                 onPress={() => setShown((s) => s + PAGE)}
               >
-                <Text style={{ color: theme.text, fontWeight: '700' }}>Показать ещё</Text>
+                <Text style={{ color: theme.deep || theme.text, fontWeight: '700' }}>Показать ещё</Text>
               </TouchableOpacity>
             ) : (
-              <View style={{ height: 24 }} />
+              <View style={{ height: 8 }} />
             )
           }
         />
       )}
+      <AuthRequiredCard
+        visible={showAuthCard}
+        title={i18n.t('favorites.authRequired')}
+        message={i18n.t('auth.favoritesRequired')}
+        onLater={() => setShowAuthCard(false)}
+        onLogin={() => {
+          setShowAuthCard(false);
+          navigateRoot(navigation, 'Login');
+        }}
+        onRegister={() => {
+          setShowAuthCard(false);
+          navigateRoot(navigation, 'Register');
+        }}
+      />
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   safe: { flex: 1 },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    gap: spacing.sm,
-  },
-  backBtn: { padding: 4 },
-  headerEyebrow: { fontSize: 11, fontWeight: '800', letterSpacing: 0.6 },
-  headerTitle: { ...typography.h3, marginTop: 2 },
-  sticky: {
-    paddingTop: spacing.sm,
-    paddingBottom: spacing.sm,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  chips: { paddingHorizontal: spacing.md, gap: 8 },
-  chip: {
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: radius.full,
-    borderWidth: 1,
-    marginRight: 8,
-  },
-  row2: {
+  topBar: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: spacing.md,
-    marginTop: spacing.sm,
-    gap: 8,
+    paddingBottom: spacing.sm,
   },
-  starsRow: { flexDirection: 'row', gap: 6, flex: 1, flexWrap: 'wrap', minWidth: 0 },
-  starChip: {
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    borderRadius: radius.md,
+  back: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
     borderWidth: 1,
-  },
-  sortBtn: {
-    flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    borderRadius: radius.md,
-    borderWidth: 1,
+    justifyContent: 'center',
   },
-  metaRow: {
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-  },
-  list: { paddingHorizontal: spacing.md, paddingBottom: 40, gap: 12 },
-  card: {
+  topTitle: { fontSize: 18, fontWeight: '800' },
+  chipsScroll: { flexGrow: 0 },
+  chips: { paddingHorizontal: spacing.md, paddingBottom: spacing.sm, alignItems: 'center' },
+  list: { paddingHorizontal: spacing.md, gap: 12 },
+  rowCard: {
+    flexDirection: 'row',
     borderRadius: radius.xl,
     borderWidth: 1,
     overflow: 'hidden',
     marginBottom: 4,
+    height: 128,
   },
-  media: { aspectRatio: 16 / 10, backgroundColor: '#E8EEF5' },
-  image: { width: '100%', height: '100%' },
-  badges: {
+  rowMedia: { backgroundColor: '#E8EEF5', height: '100%' },
+  rowImage: { width: '100%', height: '100%' },
+  rowHeart: {
     position: 'absolute',
-    top: 10,
-    left: 10,
-    right: 10,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  badge: {
-    flexDirection: 'row',
+    top: 8,
+    right: 8,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     alignItems: 'center',
-    gap: 3,
-    backgroundColor: 'rgba(255,255,255,0.94)',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: radius.full,
+    justifyContent: 'center',
   },
-  badgeText: { fontSize: 12, fontWeight: '800', color: '#12122E' },
-  body: { padding: spacing.md, gap: 4 },
-  place: { fontSize: 11, fontWeight: '800', letterSpacing: 0.5 },
-  name: { fontSize: 17, fontWeight: '700', lineHeight: 22 },
-  foot: {
-    marginTop: 10,
+  rowBody: { flex: 1, minWidth: 0, padding: 12, justifyContent: 'space-between' },
+  rowName: { fontSize: 15, fontWeight: '800', lineHeight: 20 },
+  starsRow: { flexDirection: 'row', gap: 2, marginTop: 4 },
+  rowFoot: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    marginTop: 8,
+    gap: 8,
   },
-  priceLabel: { fontSize: 12, fontWeight: '600' },
-  price: { fontSize: 20, fontWeight: '800', letterSpacing: -0.3 },
-  go: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
+  toursBtn: {
     paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: radius.lg,
+    paddingVertical: 8,
+    borderRadius: radius.md,
+    flexShrink: 0,
   },
-  goText: { color: '#fff', fontWeight: '700', fontSize: 13 },
-  center: { alignItems: 'center', justifyContent: 'center', paddingVertical: 56 },
-  emptyTitle: { marginTop: 10, fontSize: 17, fontWeight: '700' },
-  retry: {
-    marginTop: 14,
-    paddingHorizontal: 18,
-    paddingVertical: 12,
-    borderRadius: radius.lg,
-  },
-  retryText: { color: '#fff', fontWeight: '700' },
+  toursBtnText: { color: '#fff', fontWeight: '800', fontSize: 13 },
+  center: { alignItems: 'center', justifyContent: 'center', paddingVertical: 48 },
   more: {
     alignItems: 'center',
     marginTop: 8,
-    marginBottom: 16,
     paddingVertical: 14,
     borderRadius: radius.full,
     borderWidth: 1,

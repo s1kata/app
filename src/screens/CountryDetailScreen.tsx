@@ -13,10 +13,14 @@ import {
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { getCountryBySlug, CountryData } from '../data/countriesData';
 import { WebsiteTourService, WebsiteTour } from '../services/WebsiteTourService';
 import { logger } from '../utils/logger';
 import { useAppContext } from '../contexts/AppContext';
+import PrimaryButton from '../components/ui/PrimaryButton';
+import TourPriceLabel from '../components/ui/TourPriceLabel';
+import { BRAND } from '../config/designSystem';
 
 interface CountryDetailScreenProps {
   navigation: any;
@@ -32,7 +36,7 @@ export default function CountryDetailScreen({ navigation, route }: CountryDetail
   const { countrySlug } = route.params;
   const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
-  const { theme, isDark } = useAppContext();
+  const { theme } = useAppContext();
   
   const [country, setCountry] = useState<CountryData | null>(null);
   const [tours, setTours] = useState<WebsiteTour[]>([]);
@@ -62,11 +66,6 @@ export default function CountryDetailScreen({ navigation, route }: CountryDetail
     } finally {
       setLoadingTours(false);
     }
-  };
-
-  const formatPrice = (price: number | null) => {
-    if (!price) return 'По запросу';
-    return new Intl.NumberFormat('ru-RU').format(price) + ' ₽';
   };
 
   const openGallery = (index: number) => {
@@ -171,9 +170,12 @@ export default function CountryDetailScreen({ navigation, route }: CountryDetail
             </Text>
           </View>
         )}
-        <Text style={[styles.tourPrice, { color: theme.primary }]}>
-          от {formatPrice(tour.price)}
-        </Text>
+        <TourPriceLabel
+          amount={Number(tour.price) || 0}
+          caption="за тур"
+          accent
+          style={{ marginTop: 4 }}
+        />
       </View>
     </TouchableOpacity>
   );
@@ -188,7 +190,10 @@ export default function CountryDetailScreen({ navigation, route }: CountryDetail
             style={styles.heroImage}
             resizeMode="cover"
           />
-          <View style={[styles.heroGradient, { backgroundColor: isDark ? 'rgba(0,0,0,0.46)' : 'rgba(0,0,0,0.32)' }]} />
+          <LinearGradient
+            colors={['rgba(18,18,46,0.15)', 'rgba(18,18,46,0.72)']}
+            style={styles.heroGradient}
+          />
           <TouchableOpacity
             style={[styles.backButton, { top: 12 }]}
             onPress={() => navigation.goBack()}
@@ -196,7 +201,7 @@ export default function CountryDetailScreen({ navigation, route }: CountryDetail
             <Ionicons name="arrow-back" size={24} color="#fff" />
           </TouchableOpacity>
           <View style={styles.heroContent}>
-            <View style={styles.heroFlagCircle}>
+            <View style={[styles.heroFlagCircle, { backgroundColor: 'rgba(93,169,164,0.35)' }]}>
               <Ionicons name="earth-outline" size={28} color="#fff" />
             </View>
             <Text style={styles.heroTitle}>{country.name}</Text>
@@ -233,24 +238,24 @@ export default function CountryDetailScreen({ navigation, route }: CountryDetail
         )}
 
         {/* About Section */}
-        <View style={[styles.section, styles.aboutSection, { backgroundColor: '#FFFFFF' }]}>
+        <View style={[styles.section, styles.aboutSection, { backgroundColor: theme.card }]}>
           <View style={styles.aboutHeader}>
-            <View style={[styles.aboutIcon, { backgroundColor: '#0066CC' }]}>
+            <View style={[styles.aboutIcon, { backgroundColor: theme.primary }]}>
               <Ionicons name="book-outline" size={24} color="#fff" />
             </View>
-            <Text style={[styles.aboutTitle, { color: '#1D1D1F' }]}>
+            <Text style={[styles.aboutTitle, { color: theme.text }]}>
               О стране {country.name}
             </Text>
           </View>
-          <Text style={[styles.aboutText, { color: '#6E6E73' }]}>
+          <Text style={[styles.aboutText, { color: theme.secondaryText }]}>
             {country.bio}
           </Text>
         </View>
 
         {/* Highlights */}
         {country.highlights.length > 0 && (
-          <View style={[styles.section, { backgroundColor: '#FFFFFF' }]}>
-            <Text style={[styles.sectionTitle, { color: '#1D1D1F' }]}>
+          <View style={[styles.section, { backgroundColor: theme.card }]}>
+            <Text style={[styles.sectionTitle, { color: theme.text }]}>
               Почему стоит посетить
             </Text>
             <View style={styles.highlightsGrid}>
@@ -262,7 +267,7 @@ export default function CountryDetailScreen({ navigation, route }: CountryDetail
         {/* Detailed Info */}
         {country.detailedInfo && (
           <View style={styles.detailsContainer}>
-            <Text style={[styles.sectionTitleMargin, { color: '#1D1D1F' }]}>
+            <Text style={[styles.sectionTitleMargin, { color: theme.text }]}>
               Подробная информация
             </Text>
             {country.detailedInfo.climate && renderDetailSection(
@@ -285,7 +290,7 @@ export default function CountryDetailScreen({ navigation, route }: CountryDetail
 
         {/* Useful Info Cards */}
         <View style={styles.infoCardsContainer}>
-          <Text style={[styles.sectionTitleMargin, { color: '#1D1D1F' }]}>
+          <Text style={[styles.sectionTitleMargin, { color: theme.text }]}>
             Полезная информация
           </Text>
           <View style={styles.infoCardsGrid}>
@@ -299,52 +304,40 @@ export default function CountryDetailScreen({ navigation, route }: CountryDetail
         {/* Tours Section */}
         <View style={styles.toursSection}>
           <View style={styles.toursSectionHeader}>
-            <Text style={[styles.sectionTitle, { color: '#1D1D1F' }]}>
-              <Ionicons name="airplane" size={20} color={'#0066CC'} /> Туры в {country.name}
+            <Text style={[styles.sectionTitle, { color: theme.text }]}>
+              <Ionicons name="airplane" size={20} color={theme.primary} /> Туры в {country.name}
             </Text>
             <TouchableOpacity
               onPress={() => navigation.navigate('Countries')}
-              style={[styles.viewAllButton, { borderColor: '#0066CC' }]}
+              style={[styles.viewAllButton, { borderColor: BRAND.blue }]}
             >
-              <Text style={[styles.viewAllText, { color: '#0066CC' }]}>Все туры</Text>
-              <Ionicons name="arrow-forward" size={16} color={'#0066CC'} />
+              <Text style={[styles.viewAllText, { color: BRAND.blue }]}>Все туры</Text>
+              <Ionicons name="arrow-forward" size={16} color={BRAND.blue} />
             </TouchableOpacity>
           </View>
 
           {/* Buy Tours Buttons */}
           <View style={styles.buyToursContainer}>
-            {/* Quick Booking */}
-            <TouchableOpacity
-              style={[styles.quickBookButton, {
-                backgroundColor: '#00A86B',
-                marginBottom: 12
-              }]}
+            <PrimaryButton
+              title="Забронировать"
               onPress={() => navigation.navigate('ApiTourSearch')}
-              activeOpacity={0.8}
-            >
-              <Ionicons name="flash" size={20} color="#fff" />
-              <Text style={styles.quickBookText}>Забронировать</Text>
-            </TouchableOpacity>
-
-            {/* Simple tour search */}
-            <TouchableOpacity
-              style={[styles.quickBookButton, {
-                backgroundColor: '#0066CC',
-                marginBottom: 12
-              }]}
+              variant="cta"
+              style={{ marginBottom: 12 }}
+              iconLeft={<Ionicons name="flash" size={18} color="#fff" />}
+            />
+            <PrimaryButton
+              title="Посмотреть туры"
               onPress={() => navigation.navigate('ApiTourSearch')}
-              activeOpacity={0.8}
-            >
-              <Ionicons name="search" size={20} color="#fff" />
-              <Text style={styles.quickBookText}>Посмотреть туры</Text>
-            </TouchableOpacity>
-
+              variant="primary"
+              style={{ marginBottom: 12 }}
+              iconLeft={<Ionicons name="search" size={18} color="#fff" />}
+            />
           </View>
 
           {loadingTours ? (
             <View style={styles.loadingContainer}>
-              <ActivityIndicator size="small" color={'#0066CC'} />
-              <Text style={[styles.loadingText, { color: '#6E6E73' }]}>
+              <ActivityIndicator size="small" color={theme.primary} />
+              <Text style={[styles.loadingText, { color: theme.secondaryText }]}>
                 Загрузка туров...
               </Text>
             </View>
@@ -357,17 +350,17 @@ export default function CountryDetailScreen({ navigation, route }: CountryDetail
               {tours.map(tour => renderTourCard(tour))}
             </ScrollView>
           ) : (
-            <View style={[styles.noToursContainer, { backgroundColor: '#FFFFFF' }]}>
-              <Ionicons name="airplane-outline" size={40} color={'#6E6E73'} />
-              <Text style={[styles.noToursText, { color: '#6E6E73' }]}>
+            <View style={[styles.noToursContainer, { backgroundColor: theme.card }]}>
+              <Ionicons name="airplane-outline" size={40} color={theme.secondaryText} />
+              <Text style={[styles.noToursText, { color: theme.secondaryText }]}>
                 Туры в данную страну скоро появятся
               </Text>
-              <TouchableOpacity
-                style={[styles.searchToursButton, { backgroundColor: '#0066CC' }]}
+              <PrimaryButton
+                title="Искать туры"
                 onPress={() => navigation.navigate('Countries')}
-              >
-                <Text style={styles.searchToursButtonText}>Искать туры</Text>
-              </TouchableOpacity>
+                variant="cta"
+                style={{ marginTop: 12, minWidth: 160 }}
+              />
             </View>
           )}
         </View>

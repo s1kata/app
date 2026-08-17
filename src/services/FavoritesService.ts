@@ -20,6 +20,7 @@ import {
   deletePriceWatchViaBackend,
   upsertPriceWatchViaBackend,
 } from './sync/NextPatchBackendClient';
+import { i18n } from '../config/i18n';
 
 const FAVORITES_TOURS_KEY = 'user_favorite_tours';
 const FAVORITES_HOTELS_KEY = 'user_favorite_hotels';
@@ -71,9 +72,10 @@ export class FavoritesService {
 
   private async resolveUserId(): Promise<string | null> {
     const stored = await authSession.getStoredUser();
-    if (!stored?.id) return null;
-    if (stored.id.startsWith('guest_')) return null;
-    return stored.id;
+    if (!stored) return null;
+    const id = String((stored as { id?: string | number }).id ?? '').trim();
+    if (!id || id.startsWith('guest_') || id.startsWith('local_')) return null;
+    return id;
   }
 
   private mergeByTourId(a: TourOutput[], b: TourOutput[]): TourOutput[] {
@@ -228,13 +230,16 @@ export class FavoritesService {
     try {
       const uid = await this.resolveUserId();
       if (!uid) {
-        return { success: false, error: 'Пользователь не авторизован' };
+        return { success: false, error: i18n.t('auth.favoritesRequired') };
       }
 
       const favorites = await this.getFavoriteTours();
-      const tourId = String(tour.id);
+      const tourId = String(tour.id ?? '').trim();
+      if (!tourId || tourId === 'undefined' || tourId === 'null') {
+        return { success: false, error: i18n.t('favorites.updateFailed') };
+      }
       if (favorites.some((f) => String(f.id) === tourId)) {
-        return { success: false, error: 'Тур уже в избранном' };
+        return { success: false, error: i18n.t('favorites.tourAlready') };
       }
 
       favorites.push(tour);
@@ -258,7 +263,7 @@ export class FavoritesService {
       logger.error('Ошибка добавления тура в избранное:', error);
       return {
         success: false,
-        error: (error as Error)?.message || 'Не удалось добавить тур в избранное',
+        error: (error as Error)?.message || i18n.t('favorites.updateFailed'),
       };
     }
   }
@@ -267,13 +272,16 @@ export class FavoritesService {
     try {
       const uid = await this.resolveUserId();
       if (!uid) {
-        return { success: false, error: 'Пользователь не авторизован' };
+        return { success: false, error: i18n.t('auth.favoritesRequired') };
       }
 
       const favorites = await this.getFavoriteHotels();
-      const hotelId = String(hotel.id);
+      const hotelId = String(hotel.id ?? '').trim();
+      if (!hotelId || hotelId === 'undefined' || hotelId === 'null') {
+        return { success: false, error: i18n.t('favorites.updateFailed') };
+      }
       if (favorites.some((f) => String(f.id) === hotelId)) {
-        return { success: false, error: 'Отель уже в избранном' };
+        return { success: false, error: i18n.t('favorites.hotelAlready') };
       }
 
       favorites.push(hotel);
@@ -284,7 +292,7 @@ export class FavoritesService {
       logger.error('Ошибка добавления отеля в избранное:', error);
       return {
         success: false,
-        error: (error as Error)?.message || 'Не удалось добавить отель в избранное',
+        error: (error as Error)?.message || i18n.t('favorites.updateFailed'),
       };
     }
   }
@@ -293,7 +301,7 @@ export class FavoritesService {
     try {
       const uid = await this.resolveUserId();
       if (!uid) {
-        return { success: false, error: 'Пользователь не авторизован' };
+        return { success: false, error: i18n.t('auth.favoritesRequired') };
       }
 
       const id = String(tourId);
@@ -308,7 +316,7 @@ export class FavoritesService {
       logger.error('Ошибка удаления тура из избранного:', error);
       return {
         success: false,
-        error: (error as Error)?.message || 'Не удалось удалить тур из избранного',
+        error: (error as Error)?.message || i18n.t('favorites.updateFailed'),
       };
     }
   }
@@ -317,7 +325,7 @@ export class FavoritesService {
     try {
       const uid = await this.resolveUserId();
       if (!uid) {
-        return { success: false, error: 'Пользователь не авторизован' };
+        return { success: false, error: i18n.t('auth.favoritesRequired') };
       }
 
       const id = String(hotelId);
@@ -330,13 +338,13 @@ export class FavoritesService {
       logger.error('Ошибка удаления отеля из избранного:', error);
       return {
         success: false,
-        error: (error as Error)?.message || 'Не удалось удалить отель из избранного',
+        error: (error as Error)?.message || i18n.t('favorites.updateFailed'),
       };
     }
   }
 
   async toggleTourFavorite(tour: TourOutput): Promise<{ success: boolean; isFavorite: boolean; error?: string }> {
-    const lockKey = `tour_${tour.id}`;
+    const lockKey = `tour_${String(tour.id)}`;
     if (this.toggleInFlight.has(lockKey)) {
       const isFavorite = await this.isTourFavorite(tour.id);
       return { success: true, isFavorite };
@@ -355,7 +363,7 @@ export class FavoritesService {
       return {
         success: false,
         isFavorite: false,
-        error: (error as Error)?.message || 'Не удалось обновить избранное',
+        error: (error as Error)?.message || i18n.t('favorites.updateFailed'),
       };
     } finally {
       this.toggleInFlight.delete(lockKey);
@@ -363,7 +371,7 @@ export class FavoritesService {
   }
 
   async toggleHotelFavorite(hotel: Hotel): Promise<{ success: boolean; isFavorite: boolean; error?: string }> {
-    const lockKey = `hotel_${hotel.id}`;
+    const lockKey = `hotel_${String(hotel.id)}`;
     if (this.toggleInFlight.has(lockKey)) {
       const isFavorite = await this.isHotelFavorite(hotel.id);
       return { success: true, isFavorite };
@@ -382,7 +390,7 @@ export class FavoritesService {
       return {
         success: false,
         isFavorite: false,
-        error: (error as Error)?.message || 'Не удалось обновить избранное',
+        error: (error as Error)?.message || i18n.t('favorites.updateFailed'),
       };
     } finally {
       this.toggleInFlight.delete(lockKey);
