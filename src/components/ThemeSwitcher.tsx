@@ -1,13 +1,20 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, TouchableOpacity, Animated, StyleSheet } from 'react-native';
+import { View, Text, TouchableOpacity, Animated, StyleSheet, useWindowDimensions } from 'react-native';
 import { useAppContext } from '../contexts/AppContext';
 import { Ionicons } from '@expo/vector-icons';
 import { i18n } from '../config/i18n';
 
 const SWITCHER_PADDING = 4;
 
-export const ThemeSwitcher: React.FC = () => {
+type ThemeSwitcherProps = {
+  /** Без боковых отступов — когда уже внутри padded-контейнера (настройки). */
+  compact?: boolean;
+};
+
+export const ThemeSwitcher: React.FC<ThemeSwitcherProps> = ({ compact = false }) => {
   const { theme, themeMode, setThemeMode } = useAppContext();
+  const { width: screenWidth } = useWindowDimensions();
+  const labelSize = screenWidth < 360 ? 10 : 11;
   const [animation] = useState(new Animated.Value(0));
   const [isAnimating, setIsAnimating] = useState(false);
   const [containerWidth, setContainerWidth] = useState(0);
@@ -61,6 +68,7 @@ export const ThemeSwitcher: React.FC = () => {
     <View
       style={[
         styles.container,
+        compact && styles.containerCompact,
         {
           backgroundColor: theme.card,
           borderColor: theme.border,
@@ -107,10 +115,12 @@ export const ThemeSwitcher: React.FC = () => {
               <Text
                 style={[
                   styles.buttonText,
-                  { color: isActive ? '#FFFFFF' : theme.secondaryText },
+                  { color: isActive ? '#FFFFFF' : theme.secondaryText, fontSize: labelSize },
                   isActive && { fontWeight: '700' },
                 ]}
                 numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.75}
               >
                 {label}
               </Text>
@@ -142,6 +152,9 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 2,
   },
+  containerCompact: {
+    marginHorizontal: 0,
+  },
   title: {
     fontSize: 15,
     fontWeight: '700',
@@ -168,10 +181,11 @@ const styles = StyleSheet.create({
   },
   button: {
     flex: 1,
+    minWidth: 0,
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 10,
-    paddingHorizontal: 4,
+    paddingHorizontal: 2,
     borderRadius: 20,
     zIndex: 1,
     gap: 2,

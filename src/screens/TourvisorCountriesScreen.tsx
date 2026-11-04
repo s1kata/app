@@ -29,6 +29,7 @@ import {
   savePreferredDepartureId,
 } from '../services/IdeaCollectionService';
 import { filterExcludedDestinationCountries } from '../config/homeDestinations';
+import { countryMatchesQuery } from '../utils/countrySearch';
 
 const GRID_GAP = 12;
 const GRID_PAD = 16;
@@ -42,7 +43,7 @@ export default function TourvisorCountriesScreen({ navigation, route }: Tourviso
   const { apiReady, theme, isDark } = useAppContext();
   const { width: screenWidth } = useWindowDimensions();
   const cardWidth = (screenWidth - GRID_PAD * 2 - GRID_GAP) / 2;
-  const [loading, setLoading] = useState(true);
+  const [countriesLoading, setCountriesLoading] = useState(true);
   const [countries, setCountries] = useState<Country[]>([]);
   const [filteredCountries, setFilteredCountries] = useState<Country[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -52,70 +53,74 @@ export default function TourvisorCountriesScreen({ navigation, route }: Tourviso
   );
   const [onlyCharter, setOnlyCharter] = useState<boolean>(false);
   const [showDeparturePicker, setShowDeparturePicker] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
-  // Загрузка данных при монтировании компонента
+  // Города вылета — один раз после готовности API
   useEffect(() => {
-    if (apiReady) {
-      loadDictionaryData();
-    }
+    if (!apiReady) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const departuresData = await dictionaryService.getDepartures();
+        if (cancelled) return;
+        setDepartures(departuresData);
+        if (departureId === undefined) {
+          const preferred = await resolvePreferredDepartureId();
+          if (!cancelled) setDepartureId(preferred);
+        }
+      } catch (error: unknown) {
+        logger.error('[TourvisorCountries] Error loading departures:', error);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [apiReady]);
 
-  // Перезагрузка стран при изменении departureId или onlyCharter
+  // Страны — при смене города / чартеров / появлении apiReady
   useEffect(() => {
-    if (apiReady && departureId !== undefined) {
-      loadCountries();
-    }
-  }, [departureId, onlyCharter]);
+    if (!apiReady || departureId === undefined) return;
+    let cancelled = false;
+    (async () => {
+      setCountriesLoading(true);
+      setLoadError(null);
+      try {
+        let countriesData = await dictionaryService.getCountries(departureId, onlyCharter);
+        // Если чартерный фильтр пуст — показываем полный список направлений
+        if (onlyCharter && (!countriesData || countriesData.length === 0)) {
+          countriesData = await dictionaryService.getCountries(departureId, false);
+        }
+        if (cancelled) return;
+        const reachable = filterExcludedDestinationCountries(countriesData || []);
+        setCountries(reachable);
+        setFilteredCountries(reachable);
+        if (reachable.length === 0) {
+          setLoadError(i18n.t('countries.tryChangeParams'));
+        }
+      } catch (error: unknown) {
+        if (cancelled) return;
+        logger.error('[TourvisorCountries] Error loading countries:', error);
+        setCountries([]);
+        setFilteredCountries([]);
+        setLoadError(i18n.t('countries.tryChangeParams'));
+      } finally {
+        if (!cancelled) setCountriesLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [apiReady, departureId, onlyCharter]);
 
   // Фильтрация стран по поисковому запросу
   useEffect(() => {
     if (searchQuery.trim() === '') {
       setFilteredCountries(countries);
     } else {
-      const filtered = countries.filter(country =>
-        country.name.toLowerCase().includes(searchQuery.toLowerCase())
-      );
+      const filtered = countries.filter((country) => countryMatchesQuery(country.name, searchQuery));
       setFilteredCountries(filtered);
     }
   }, [countries, searchQuery]);
-
-  const loadDictionaryData = async () => {
-    try {
-      const departuresData = await dictionaryService.getDepartures();
-      setDepartures(departuresData);
-      if (departureId === undefined) {
-        const preferred = await resolvePreferredDepartureId();
-        setDepartureId(preferred);
-      }
-      setLoading(false);
-    } catch (error: any) {
-      logger.error('[TourvisorCountries] Error loading dictionary data:', error);
-      setLoading(false);
-    }
-  };
-
-  const loadCountries = async () => {
-    try {
-      setLoading(true);
-      // Только страны с турами из выбранного города вылета; без города — список пустой
-      if (departureId == null) {
-        setCountries([]);
-        setFilteredCountries([]);
-        setLoading(false);
-        return;
-      }
-      const countriesData = await dictionaryService.getCountries(departureId, onlyCharter);
-      const reachable = filterExcludedDestinationCountries(countriesData || []);
-      setCountries(reachable);
-      setFilteredCountries(reachable);
-    } catch (error: any) {
-      logger.error('[TourvisorCountries] Error loading countries:', error);
-      setCountries([]);
-      setFilteredCountries([]);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   // Обработчик нажатия на страну - открываем туры для этой страны
   const handleViewTours = (country: Country) => {
@@ -296,10 +301,12 @@ export default function TourvisorCountriesScreen({ navigation, route }: Tourviso
             Проверьте настройки JWT токена
           </Text>
         </View>
-      ) : loading && countries.length === 0 ? (
+      ) : countriesLoading || departureId === undefined ? (
         <View style={styles.emptyState}>
           <ActivityIndicator size="large" color={theme.primary} />
-          <Text style={styles.emptyStateText}>Загрузка направлений...</Text>
+          <Text style={[styles.emptyStateText, { color: theme.secondaryText }]}>
+            Загрузка направлений...
+          </Text>
         </View>
       ) : (
         <>
@@ -321,10 +328,18 @@ export default function TourvisorCountriesScreen({ navigation, route }: Tourviso
             keyboardDismissMode="on-drag"
             ListEmptyComponent={
               <View style={styles.emptyState}>
-                <Ionicons name="search-outline" size={48} color={theme.inactive} />
-                <Text style={[styles.emptyStateTitle, { color: theme.text }]}>{i18n.t('search.nothingFound')}</Text>
+                <Ionicons
+                  name={searchQuery.trim() ? 'search-outline' : 'earth-outline'}
+                  size={48}
+                  color={theme.inactive}
+                />
+                <Text style={[styles.emptyStateTitle, { color: theme.text }]}>
+                  {searchQuery.trim() ? i18n.t('search.nothingFound') : i18n.t('countries.selectCity')}
+                </Text>
                 <Text style={[styles.emptyStateText, { color: theme.secondaryText }]}>
-                  {i18n.t('countries.tryChangeParams')}
+                  {searchQuery.trim()
+                    ? i18n.t('countries.tryChangeParams')
+                    : loadError || i18n.t('countries.tryChangeParams')}
                 </Text>
               </View>
             }

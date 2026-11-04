@@ -1,0 +1,37 @@
+name: EAS Update Production
+
+on:
+  workflow_dispatch:
+    inputs:
+      message:
+        description: OTA message
+        required: false
+        default: Production OTA
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Setup EAS
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Publish OTA to production channel
+        run: eas update --channel production --environment production --non-interactive --message "${{ github.event.inputs.message }}"

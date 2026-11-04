@@ -220,7 +220,7 @@ const ProfileSettings: React.FC =({ navigation }: any) => {
           
           {/* Переключатель тем */}
           <View style={styles.themeSwitcherContainer}>
-            <ThemeSwitcher />
+            <ThemeSwitcher compact />
           </View>
 
           {/* Выбор языка */}

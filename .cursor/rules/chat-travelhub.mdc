@@ -1,0 +1,38 @@
+---
+description: "РЕЖИМ: TravelHub / продукт — код агента, качество важнее экономии"
+alwaysApply: false
+---
+
+# TravelHub работа (качество > экономия)
+
+**Модель:** `Composer` или `Sonnet` — не самая дешёвая, но без Max без нужды.  
+**Vault docs:** `C:\Users\Ильяс\Documents\Obsidian Vault\06-AI\TravelHub — AI Context.md`
+
+## Кто пишет код
+
+**Агент пишет код.** Ильяс: архитектура, деплой, тесты, настройка. Не «напиши сам функцию».
+
+## Перед задачей (точечно)
+
+1. Vault: `06-AI/TravelHub — AI Context.md`
+2. `03-Work/TravelHub/Tasks.md`, `App — Status.md`, `Decisions.md` при фиче
+3. Repo: `travelhub-conveyor`, `travelhub-design`, `travelhub-backend`, `travelhub-security-release` по типу задачи
+
+## Product locks
+
+- Tabs: Главная · Поиск · Избранное · Бронирования · Профиль
+- Цены: `от … ₽` + `за тур`
+- OTA **1.1.0** → preview + TestFlight iOS. **App Store 1.0.3 — NEVER OTA**
+- Cyrillic: не PowerShell `Set-Content` на TSX
+
+## После работы
+
+Vault: `03-Work/TravelHub/Changes.md`
+
+## Токены
+
+Субагенты только для больших задач. Один фокус за чат. Не Go drill / личка здесь.
+
+## Git
+
+Коммит / push только по запросу.
